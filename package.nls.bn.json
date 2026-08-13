@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "সংযোগ পরিচালনা করুন (URL / API কী)",
+  "cmd.setApiKey": "API কী সেট করুন",
+  "cmd.refreshModels": "মডেল রিফ্রেশ করুন",
+  "cmd.checkConnection": "সংযোগ পরীক্ষা করুন",
+  "cmd.openDashboard": "ড্যাশবোর্ড খুলুন",
+  "cmd.openGitHub": "GitHub-এ OmniRoute খুলুন",
+  "cmd.installOmniRoute": "OmniRoute ইনস্টল করুন (শুরু করুন)",
+  "cmd.configureCliTool": "কোডিং CLI কনফিগার করুন (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "দ্রুত অ্যাকশন",
+  "view.connection": "সংযোগ",
+  "cfg.baseUrl": "OmniRoute বেস URL (OpenAI-সামঞ্জস্যপূর্ণ)। এটিকে আপনার লোকাল ইনস্টল বা যেকোনো রিমোট OmniRoute ইনস্ট্যান্সের দিকে নির্দেশ করুন।",
+  "cfg.statusBar": "স্ট্যাটাস বারে OmniRoute সংযোগ নির্দেশক দেখান।",
+  "cfg.healthCheckIntervalSeconds": "স্ট্যাটাস বার কত ঘন ঘন OmniRoute সার্ভার পরীক্ষা করবে (সেকেন্ডে)।",
+  "cfg.maxOutputTokens": "প্রতিটি প্রতিক্রিয়ার জন্য সংরক্ষিত সর্বাধিক আউটপুট টোকেন।",
+  "cfg.defaultContextLength": "যেসব মডেলের ক্যাটালগ এন্ট্রিতে কনটেক্সট দৈর্ঘ্য ঘোষণা করা নেই, সেগুলির জন্য ধরে নেওয়া কনটেক্সট দৈর্ঘ্য।",
+  "cfg.modelFilter": "পিকারে কোন মডেলগুলি তালিকাভুক্ত হবে তা সীমিত করার জন্য ঐচ্ছিক কেস-অসংবেদনশীল সাবস্ট্রিং বা regex (যেমন \"glm|kimi\")। খালি রাখলে সব দেখানো হয়।",
+  "cfg.dashboardOpen": "OmniRoute ড্যাশবোর্ড কোথায় খুলবে।",
+  "cfg.dashboardOpen.external": "আপনার ডিফল্ট ওয়েব ব্রাউজারে ড্যাশবোর্ড খুলুন।",
+  "cfg.dashboardOpen.editor": "VS Code এডিটর ট্যাবে (Simple Browser) ড্যাশবোর্ড খুলুন। এম্বেডিং অনুমোদনকারী OmniRoute সংস্করণ প্রয়োজন।",
+  "cfg.cliPath": "OmniRoute CLI-এর পাথ, যা \"Configure Coding CLI\" কমান্ড ব্যবহার করে।"
+}

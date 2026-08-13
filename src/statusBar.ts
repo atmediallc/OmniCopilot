@@ -77,19 +77,19 @@ export class ConnectionStatusBar implements vscode.Disposable {
         this.item.text = "$(circle-filled) OmniRoute";
         this.item.color = new vscode.ThemeColor("testing.iconPassed");
         this.item.backgroundColor = undefined;
-        this.item.tooltip = `OmniRoute online — ${root}\nClick for actions`;
+        this.item.tooltip = vscode.l10n.t("OmniRoute online — {0}. Click for actions.", root);
         break;
       case "offline":
         this.item.text = "$(circle-outline) OmniRoute";
         this.item.color = undefined;
         this.item.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
-        this.item.tooltip = `OmniRoute unreachable — ${root}\nClick for actions`;
+        this.item.tooltip = vscode.l10n.t("OmniRoute unreachable — {0}. Click for actions.", root);
         break;
       default:
         this.item.text = "$(sync~spin) OmniRoute";
         this.item.color = undefined;
         this.item.backgroundColor = undefined;
-        this.item.tooltip = "Checking OmniRoute connection…";
+        this.item.tooltip = vscode.l10n.t("Checking OmniRoute connection…");
     }
   }
 

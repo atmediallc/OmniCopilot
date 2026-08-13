@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Verbinding beheren (URL / API-sleutel)",
+  "cmd.setApiKey": "API-sleutel instellen",
+  "cmd.refreshModels": "Modellen vernieuwen",
+  "cmd.checkConnection": "Verbinding controleren",
+  "cmd.openDashboard": "Dashboard openen",
+  "cmd.openGitHub": "OmniRoute op GitHub openen",
+  "cmd.installOmniRoute": "OmniRoute installeren (Aan de slag)",
+  "cmd.configureCliTool": "Coding-CLI configureren (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Snelle acties",
+  "view.connection": "Verbinding",
+  "cfg.baseUrl": "Basis-URL van OmniRoute (OpenAI-compatibel). Laat deze verwijzen naar uw lokale installatie of een externe OmniRoute-instantie.",
+  "cfg.statusBar": "Toon de OmniRoute-verbindingsindicator in de statusbalk.",
+  "cfg.healthCheckIntervalSeconds": "Hoe vaak de statusbalk de OmniRoute-server controleert (seconden).",
+  "cfg.maxOutputTokens": "Maximaal aantal uitvoertokens dat per antwoord wordt gereserveerd.",
+  "cfg.defaultContextLength": "Aangenomen contextlengte voor modellen waarvan de catalogusvermelding er geen opgeeft.",
+  "cfg.modelFilter": "Optionele niet-hoofdlettergevoelige subtekenreeks of regex om te beperken welke modellen in de kiezer worden weergegeven (bijv. \"glm|kimi\"). Leeg toont alles.",
+  "cfg.dashboardOpen": "Waar het OmniRoute-dashboard wordt geopend.",
+  "cfg.dashboardOpen.external": "Open het dashboard in uw standaardwebbrowser.",
+  "cfg.dashboardOpen.editor": "Open het dashboard in een VS Code-editortabblad (Simple Browser). Vereist een OmniRoute-versie die insluiten toestaat.",
+  "cfg.cliPath": "Pad naar de OmniRoute-CLI, gebruikt door de opdracht \"Coding-CLI configureren\"."
+}

@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Gestionare conexiune (URL / cheie API)",
+  "cmd.setApiKey": "Setare cheie API",
+  "cmd.refreshModels": "Reîmprospătare modele",
+  "cmd.checkConnection": "Verificare conexiune",
+  "cmd.openDashboard": "Deschidere tablou de bord",
+  "cmd.openGitHub": "Deschidere OmniRoute pe GitHub",
+  "cmd.installOmniRoute": "Instalare OmniRoute (Introducere)",
+  "cmd.configureCliTool": "Configurare CLI de codare (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Acțiuni rapide",
+  "view.connection": "Conexiune",
+  "cfg.baseUrl": "URL-ul de bază OmniRoute (compatibil OpenAI). Îndreptați-l către instalarea locală sau către orice instanță OmniRoute la distanță.",
+  "cfg.statusBar": "Afișează indicatorul de conexiune OmniRoute în bara de stare.",
+  "cfg.healthCheckIntervalSeconds": "Cât de des interoghează bara de stare serverul OmniRoute (secunde).",
+  "cfg.maxOutputTokens": "Numărul maxim de tokenuri de ieșire rezervate per răspuns.",
+  "cfg.defaultContextLength": "Lungimea de context presupusă pentru modelele a căror intrare de catalog nu o declară.",
+  "cfg.modelFilter": "Subșir sau regex opțional (fără sensibilitate la majuscule/minuscule) pentru a limita modelele afișate în selector (de ex. \"glm|kimi\"). Gol afișează tot.",
+  "cfg.dashboardOpen": "Unde se deschide tabloul de bord OmniRoute.",
+  "cfg.dashboardOpen.external": "Deschide tabloul de bord în browserul web implicit.",
+  "cfg.dashboardOpen.editor": "Deschide tabloul de bord într-o filă de editor VS Code (Simple Browser). Necesită o versiune OmniRoute care permite încorporarea.",
+  "cfg.cliPath": "Calea către CLI-ul OmniRoute, folosită de comanda \"Configurare CLI de codare\"."
+}

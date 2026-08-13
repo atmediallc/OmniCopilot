@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Управление подключением (URL / ключ API)",
+  "cmd.setApiKey": "Задать ключ API",
+  "cmd.refreshModels": "Обновить модели",
+  "cmd.checkConnection": "Проверить подключение",
+  "cmd.openDashboard": "Открыть панель управления",
+  "cmd.openGitHub": "Открыть OmniRoute на GitHub",
+  "cmd.installOmniRoute": "Установить OmniRoute (начало работы)",
+  "cmd.configureCliTool": "Настроить CLI для написания кода (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Быстрые действия",
+  "view.connection": "Подключение",
+  "cfg.baseUrl": "Базовый URL-адрес OmniRoute (совместимый с OpenAI). Укажите локальную установку или любой удалённый экземпляр OmniRoute.",
+  "cfg.statusBar": "Показывать индикатор подключения OmniRoute в строке состояния.",
+  "cfg.healthCheckIntervalSeconds": "Как часто строка состояния опрашивает сервер OmniRoute (в секундах).",
+  "cfg.maxOutputTokens": "Максимальное число выходных токенов, резервируемое на ответ.",
+  "cfg.defaultContextLength": "Длина контекста, принимаемая для моделей, у которых она не указана в каталоге.",
+  "cfg.modelFilter": "Необязательная подстрока (без учёта регистра) или регулярное выражение для ограничения списка моделей в средстве выбора (например, \"glm|kimi\"). Пустое значение — показывать все.",
+  "cfg.dashboardOpen": "Где открывается панель управления OmniRoute.",
+  "cfg.dashboardOpen.external": "Открывать панель управления в веб-браузере по умолчанию.",
+  "cfg.dashboardOpen.editor": "Открывать панель управления во вкладке редактора VS Code (Simple Browser). Требуется версия OmniRoute, разрешающая встраивание.",
+  "cfg.cliPath": "Путь к CLI OmniRoute, используемый командой «Настроить CLI для написания кода»."
+}

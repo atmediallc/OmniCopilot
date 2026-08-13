@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Quản lý kết nối (URL / khóa API)",
+  "cmd.setApiKey": "Đặt khóa API",
+  "cmd.refreshModels": "Làm mới mô hình",
+  "cmd.checkConnection": "Kiểm tra kết nối",
+  "cmd.openDashboard": "Mở bảng điều khiển",
+  "cmd.openGitHub": "Mở OmniRoute trên GitHub",
+  "cmd.installOmniRoute": "Cài đặt OmniRoute (Bắt đầu)",
+  "cmd.configureCliTool": "Cấu hình CLI lập trình (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Thao tác nhanh",
+  "view.connection": "Kết nối",
+  "cfg.baseUrl": "URL cơ sở của OmniRoute (tương thích OpenAI). Trỏ đến bản cài đặt cục bộ của bạn hoặc bất kỳ phiên bản OmniRoute từ xa nào.",
+  "cfg.statusBar": "Hiển thị chỉ báo kết nối OmniRoute trên thanh trạng thái.",
+  "cfg.healthCheckIntervalSeconds": "Tần suất thanh trạng thái kiểm tra máy chủ OmniRoute (giây).",
+  "cfg.maxOutputTokens": "Số token đầu ra tối đa được dành cho mỗi phản hồi.",
+  "cfg.defaultContextLength": "Độ dài ngữ cảnh được giả định cho các mô hình không khai báo giá trị này trong danh mục.",
+  "cfg.modelFilter": "Chuỗi con hoặc regex tùy chọn (không phân biệt chữ hoa/thường) để giới hạn các mô hình hiển thị trong bộ chọn (ví dụ: \"glm|kimi\"). Để trống sẽ liệt kê tất cả.",
+  "cfg.dashboardOpen": "Nơi mở bảng điều khiển OmniRoute.",
+  "cfg.dashboardOpen.external": "Mở bảng điều khiển trong trình duyệt web mặc định của bạn.",
+  "cfg.dashboardOpen.editor": "Mở bảng điều khiển trong một tab trình soạn thảo VS Code (Simple Browser). Yêu cầu phiên bản OmniRoute cho phép nhúng.",
+  "cfg.cliPath": "Đường dẫn đến OmniRoute CLI, được lệnh \"Cấu hình CLI lập trình\" sử dụng."
+}

@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Manage Connection (URL / API Key)",
+  "cmd.setApiKey": "Set API Key",
+  "cmd.refreshModels": "Refresh Models",
+  "cmd.checkConnection": "Check Connection",
+  "cmd.openDashboard": "Open Dashboard",
+  "cmd.openGitHub": "Open OmniRoute on GitHub",
+  "cmd.installOmniRoute": "Install OmniRoute (Get Started)",
+  "cmd.configureCliTool": "Configure Coding CLI (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Quick Actions",
+  "view.connection": "Connection",
+  "cfg.baseUrl": "OmniRoute base URL (OpenAI-compatible). Point it at your local install or any remote OmniRoute instance.",
+  "cfg.statusBar": "Show the OmniRoute connection indicator in the status bar.",
+  "cfg.healthCheckIntervalSeconds": "How often the status bar probes the OmniRoute server (seconds).",
+  "cfg.maxOutputTokens": "Maximum output tokens reserved per response.",
+  "cfg.defaultContextLength": "Context length assumed for models whose catalog entry does not declare one.",
+  "cfg.modelFilter": "Optional case-insensitive substring or regex to limit which models are listed in the picker (e.g. \"glm|kimi\"). Empty lists everything.",
+  "cfg.dashboardOpen": "Where the OmniRoute dashboard opens.",
+  "cfg.dashboardOpen.external": "Open the dashboard in your default web browser.",
+  "cfg.dashboardOpen.editor": "Open the dashboard in a VS Code editor tab (Simple Browser). Requires an OmniRoute version that allows embedding.",
+  "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command."
+}

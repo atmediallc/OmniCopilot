@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "कनेक्शन प्रबंधित करें (URL / API कुंजी)",
+  "cmd.setApiKey": "API कुंजी सेट करें",
+  "cmd.refreshModels": "मॉडल रीफ़्रेश करें",
+  "cmd.checkConnection": "कनेक्शन जांचें",
+  "cmd.openDashboard": "डैशबोर्ड खोलें",
+  "cmd.openGitHub": "GitHub पर OmniRoute खोलें",
+  "cmd.installOmniRoute": "OmniRoute इंस्टॉल करें (शुरू करें)",
+  "cmd.configureCliTool": "कोडिंग CLI कॉन्फ़िगर करें (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "त्वरित कार्रवाइयाँ",
+  "view.connection": "कनेक्शन",
+  "cfg.baseUrl": "OmniRoute बेस URL (OpenAI-संगत)। इसे अपने लोकल इंस्टॉल या किसी भी रिमोट OmniRoute इंस्टेंस की ओर पॉइंट करें।",
+  "cfg.statusBar": "स्थिति पट्टी में OmniRoute कनेक्शन संकेतक दिखाएँ।",
+  "cfg.healthCheckIntervalSeconds": "स्थिति पट्टी OmniRoute सर्वर की कितनी बार जांच करती है (सेकंड में)।",
+  "cfg.maxOutputTokens": "प्रत्येक प्रतिक्रिया के लिए आरक्षित अधिकतम आउटपुट टोकन।",
+  "cfg.defaultContextLength": "उन मॉडलों के लिए मानी गई कॉन्टेक्स्ट लंबाई जिनकी कैटलॉग प्रविष्टि कोई लंबाई घोषित नहीं करती।",
+  "cfg.modelFilter": "पिकर में कौन से मॉडल सूचीबद्ध हों, इसे सीमित करने के लिए वैकल्पिक केस-असंवेदनशील सबस्ट्रिंग या regex (उदा. \"glm|kimi\")। खाली रखने पर सब कुछ दिखता है।",
+  "cfg.dashboardOpen": "OmniRoute डैशबोर्ड कहाँ खुलता है।",
+  "cfg.dashboardOpen.external": "डैशबोर्ड को अपने डिफ़ॉल्ट वेब ब्राउज़र में खोलें।",
+  "cfg.dashboardOpen.editor": "डैशबोर्ड को VS Code एडिटर टैब (Simple Browser) में खोलें। इसके लिए एम्बेडिंग की अनुमति देने वाला OmniRoute संस्करण आवश्यक है।",
+  "cfg.cliPath": "OmniRoute CLI का पथ, जिसका उपयोग \"Configure Coding CLI\" कमांड करता है।"
+}

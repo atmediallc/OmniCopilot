@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Kelola Koneksi (URL / Kunci API)",
+  "cmd.setApiKey": "Atur Kunci API",
+  "cmd.refreshModels": "Segarkan Model",
+  "cmd.checkConnection": "Periksa Koneksi",
+  "cmd.openDashboard": "Buka Dasbor",
+  "cmd.openGitHub": "Buka OmniRoute di GitHub",
+  "cmd.installOmniRoute": "Instal OmniRoute (Mulai)",
+  "cmd.configureCliTool": "Konfigurasikan CLI Pengodean (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Tindakan Cepat",
+  "view.connection": "Koneksi",
+  "cfg.baseUrl": "URL dasar OmniRoute (kompatibel dengan OpenAI). Arahkan ke instalasi lokal Anda atau ke instans OmniRoute jarak jauh mana pun.",
+  "cfg.statusBar": "Tampilkan indikator koneksi OmniRoute di bilah status.",
+  "cfg.healthCheckIntervalSeconds": "Seberapa sering bilah status memeriksa server OmniRoute (detik).",
+  "cfg.maxOutputTokens": "Jumlah maksimum token keluaran yang dicadangkan per respons.",
+  "cfg.defaultContextLength": "Panjang konteks yang diasumsikan untuk model yang entri katalognya tidak mencantumkannya.",
+  "cfg.modelFilter": "Substring atau regex opsional (tidak peka huruf besar/kecil) untuk membatasi model yang ditampilkan di pemilih (mis. \"glm|kimi\"). Kosongkan untuk menampilkan semuanya.",
+  "cfg.dashboardOpen": "Tempat dasbor OmniRoute dibuka.",
+  "cfg.dashboardOpen.external": "Buka dasbor di browser web default Anda.",
+  "cfg.dashboardOpen.editor": "Buka dasbor di tab editor VS Code (Simple Browser). Memerlukan versi OmniRoute yang mengizinkan penyematan.",
+  "cfg.cliPath": "Jalur ke CLI OmniRoute, digunakan oleh perintah \"Konfigurasikan CLI Pengodean\"."
+}

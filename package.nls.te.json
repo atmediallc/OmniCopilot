@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "కనెక్షన్‌ను నిర్వహించండి (URL / API కీ)",
+  "cmd.setApiKey": "API కీని సెట్ చేయండి",
+  "cmd.refreshModels": "మోడల్స్‌ను రిఫ్రెష్ చేయండి",
+  "cmd.checkConnection": "కనెక్షన్‌ను తనిఖీ చేయండి",
+  "cmd.openDashboard": "డాష్‌బోర్డ్‌ను తెరవండి",
+  "cmd.openGitHub": "GitHubలో OmniRouteను తెరవండి",
+  "cmd.installOmniRoute": "OmniRouteను ఇన్‌స్టాల్ చేయండి (ప్రారంభించండి)",
+  "cmd.configureCliTool": "కోడింగ్ CLIని కాన్ఫిగర్ చేయండి (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "త్వరిత చర్యలు",
+  "view.connection": "కనెక్షన్",
+  "cfg.baseUrl": "OmniRoute బేస్ URL (OpenAI-అనుకూలం). దీన్ని మీ లోకల్ ఇన్‌స్టాలేషన్‌కు లేదా ఏదైనా రిమోట్ OmniRoute ఇన్‌స్టాన్స్‌కు సూచించండి.",
+  "cfg.statusBar": "స్టేటస్ బార్‌లో OmniRoute కనెక్షన్ సూచికను చూపించండి.",
+  "cfg.healthCheckIntervalSeconds": "స్టేటస్ బార్ OmniRoute సర్వర్‌ను ఎంత తరచుగా తనిఖీ చేస్తుంది (సెకన్లలో).",
+  "cfg.maxOutputTokens": "ప్రతి ప్రతిస్పందనకు కేటాయించే గరిష్ఠ అవుట్‌పుట్ టోకెన్లు.",
+  "cfg.defaultContextLength": "కేటలాగ్‌లో కాంటెక్స్ట్ పొడవు పేర్కొనని మోడల్స్‌కు ఊహించే కాంటెక్స్ట్ పొడవు.",
+  "cfg.modelFilter": "పికర్‌లో జాబితా అయ్యే మోడల్స్‌ను పరిమితం చేయడానికి ఐచ్ఛిక, అక్షర తేడా పట్టించుకోని సబ్‌స్ట్రింగ్ లేదా regex (ఉదా. \"glm|kimi\"). ఖాళీగా ఉంటే అన్నీ జాబితా అవుతాయి.",
+  "cfg.dashboardOpen": "OmniRoute డాష్‌బోర్డ్ ఎక్కడ తెరుచుకుంటుంది.",
+  "cfg.dashboardOpen.external": "డాష్‌బోర్డ్‌ను మీ డిఫాల్ట్ వెబ్ బ్రౌజర్‌లో తెరవండి.",
+  "cfg.dashboardOpen.editor": "డాష్‌బోర్డ్‌ను VS Code ఎడిటర్ ట్యాబ్‌లో (Simple Browser) తెరవండి. ఎంబెడ్డింగ్‌ను అనుమతించే OmniRoute వెర్షన్ అవసరం.",
+  "cfg.cliPath": "\"కోడింగ్ CLIని కాన్ఫిగర్ చేయండి\" ఆదేశం ఉపయోగించే OmniRoute CLI పాత్."
+}

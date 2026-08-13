@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "จัดการการเชื่อมต่อ (URL / คีย์ API)",
+  "cmd.setApiKey": "ตั้งค่าคีย์ API",
+  "cmd.refreshModels": "รีเฟรชโมเดล",
+  "cmd.checkConnection": "ตรวจสอบการเชื่อมต่อ",
+  "cmd.openDashboard": "เปิดแดชบอร์ด",
+  "cmd.openGitHub": "เปิด OmniRoute บน GitHub",
+  "cmd.installOmniRoute": "ติดตั้ง OmniRoute (เริ่มต้นใช้งาน)",
+  "cmd.configureCliTool": "กำหนดค่า CLI สำหรับเขียนโค้ด (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "การดำเนินการด่วน",
+  "view.connection": "การเชื่อมต่อ",
+  "cfg.baseUrl": "URL หลักของ OmniRoute (เข้ากันได้กับ OpenAI) ชี้ไปที่การติดตั้งในเครื่องของคุณหรืออินสแตนซ์ OmniRoute ระยะไกลใดก็ได้",
+  "cfg.statusBar": "แสดงตัวบ่งชี้การเชื่อมต่อ OmniRoute ในแถบสถานะ",
+  "cfg.healthCheckIntervalSeconds": "ความถี่ที่แถบสถานะตรวจสอบเซิร์ฟเวอร์ OmniRoute (วินาที)",
+  "cfg.maxOutputTokens": "จำนวนโทเค็นเอาต์พุตสูงสุดที่สำรองไว้ต่อการตอบกลับ",
+  "cfg.defaultContextLength": "ความยาวบริบทที่ใช้สำหรับโมเดลที่ไม่ได้ระบุค่าไว้ในแค็ตตาล็อก",
+  "cfg.modelFilter": "สตริงย่อยหรือ regex (ไม่คำนึงถึงตัวพิมพ์เล็ก-ใหญ่) เพื่อจำกัดโมเดลที่แสดงในตัวเลือก (เช่น \"glm|kimi\") หากเว้นว่างจะแสดงทั้งหมด",
+  "cfg.dashboardOpen": "ตำแหน่งที่แดชบอร์ด OmniRoute จะเปิด",
+  "cfg.dashboardOpen.external": "เปิดแดชบอร์ดในเว็บเบราว์เซอร์เริ่มต้นของคุณ",
+  "cfg.dashboardOpen.editor": "เปิดแดชบอร์ดในแท็บตัวแก้ไขของ VS Code (Simple Browser) ต้องใช้ OmniRoute เวอร์ชันที่อนุญาตการฝัง",
+  "cfg.cliPath": "พาธไปยัง OmniRoute CLI ซึ่งใช้โดยคำสั่ง \"กำหนดค่า CLI สำหรับเขียนโค้ด\""
+}

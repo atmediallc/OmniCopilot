@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Dhibiti Muunganisho (URL / Ufunguo wa API)",
+  "cmd.setApiKey": "Weka Ufunguo wa API",
+  "cmd.refreshModels": "Sasisha Modeli",
+  "cmd.checkConnection": "Kagua Muunganisho",
+  "cmd.openDashboard": "Fungua Dashibodi",
+  "cmd.openGitHub": "Fungua OmniRoute kwenye GitHub",
+  "cmd.installOmniRoute": "Sakinisha OmniRoute (Anza)",
+  "cmd.configureCliTool": "Sanidi CLI ya Uandishi wa Msimbo (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Vitendo vya Haraka",
+  "view.connection": "Muunganisho",
+  "cfg.baseUrl": "URL ya msingi ya OmniRoute (inayooana na OpenAI). Ielekeze kwenye usakinishaji wako wa ndani au kwenye seva yoyote ya mbali ya OmniRoute.",
+  "cfg.statusBar": "Onyesha kiashiria cha muunganisho wa OmniRoute kwenye upau wa hali.",
+  "cfg.healthCheckIntervalSeconds": "Ni mara ngapi upau wa hali unakagua seva ya OmniRoute (sekunde).",
+  "cfg.maxOutputTokens": "Idadi ya juu ya tokeni za matokeo zinazotengwa kwa kila jibu.",
+  "cfg.defaultContextLength": "Urefu wa muktadha unaochukuliwa kwa modeli ambazo hazijabainisha urefu katika katalogi.",
+  "cfg.modelFilter": "Kipande cha maandishi (bila kujali herufi kubwa au ndogo) au regex ya hiari ili kupunguza modeli zinazoonyeshwa kwenye kichaguzi (mf. \"glm|kimi\"). Ikiachwa tupu, zote zitaonyeshwa.",
+  "cfg.dashboardOpen": "Mahali dashibodi ya OmniRoute inapofunguliwa.",
+  "cfg.dashboardOpen.external": "Fungua dashibodi katika kivinjari chako chaguomsingi.",
+  "cfg.dashboardOpen.editor": "Fungua dashibodi katika kichupo cha kihariri cha VS Code (Simple Browser). Inahitaji toleo la OmniRoute linaloruhusu upachikaji.",
+  "cfg.cliPath": "Njia ya CLI ya OmniRoute, inayotumiwa na amri ya \"Sanidi CLI ya Uandishi wa Msimbo\"."
+}

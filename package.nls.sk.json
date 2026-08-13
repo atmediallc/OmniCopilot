@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Spravovať pripojenie (URL / kľúč API)",
+  "cmd.setApiKey": "Nastaviť kľúč API",
+  "cmd.refreshModels": "Obnoviť modely",
+  "cmd.checkConnection": "Skontrolovať pripojenie",
+  "cmd.openDashboard": "Otvoriť ovládací panel",
+  "cmd.openGitHub": "Otvoriť OmniRoute na GitHube",
+  "cmd.installOmniRoute": "Nainštalovať OmniRoute (Začíname)",
+  "cmd.configureCliTool": "Konfigurovať kódovacie CLI (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Rýchle akcie",
+  "view.connection": "Pripojenie",
+  "cfg.baseUrl": "Základná URL adresa OmniRoute (kompatibilná s OpenAI). Nasmerujte ju na lokálnu inštaláciu alebo ľubovoľnú vzdialenú inštanciu OmniRoute.",
+  "cfg.statusBar": "Zobrazovať indikátor pripojenia OmniRoute v stavovom riadku.",
+  "cfg.healthCheckIntervalSeconds": "Ako často stavový riadok kontroluje server OmniRoute (v sekundách).",
+  "cfg.maxOutputTokens": "Maximálny počet výstupných tokenov rezervovaných na odpoveď.",
+  "cfg.defaultContextLength": "Dĺžka kontextu predpokladaná pre modely, ktorých položka v katalógu ju neuvádza.",
+  "cfg.modelFilter": "Voliteľný podreťazec (bez rozlišovania veľkosti písmen) alebo regulárny výraz na obmedzenie zoznamu modelov vo výbere (napr. \"glm|kimi\"). Prázdne pole zobrazí všetko.",
+  "cfg.dashboardOpen": "Kde sa otvára ovládací panel OmniRoute.",
+  "cfg.dashboardOpen.external": "Otvoriť ovládací panel v predvolenom webovom prehliadači.",
+  "cfg.dashboardOpen.editor": "Otvoriť ovládací panel na karte editora VS Code (Simple Browser). Vyžaduje verziu OmniRoute, ktorá umožňuje vkladanie.",
+  "cfg.cliPath": "Cesta k CLI OmniRoute, ktorú používa príkaz „Konfigurovať kódovacie CLI“."
+}

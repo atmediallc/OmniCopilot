@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Hantera anslutning (URL/API-nyckel)",
+  "cmd.setApiKey": "Ange API-nyckel",
+  "cmd.refreshModels": "Uppdatera modeller",
+  "cmd.checkConnection": "Kontrollera anslutning",
+  "cmd.openDashboard": "Öppna instrumentpanelen",
+  "cmd.openGitHub": "Öppna OmniRoute på GitHub",
+  "cmd.installOmniRoute": "Installera OmniRoute (kom igång)",
+  "cmd.configureCliTool": "Konfigurera kodnings-CLI (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Snabbåtgärder",
+  "view.connection": "Anslutning",
+  "cfg.baseUrl": "Bas-URL för OmniRoute (OpenAI-kompatibel). Peka den mot din lokala installation eller valfri fjärrinstans av OmniRoute.",
+  "cfg.statusBar": "Visa OmniRoutes anslutningsindikator i statusfältet.",
+  "cfg.healthCheckIntervalSeconds": "Hur ofta statusfältet kontrollerar OmniRoute-servern (sekunder).",
+  "cfg.maxOutputTokens": "Maximalt antal utdatatoken som reserveras per svar.",
+  "cfg.defaultContextLength": "Kontextlängd som antas för modeller vars katalogpost inte anger någon.",
+  "cfg.modelFilter": "Valfri skiftlägesokänslig delsträng eller reguljärt uttryck för att begränsa vilka modeller som visas i väljaren (t.ex. \"glm|kimi\"). Tomt visar allt.",
+  "cfg.dashboardOpen": "Var OmniRoutes instrumentpanel öppnas.",
+  "cfg.dashboardOpen.external": "Öppna instrumentpanelen i din standardwebbläsare.",
+  "cfg.dashboardOpen.editor": "Öppna instrumentpanelen i en VS Code-redigerarflik (Simple Browser). Kräver en OmniRoute-version som tillåter inbäddning.",
+  "cfg.cliPath": "Sökväg till OmniRoute-CLI:t, som används av kommandot \"Konfigurera kodnings-CLI\"."
+}

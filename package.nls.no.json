@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Administrer tilkobling (URL / API-nøkkel)",
+  "cmd.setApiKey": "Angi API-nøkkel",
+  "cmd.refreshModels": "Oppdater modeller",
+  "cmd.checkConnection": "Sjekk tilkobling",
+  "cmd.openDashboard": "Åpne dashbord",
+  "cmd.openGitHub": "Åpne OmniRoute på GitHub",
+  "cmd.installOmniRoute": "Installer OmniRoute (Kom i gang)",
+  "cmd.configureCliTool": "Konfigurer koding-CLI (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Hurtighandlinger",
+  "view.connection": "Tilkobling",
+  "cfg.baseUrl": "OmniRoutes basis-URL (OpenAI-kompatibel). Pek den mot din lokale installasjon eller en ekstern OmniRoute-instans.",
+  "cfg.statusBar": "Vis OmniRoute-tilkoblingsindikatoren i statuslinjen.",
+  "cfg.healthCheckIntervalSeconds": "Hvor ofte statuslinjen sjekker OmniRoute-serveren (sekunder).",
+  "cfg.maxOutputTokens": "Maksimalt antall utdatatokener reservert per svar.",
+  "cfg.defaultContextLength": "Antatt kontekstlengde for modeller hvis katalogoppføring ikke oppgir en.",
+  "cfg.modelFilter": "Valgfri delstreng eller regex (uten skille mellom store og små bokstaver) for å begrense hvilke modeller som vises i velgeren (f.eks. \"glm|kimi\"). Tomt viser alt.",
+  "cfg.dashboardOpen": "Hvor OmniRoute-dashbordet åpnes.",
+  "cfg.dashboardOpen.external": "Åpne dashbordet i standardnettleseren din.",
+  "cfg.dashboardOpen.editor": "Åpne dashbordet i en VS Code-redigeringsfane (Simple Browser). Krever en OmniRoute-versjon som tillater innebygging.",
+  "cfg.cliPath": "Bane til OmniRoute-CLI-en, brukt av kommandoen \"Konfigurer koding-CLI\"."
+}

@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Zarządzaj połączeniem (URL / klucz API)",
+  "cmd.setApiKey": "Ustaw klucz API",
+  "cmd.refreshModels": "Odśwież modele",
+  "cmd.checkConnection": "Sprawdź połączenie",
+  "cmd.openDashboard": "Otwórz pulpit",
+  "cmd.openGitHub": "Otwórz OmniRoute w serwisie GitHub",
+  "cmd.installOmniRoute": "Zainstaluj OmniRoute (Rozpocznij)",
+  "cmd.configureCliTool": "Skonfiguruj interfejs CLI do kodowania (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Szybkie akcje",
+  "view.connection": "Połączenie",
+  "cfg.baseUrl": "Podstawowy adres URL OmniRoute (zgodny z OpenAI). Wskaż lokalną instalację lub dowolną zdalną instancję OmniRoute.",
+  "cfg.statusBar": "Pokaż wskaźnik połączenia OmniRoute na pasku stanu.",
+  "cfg.healthCheckIntervalSeconds": "Jak często pasek stanu odpytuje serwer OmniRoute (sekundy).",
+  "cfg.maxOutputTokens": "Maksymalna liczba tokenów wyjściowych zarezerwowanych na odpowiedź.",
+  "cfg.defaultContextLength": "Zakładana długość kontekstu dla modeli, których wpis w katalogu jej nie deklaruje.",
+  "cfg.modelFilter": "Opcjonalny podciąg lub wyrażenie regularne (bez rozróżniania wielkości liter) ograniczające modele wyświetlane w selektorze (np. \"glm|kimi\"). Puste wyświetla wszystko.",
+  "cfg.dashboardOpen": "Gdzie otwiera się pulpit OmniRoute.",
+  "cfg.dashboardOpen.external": "Otwórz pulpit w domyślnej przeglądarce internetowej.",
+  "cfg.dashboardOpen.editor": "Otwórz pulpit na karcie edytora VS Code (Simple Browser). Wymaga wersji OmniRoute zezwalającej na osadzanie.",
+  "cfg.cliPath": "Ścieżka do interfejsu CLI OmniRoute, używana przez polecenie \"Skonfiguruj interfejs CLI do kodowania\"."
+}

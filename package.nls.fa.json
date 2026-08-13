@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "مدیریت اتصال (نشانی URL / کلید API)",
+  "cmd.setApiKey": "تنظیم کلید API",
+  "cmd.refreshModels": "نوسازی مدل‌ها",
+  "cmd.checkConnection": "بررسی اتصال",
+  "cmd.openDashboard": "باز کردن داشبورد",
+  "cmd.openGitHub": "باز کردن OmniRoute در GitHub",
+  "cmd.installOmniRoute": "نصب OmniRoute (شروع به کار)",
+  "cmd.configureCliTool": "پیکربندی CLI کدنویسی (Codex، Claude Code، Cline…)",
+  "cmd.quickActions": "اقدامات سریع",
+  "view.connection": "اتصال",
+  "cfg.baseUrl": "نشانی URL پایه OmniRoute (سازگار با OpenAI). آن را به نصب محلی خود یا هر نمونه راه دور OmniRoute اشاره دهید.",
+  "cfg.statusBar": "نمایش نشانگر اتصال OmniRoute در نوار وضعیت.",
+  "cfg.healthCheckIntervalSeconds": "هر چند وقت یک‌بار نوار وضعیت سرور OmniRoute را بررسی می‌کند (ثانیه).",
+  "cfg.maxOutputTokens": "حداکثر توکن‌های خروجی رزروشده برای هر پاسخ.",
+  "cfg.defaultContextLength": "طول زمینه فرض‌شده برای مدل‌هایی که مدخل کاتالوگ آن‌ها طولی اعلام نمی‌کند.",
+  "cfg.modelFilter": "زیررشته یا regex اختیاری (بدون حساسیت به بزرگی و کوچکی حروف) برای محدود کردن مدل‌های فهرست‌شده در انتخابگر (مثلاً \"glm|kimi\"). خالی همه را نشان می‌دهد.",
+  "cfg.dashboardOpen": "محل باز شدن داشبورد OmniRoute.",
+  "cfg.dashboardOpen.external": "باز کردن داشبورد در مرورگر وب پیش‌فرض شما.",
+  "cfg.dashboardOpen.editor": "باز کردن داشبورد در یک زبانه ویرایشگر VS Code (Simple Browser). به نسخه‌ای از OmniRoute نیاز دارد که جاسازی را مجاز کند.",
+  "cfg.cliPath": "مسیر OmniRoute CLI که فرمان \"Configure Coding CLI\" از آن استفاده می‌کند."
+}

@@ -125,6 +125,28 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   private html(): string {
     const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+    const t = vscode.l10n.t;
+    const S = {
+      checking: t("Checking…"),
+      testing: t("Testing…"),
+      serverUrl: t("Server URL"),
+      apiKey: t("API key"),
+      keyPlaceholder: t("paste your OmniRoute API key"),
+      saveTest: t("Save & Test"),
+      clearKey: t("Clear key"),
+      clearKeyTitle: t("Remove the stored API key"),
+      keyStored: t("A key is stored in the OS keychain. Leave the field empty to keep it."),
+      keyNone: t("No key stored — only needed when your OmniRoute requires one."),
+      onlineWithCount: t("Online — {0} models available"),
+      online: t("Online"),
+      onlineBlocked: t("Online (models blocked)"),
+      offline: t("Offline — server unreachable"),
+      linkRefresh: t("Refresh models in the picker"),
+      linkDashboard: t("Open OmniRoute dashboard"),
+      linkCli: t("Configure a coding CLI (Codex, Claude Code…)"),
+      linkInstall: t("Install OmniRoute"),
+      linkGitHub: t("OmniRoute on GitHub"),
+    };
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,38 +177,39 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 </style>
 </head>
 <body>
-  <h3><span id="dot" class="dot"></span><span id="statusText">Checking…</span></h3>
+  <h3><span id="dot" class="dot"></span><span id="statusText">${S.checking}</span></h3>
   <div class="muted" id="urlText"></div>
 
-  <label for="url">Server URL</label>
+  <label for="url">${S.serverUrl}</label>
   <input id="url" type="text" placeholder="http://localhost:20128/v1" />
 
-  <label for="key">API key</label>
-  <input id="key" type="password" placeholder="paste your OmniRoute API key" />
+  <label for="key">${S.apiKey}</label>
+  <input id="key" type="password" placeholder="${S.keyPlaceholder}" />
   <div class="keyhint" id="keyHint"></div>
 
   <div class="row">
-    <button id="save">Save &amp; Test</button>
-    <button id="clearKey" class="secondary" title="Remove the stored API key">Clear key</button>
+    <button id="save">${S.saveTest.replace("&", "&amp;")}</button>
+    <button id="clearKey" class="secondary" title="${S.clearKeyTitle}">${S.clearKey}</button>
   </div>
   <div class="warn" id="detail" style="display:none"></div>
 
   <div class="links">
-    <span class="link" data-cmd="omnicopilot.refreshModels">↻ Refresh models in the picker</span>
-    <span class="link" data-cmd="omnicopilot.openDashboard">▤ Open OmniRoute dashboard</span>
-    <span class="link" data-cmd="omnicopilot.configureCliTool">⌨ Configure a coding CLI (Codex, Claude Code…)</span>
-    <span class="link" data-cmd="omnicopilot.installOmniRoute">⇩ Install OmniRoute</span>
-    <span class="link" data-cmd="omnicopilot.openGitHub">★ OmniRoute on GitHub</span>
+    <span class="link" data-cmd="omnicopilot.refreshModels">↻ ${S.linkRefresh}</span>
+    <span class="link" data-cmd="omnicopilot.openDashboard">▤ ${S.linkDashboard}</span>
+    <span class="link" data-cmd="omnicopilot.configureCliTool">⌨ ${S.linkCli}</span>
+    <span class="link" data-cmd="omnicopilot.installOmniRoute">⇩ ${S.linkInstall}</span>
+    <span class="link" data-cmd="omnicopilot.openGitHub">★ ${S.linkGitHub}</span>
   </div>
 
   <script nonce="${nonce}">
+    const S = ${JSON.stringify(S)};
     const vscodeApi = acquireVsCodeApi();
     const $ = (id) => document.getElementById(id);
 
     $("save").addEventListener("click", () => {
       vscodeApi.postMessage({ type: "save", url: $("url").value, apiKey: $("key").value });
       $("key").value = "";
-      $("statusText").textContent = "Testing…";
+      $("statusText").textContent = S.testing;
     });
     $("clearKey").addEventListener("click", () => vscodeApi.postMessage({ type: "clearKey" }));
     document.querySelectorAll(".link").forEach((el) =>
@@ -199,23 +222,23 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       $("dot").className = "dot" + (msg.online ? " on" : "");
       if (!$("url").value) $("url").value = msg.url;
       $("urlText").textContent = msg.url;
-      $("keyHint").textContent = msg.hasKey
-        ? "A key is stored in the OS keychain. Leave the field empty to keep it."
-        : "No key stored — only needed when your OmniRoute requires one.";
+      $("keyHint").textContent = msg.hasKey ? S.keyStored : S.keyNone;
       const st = $("statusText");
       st.textContent = "";
       if (msg.online) {
         if (msg.modelCount !== null) {
-          st.append("Online — ");
+          // Localized pattern with {0} for the count; badge-wrap the number.
+          const [prefix, suffix] = S.onlineWithCount.split("{0}");
+          st.append(prefix ?? "");
           const badge = document.createElement("span");
           badge.className = "badge";
-          badge.textContent = String(msg.modelCount) + " models";
-          st.append(badge, " available");
+          badge.textContent = String(msg.modelCount);
+          st.append(badge, suffix ?? "");
         } else {
-          st.textContent = "Online" + (msg.detail ? " (models blocked)" : "");
+          st.textContent = msg.detail ? S.onlineBlocked : S.online;
         }
       } else {
-        st.textContent = "Offline — server unreachable";
+        st.textContent = S.offline;
       }
       const d = $("detail");
       if (msg.detail) { d.textContent = msg.detail; d.style.display = "block"; }

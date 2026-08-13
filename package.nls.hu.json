@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Kapcsolat kezelése (URL / API-kulcs)",
+  "cmd.setApiKey": "API-kulcs beállítása",
+  "cmd.refreshModels": "Modellek frissítése",
+  "cmd.checkConnection": "Kapcsolat ellenőrzése",
+  "cmd.openDashboard": "Irányítópult megnyitása",
+  "cmd.openGitHub": "OmniRoute megnyitása a GitHubon",
+  "cmd.installOmniRoute": "OmniRoute telepítése (Első lépések)",
+  "cmd.configureCliTool": "Kódolási CLI konfigurálása (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Gyorsműveletek",
+  "view.connection": "Kapcsolat",
+  "cfg.baseUrl": "Az OmniRoute alap URL-je (OpenAI-kompatibilis). Irányítsa a helyi telepítésre vagy bármely távoli OmniRoute-példányra.",
+  "cfg.statusBar": "Az OmniRoute kapcsolatjelzőjének megjelenítése az állapotsorban.",
+  "cfg.healthCheckIntervalSeconds": "Milyen gyakran ellenőrzi az állapotsor az OmniRoute-kiszolgálót (másodperc).",
+  "cfg.maxOutputTokens": "Válaszonként fenntartott kimeneti tokenek maximális száma.",
+  "cfg.defaultContextLength": "Feltételezett kontextushossz azokhoz a modellekhez, amelyek katalógusbejegyzése nem ad meg ilyet.",
+  "cfg.modelFilter": "Opcionális, kis- és nagybetűre nem érzékeny részkarakterlánc vagy reguláris kifejezés a választóban felsorolt modellek szűkítéséhez (pl. \"glm|kimi\"). Üresen hagyva minden megjelenik.",
+  "cfg.dashboardOpen": "Hol nyíljon meg az OmniRoute irányítópultja.",
+  "cfg.dashboardOpen.external": "Az irányítópult megnyitása az alapértelmezett webböngészőben.",
+  "cfg.dashboardOpen.editor": "Az irányítópult megnyitása egy VS Code szerkesztőlapon (Simple Browser). Beágyazást engedélyező OmniRoute-verziót igényel.",
+  "cfg.cliPath": "Az OmniRoute CLI elérési útja, amelyet a \"Kódolási CLI konfigurálása\" parancs használ."
+}

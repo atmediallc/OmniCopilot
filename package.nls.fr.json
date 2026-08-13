@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Gérer la connexion (URL / clé API)",
+  "cmd.setApiKey": "Définir la clé API",
+  "cmd.refreshModels": "Actualiser les modèles",
+  "cmd.checkConnection": "Vérifier la connexion",
+  "cmd.openDashboard": "Ouvrir le tableau de bord",
+  "cmd.openGitHub": "Ouvrir OmniRoute sur GitHub",
+  "cmd.installOmniRoute": "Installer OmniRoute (Prise en main)",
+  "cmd.configureCliTool": "Configurer une CLI de codage (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Actions rapides",
+  "view.connection": "Connexion",
+  "cfg.baseUrl": "URL de base d'OmniRoute (compatible OpenAI). Faites-la pointer vers votre installation locale ou vers n'importe quelle instance OmniRoute distante.",
+  "cfg.statusBar": "Afficher l'indicateur de connexion OmniRoute dans la barre d'état.",
+  "cfg.healthCheckIntervalSeconds": "Fréquence à laquelle la barre d'état sonde le serveur OmniRoute (en secondes).",
+  "cfg.maxOutputTokens": "Nombre maximal de jetons de sortie réservés par réponse.",
+  "cfg.defaultContextLength": "Longueur de contexte supposée pour les modèles dont l'entrée de catalogue n'en déclare aucune.",
+  "cfg.modelFilter": "Sous-chaîne ou expression régulière facultative (insensible à la casse) pour limiter les modèles affichés dans le sélecteur (p. ex. \"glm|kimi\"). Vide affiche tout.",
+  "cfg.dashboardOpen": "Où s'ouvre le tableau de bord OmniRoute.",
+  "cfg.dashboardOpen.external": "Ouvrir le tableau de bord dans votre navigateur web par défaut.",
+  "cfg.dashboardOpen.editor": "Ouvrir le tableau de bord dans un onglet d'éditeur VS Code (Simple Browser). Nécessite une version d'OmniRoute autorisant l'incorporation.",
+  "cfg.cliPath": "Chemin de la CLI OmniRoute, utilisé par la commande \"Configure Coding CLI\"."
+}

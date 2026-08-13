@@ -74,23 +74,38 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
 
   register("omnicopilot.refreshModels", async () => {
     await provider?.refresh();
-    void vscode.window.showInformationMessage("OmniRoute model list refreshed.");
+    void vscode.window.showInformationMessage(vscode.l10n.t("OmniRoute model list refreshed."));
   });
 
   register("omnicopilot.checkConnection", async () => {
     const ok = await statusBar?.checkNow();
     if (ok) {
       const client = await makeClient(context);
-      void vscode.window.showInformationMessage(`Connected to OmniRoute at ${client.baseUrl}.`);
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t("Connected to OmniRoute at {0}.", client.baseUrl)
+      );
     } else {
       void vscode.window.showWarningMessage(
-        "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.baseUrl points at it."
+        vscode.l10n.t(
+          "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.baseUrl points at it."
+        )
       );
     }
   });
 
-  register("omnicopilot.openDashboard", () => {
+  register("omnicopilot.openDashboard", async () => {
     const root = serverRootUrl(getConfig().get<string>("baseUrl", "http://localhost:20128/v1"));
+    const mode = getConfig().get<string>("dashboardOpen", "external");
+    if (mode === "editor") {
+      // Simple Browser renders the dashboard in an editor tab. Needs an
+      // OmniRoute build whose CSP allows embedding (frame-ancestors).
+      try {
+        await vscode.commands.executeCommand("simpleBrowser.show", root);
+        return;
+      } catch (err) {
+        log.warn(`Simple Browser unavailable, falling back to external: ${String(err)}`);
+      }
+    }
     void vscode.env.openExternal(vscode.Uri.parse(root));
   });
 
@@ -99,17 +114,21 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   });
 
   register("omnicopilot.installOmniRoute", async () => {
+    const copyLabel = vscode.l10n.t("Copy install command");
+    const githubLabel = vscode.l10n.t("Open GitHub");
     const pick = await vscode.window.showInformationMessage(
-      "OmniRoute is a free, open-source AI router: one endpoint, 339 providers, auto-fallback. Install it with npm and this extension lights up automatically.",
-      "Copy install command",
-      "Open GitHub"
+      vscode.l10n.t(
+        "OmniRoute is a free, open-source AI router: one endpoint, 330+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically."
+      ),
+      copyLabel,
+      githubLabel
     );
-    if (pick === "Copy install command") {
+    if (pick === copyLabel) {
       await vscode.env.clipboard.writeText("npm install -g omniroute && omniroute");
       void vscode.window.showInformationMessage(
-        'Copied "npm install -g omniroute && omniroute" — paste it in any terminal.'
+        vscode.l10n.t('Copied "{0}" — paste it in any terminal.', "npm install -g omniroute && omniroute")
       );
-    } else if (pick === "Open GitHub") {
+    } else if (pick === githubLabel) {
       void vscode.env.openExternal(vscode.Uri.parse(OMNIROUTE_REPO));
     }
   });
@@ -128,19 +147,24 @@ async function quickActions(context: vscode.ExtensionContext): Promise<void> {
 
   const items: Array<vscode.QuickPickItem & { action: string }> = [
     {
-      label: online ? "$(circle-filled) Online" : "$(circle-outline) Offline",
+      label: online
+        ? `$(circle-filled) ${vscode.l10n.t("Online")}`
+        : `$(circle-outline) ${vscode.l10n.t("Offline")}`,
       description: client.baseUrl,
       action: "check",
     },
-    { label: "$(gear) Configure connection (URL / API key)", action: "manage" },
-    { label: "$(sync) Refresh models", action: "refresh" },
-    { label: "$(dashboard) Open OmniRoute dashboard", action: "dashboard" },
-    { label: "$(terminal) Configure a coding CLI (Codex, Claude Code…)", action: "cli" },
-    { label: "$(github) OmniRoute on GitHub", action: "github" },
+    { label: `$(gear) ${vscode.l10n.t("Configure connection (URL / API key)")}`, action: "manage" },
+    { label: `$(sync) ${vscode.l10n.t("Refresh models")}`, action: "refresh" },
+    { label: `$(dashboard) ${vscode.l10n.t("Open OmniRoute dashboard")}`, action: "dashboard" },
+    {
+      label: `$(terminal) ${vscode.l10n.t("Configure a coding CLI (Codex, Claude Code…)")}`,
+      action: "cli",
+    },
+    { label: `$(github) ${vscode.l10n.t("OmniRoute on GitHub")}`, action: "github" },
   ];
   if (!online) {
     items.splice(1, 0, {
-      label: "$(cloud-download) Install OmniRoute",
+      label: `$(cloud-download) ${vscode.l10n.t("Install OmniRoute")}`,
       description: "npm i -g omniroute",
       action: "install",
     });
@@ -166,10 +190,12 @@ async function setApiKey(
 ): Promise<void> {
   const existing = await context.secrets.get(SECRET_API_KEY);
   const key = await vscode.window.showInputBox({
-    title: "OmniRoute API key",
+    title: vscode.l10n.t("OmniRoute API key"),
     prompt: optionalFlow
-      ? "Optional — leave empty if your OmniRoute does not require an API key. Stored in the OS keychain."
-      : "Stored securely in the OS keychain (SecretStorage). Leave empty to clear.",
+      ? vscode.l10n.t(
+          "Optional — leave empty if your OmniRoute does not require an API key. Stored in the OS keychain."
+        )
+      : vscode.l10n.t("Stored securely in the OS keychain (SecretStorage). Leave empty to clear."),
     value: existing ?? "",
     password: true,
     ignoreFocusOut: true,
@@ -201,8 +227,10 @@ async function checkFirstRun(
 
   if (online) {
     const pick = await vscode.window.showInformationMessage(
-      "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model.",
-      "How to pick a model"
+      vscode.l10n.t(
+        "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model."
+      ),
+      vscode.l10n.t("How to pick a model")
     );
     if (pick) {
       void vscode.env.openExternal(
@@ -210,14 +238,18 @@ async function checkFirstRun(
       );
     }
   } else {
+    const installLabel = vscode.l10n.t("Install OmniRoute");
+    const configureLabel = vscode.l10n.t("Configure connection");
     const pick = await vscode.window.showInformationMessage(
-      "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet.",
-      "Install OmniRoute",
-      "Configure connection"
+      vscode.l10n.t(
+        "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet."
+      ),
+      installLabel,
+      configureLabel
     );
-    if (pick === "Install OmniRoute") {
+    if (pick === installLabel) {
       void vscode.commands.executeCommand("omnicopilot.installOmniRoute");
-    } else if (pick === "Configure connection") {
+    } else if (pick === configureLabel) {
       void vscode.commands.executeCommand("omnicopilot.manage");
     }
   }

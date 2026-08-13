@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Управление на връзката (URL / API ключ)",
+  "cmd.setApiKey": "Задаване на API ключ",
+  "cmd.refreshModels": "Опресняване на моделите",
+  "cmd.checkConnection": "Проверка на връзката",
+  "cmd.openDashboard": "Отваряне на таблото",
+  "cmd.openGitHub": "Отваряне на OmniRoute в GitHub",
+  "cmd.installOmniRoute": "Инсталиране на OmniRoute (Първи стъпки)",
+  "cmd.configureCliTool": "Конфигуриране на CLI за програмиране (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Бързи действия",
+  "view.connection": "Връзка",
+  "cfg.baseUrl": "Базов URL адрес на OmniRoute (съвместим с OpenAI). Насочете го към локалната си инсталация или към който и да е отдалечен екземпляр на OmniRoute.",
+  "cfg.statusBar": "Показване на индикатора за връзка с OmniRoute в лентата на състоянието.",
+  "cfg.healthCheckIntervalSeconds": "Колко често лентата на състоянието проверява сървъра на OmniRoute (в секунди).",
+  "cfg.maxOutputTokens": "Максимален брой изходни токени, запазени за всеки отговор.",
+  "cfg.defaultContextLength": "Дължина на контекста, приемана за модели, чийто запис в каталога не декларира такава.",
+  "cfg.modelFilter": "Незадължителен подниз или регулярен израз (без разлика между главни и малки букви), ограничаващ кои модели се показват в списъка за избор (напр. \"glm|kimi\"). Празно показва всички.",
+  "cfg.dashboardOpen": "Къде се отваря таблото на OmniRoute.",
+  "cfg.dashboardOpen.external": "Отваряне на таблото в уеб браузъра по подразбиране.",
+  "cfg.dashboardOpen.editor": "Отваряне на таблото в раздел на редактора на VS Code (Simple Browser). Изисква версия на OmniRoute, която позволява вграждане.",
+  "cfg.cliPath": "Път до CLI на OmniRoute, използван от командата \"Configure Coding CLI\"."
+}

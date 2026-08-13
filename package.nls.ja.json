@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "接続の管理（URL / APIキー）",
+  "cmd.setApiKey": "APIキーの設定",
+  "cmd.refreshModels": "モデルの更新",
+  "cmd.checkConnection": "接続の確認",
+  "cmd.openDashboard": "ダッシュボードを開く",
+  "cmd.openGitHub": "GitHubでOmniRouteを開く",
+  "cmd.installOmniRoute": "OmniRouteをインストール（はじめに）",
+  "cmd.configureCliTool": "コーディングCLIの構成（Codex、Claude Code、Cline…）",
+  "cmd.quickActions": "クイックアクション",
+  "view.connection": "接続",
+  "cfg.baseUrl": "OmniRouteのベースURL（OpenAI互換）。ローカルインストールまたは任意のリモートOmniRouteインスタンスを指定します。",
+  "cfg.statusBar": "ステータスバーにOmniRouteの接続インジケーターを表示します。",
+  "cfg.healthCheckIntervalSeconds": "ステータスバーがOmniRouteサーバーを確認する間隔（秒）。",
+  "cfg.maxOutputTokens": "応答ごとに確保する出力トークンの最大数。",
+  "cfg.defaultContextLength": "カタログエントリでコンテキスト長が宣言されていないモデルに適用される想定コンテキスト長。",
+  "cfg.modelFilter": "ピッカーに表示するモデルを絞り込むための、大文字と小文字を区別しない部分文字列または正規表現（省略可、例: \"glm|kimi\"）。空の場合はすべて表示されます。",
+  "cfg.dashboardOpen": "OmniRouteダッシュボードを開く場所。",
+  "cfg.dashboardOpen.external": "既定のWebブラウザーでダッシュボードを開きます。",
+  "cfg.dashboardOpen.editor": "VS Codeのエディタータブ（Simple Browser）でダッシュボードを開きます。埋め込みを許可するバージョンのOmniRouteが必要です。",
+  "cfg.cliPath": "「コーディングCLIの構成」コマンドで使用するOmniRoute CLIのパス。"
+}

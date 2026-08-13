@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Hallitse yhteyttä (URL / API-avain)",
+  "cmd.setApiKey": "Aseta API-avain",
+  "cmd.refreshModels": "Päivitä mallit",
+  "cmd.checkConnection": "Tarkista yhteys",
+  "cmd.openDashboard": "Avaa hallintapaneeli",
+  "cmd.openGitHub": "Avaa OmniRoute GitHubissa",
+  "cmd.installOmniRoute": "Asenna OmniRoute (Aloitus)",
+  "cmd.configureCliTool": "Määritä koodaus-CLI (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Pikatoiminnot",
+  "view.connection": "Yhteys",
+  "cfg.baseUrl": "OmniRouten perus-URL (OpenAI-yhteensopiva). Osoita se paikalliseen asennukseesi tai mihin tahansa OmniRoute-etäinstanssiin.",
+  "cfg.statusBar": "Näytä OmniRoute-yhteyden ilmaisin tilarivillä.",
+  "cfg.healthCheckIntervalSeconds": "Kuinka usein tilarivi tarkistaa OmniRoute-palvelimen (sekunteina).",
+  "cfg.maxOutputTokens": "Vastausta kohden varattujen tulostetokenien enimmäismäärä.",
+  "cfg.defaultContextLength": "Kontekstin pituus, jota oletetaan malleille, joiden luettelomerkintä ei ilmoita sitä.",
+  "cfg.modelFilter": "Valinnainen kirjainkoosta riippumaton osamerkkijono tai regex, joka rajaa valitsimessa näytettävät mallit (esim. \"glm|kimi\"). Tyhjä näyttää kaikki.",
+  "cfg.dashboardOpen": "Missä OmniRouten hallintapaneeli avataan.",
+  "cfg.dashboardOpen.external": "Avaa hallintapaneeli oletusselaimessa.",
+  "cfg.dashboardOpen.editor": "Avaa hallintapaneeli VS Coden editorivälilehdessä (Simple Browser). Vaatii OmniRoute-version, joka sallii upottamisen.",
+  "cfg.cliPath": "OmniRoute CLI:n polku, jota \"Configure Coding CLI\" -komento käyttää."
+}

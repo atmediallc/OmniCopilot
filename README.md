@@ -27,7 +27,8 @@
 - **Agent mode, tool calling, MCP, instructions — all of it still works.** This plugs into VS Code's native language-model provider API, so Copilot's entire stack now runs on the model *you* choose.
 - **Vision included.** Models flagged as vision-capable in the OmniRoute catalog accept image attachments directly in chat.
 - **Combos & auto-fallback.** OmniRoute combos (priority, round-robin, cost-optimized, fusion…) appear as regular models — pick one and get automatic failover across providers behind the scenes.
-- **Online at a glance.** A status-bar dot shows whether your OmniRoute server is reachable; click it for quick actions.
+- **Online at a glance.** A status-bar dot and an Activity Bar panel show whether your OmniRoute server is reachable, how many models it serves, and where to configure everything — URL and API key included.
+- **Speaks your language.** The UI ships in 42 languages, mirroring OmniRoute's own catalog — VS Code picks the one matching your display language automatically.
 - **Configure your other tools too.** One command configures Codex CLI, Claude Code, Cline, Continue, Cursor, Aider and more to use OmniRoute — powered by the `omniroute` CLI under the hood.
 - **Secure by default.** The API key lives in VS Code's SecretStorage (OS keychain), never in `settings.json`.
 
@@ -58,10 +59,11 @@ That's it. If OmniRoute runs on the default `http://localhost:20128`, there is n
 
 ## Remote server / API key
 
-Run **`OmniRoute: Manage Connection`** from the Command Palette (or click the status-bar dot) to set:
+Click the **OmniRoute icon in the Activity Bar** (or run `OmniRoute: Manage Connection`, or click the status-bar dot) to open the connection panel:
 
 - **Server URL** — e.g. `http://my-vps:20128` (the `/v1` suffix is added automatically)
 - **API key** — only if your OmniRoute requires one (`REQUIRE_API_KEY`); stored in the OS keychain
+- **Save & Test** — instant feedback with the live model count
 
 ## Configure your coding CLIs
 
@@ -84,6 +86,7 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 | `omnicopilot.defaultContextLength` | `128000` | Context assumed when the catalog omits it |
 | `omnicopilot.statusBar` | `true` | Show the connection dot |
 | `omnicopilot.healthCheckIntervalSeconds` | `30` | Probe frequency |
+| `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser or in a VS Code tab (`editor`) |
 | `omnicopilot.cliPath` | `omniroute` | Path to the OmniRoute CLI |
 
 ## Good to know

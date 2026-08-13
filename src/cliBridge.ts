@@ -75,8 +75,10 @@ export async function configureCliTool(
   terminal.sendText(command, true);
 
   void vscode.window.showInformationMessage(
-    `Configuring ${tool.label} through the OmniRoute CLI. ` +
-      `If the command is not found, install it with "npm i -g omniroute" or set omnicopilot.cliPath.`
+    vscode.l10n.t(
+      'Configuring {0} through the OmniRoute CLI. If the command is not found, install it with "npm i -g omniroute" or set omnicopilot.cliPath.',
+      tool.label
+    )
   );
 }
 
@@ -89,8 +91,8 @@ async function pickTool(): Promise<CliTool | undefined> {
       tool: t,
     })),
     {
-      title: "OmniRoute: configure a coding CLI",
-      placeHolder: "Which tool should use OmniRoute models?",
+      title: vscode.l10n.t("OmniRoute: configure a coding CLI"),
+      placeHolder: vscode.l10n.t("Which tool should use OmniRoute models?"),
       matchOnDescription: true,
     }
   );

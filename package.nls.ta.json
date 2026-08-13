@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "இணைப்பை நிர்வகி (URL / API விசை)",
+  "cmd.setApiKey": "API விசையை அமை",
+  "cmd.refreshModels": "மாடல்களைப் புதுப்பி",
+  "cmd.checkConnection": "இணைப்பைச் சரிபார்",
+  "cmd.openDashboard": "டாஷ்போர்டைத் திற",
+  "cmd.openGitHub": "GitHub இல் OmniRoute ஐத் திற",
+  "cmd.installOmniRoute": "OmniRoute ஐ நிறுவு (தொடங்குங்கள்)",
+  "cmd.configureCliTool": "கோடிங் CLI ஐ உள்ளமை (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "விரைவு செயல்கள்",
+  "view.connection": "இணைப்பு",
+  "cfg.baseUrl": "OmniRoute அடிப்படை URL (OpenAI-இணக்கமானது). உங்கள் உள்ளூர் நிறுவலுக்கோ அல்லது எந்தவொரு தொலைநிலை OmniRoute நிகழ்விற்கோ இதை அமைக்கவும்.",
+  "cfg.statusBar": "நிலைப் பட்டையில் OmniRoute இணைப்புக் காட்டியைக் காண்பி.",
+  "cfg.healthCheckIntervalSeconds": "நிலைப் பட்டை OmniRoute சேவையகத்தை எவ்வளவு அடிக்கடி சரிபார்க்கிறது (வினாடிகள்).",
+  "cfg.maxOutputTokens": "ஒவ்வொரு பதிலுக்கும் ஒதுக்கப்படும் அதிகபட்ச வெளியீட்டு டோக்கன்கள்.",
+  "cfg.defaultContextLength": "கேட்டலாக் பதிவில் சூழல் நீளம் குறிப்பிடப்படாத மாடல்களுக்குக் கருதப்படும் சூழல் நீளம்.",
+  "cfg.modelFilter": "தேர்வியில் பட்டியலிடப்படும் மாடல்களை வரம்பிட, விருப்பத் தேர்வான, எழுத்து வகை வேறுபாடற்ற துணைச்சரம் அல்லது regex (எ.கா. \"glm|kimi\"). காலியாக இருந்தால் அனைத்தும் பட்டியலிடப்படும்.",
+  "cfg.dashboardOpen": "OmniRoute டாஷ்போர்டு எங்கே திறக்கப்படும்.",
+  "cfg.dashboardOpen.external": "உங்கள் இயல்புநிலை இணைய உலாவியில் டாஷ்போர்டைத் திற.",
+  "cfg.dashboardOpen.editor": "VS Code எடிட்டர் தாவலில் (Simple Browser) டாஷ்போர்டைத் திற. உட்பொதிவை அனுமதிக்கும் OmniRoute பதிப்பு தேவை.",
+  "cfg.cliPath": "\"கோடிங் CLI ஐ உள்ளமை\" கட்டளையால் பயன்படுத்தப்படும் OmniRoute CLI இன் பாதை."
+}

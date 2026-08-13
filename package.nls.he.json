@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "ניהול החיבור (כתובת URL / מפתח API)",
+  "cmd.setApiKey": "הגדרת מפתח API",
+  "cmd.refreshModels": "רענון מודלים",
+  "cmd.checkConnection": "בדיקת חיבור",
+  "cmd.openDashboard": "פתיחת לוח הבקרה",
+  "cmd.openGitHub": "פתיחת OmniRoute ב-GitHub",
+  "cmd.installOmniRoute": "התקנת OmniRoute (תחילת העבודה)",
+  "cmd.configureCliTool": "הגדרת CLI לתכנות (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "פעולות מהירות",
+  "view.connection": "חיבור",
+  "cfg.baseUrl": "כתובת ה-URL הבסיסית של OmniRoute (תואמת OpenAI). כוונו אותה להתקנה המקומית שלכם או לכל מופע OmniRoute מרוחק.",
+  "cfg.statusBar": "הצגת מחוון החיבור של OmniRoute בשורת המצב.",
+  "cfg.healthCheckIntervalSeconds": "באיזו תדירות שורת המצב בודקת את שרת OmniRoute (בשניות).",
+  "cfg.maxOutputTokens": "מספר אסימוני הפלט המרבי השמור לכל תשובה.",
+  "cfg.defaultContextLength": "אורך ההקשר המונח עבור מודלים שרשומת הקטלוג שלהם אינה מצהירה על אורך.",
+  "cfg.modelFilter": "מחרוזת משנה או ביטוי רגולרי אופציונליים (ללא תלות ברישיות) להגבלת המודלים המוצגים בבורר (למשל \"glm|kimi\"). ריק מציג הכול.",
+  "cfg.dashboardOpen": "היכן נפתח לוח הבקרה של OmniRoute.",
+  "cfg.dashboardOpen.external": "פתיחת לוח הבקרה בדפדפן האינטרנט המהווה ברירת מחדל.",
+  "cfg.dashboardOpen.editor": "פתיחת לוח הבקרה בכרטיסיית עורך של VS Code (Simple Browser). נדרשת גרסת OmniRoute המאפשרת הטמעה.",
+  "cfg.cliPath": "הנתיב אל OmniRoute CLI, המשמש את הפקודה \"Configure Coding CLI\"."
+}

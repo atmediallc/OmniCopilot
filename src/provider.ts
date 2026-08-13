@@ -125,14 +125,16 @@ export class OmniRouteChatProvider
   private async offerConnectionHelp(): Promise<void> {
     const cfg = getConfig();
     const baseUrl = cfg.get<string>("baseUrl", "http://localhost:20128/v1");
+    const configureLabel = vscode.l10n.t("Configure Connection");
+    const installLabel = vscode.l10n.t("Install OmniRoute");
     const pick = await vscode.window.showWarningMessage(
-      `Could not reach OmniRoute at ${baseUrl}. Is it running?`,
-      "Configure Connection",
-      "Install OmniRoute"
+      vscode.l10n.t("Could not reach OmniRoute at {0}. Is it running?", baseUrl),
+      configureLabel,
+      installLabel
     );
-    if (pick === "Configure Connection") {
+    if (pick === configureLabel) {
       void vscode.commands.executeCommand("omnicopilot.manage");
-    } else if (pick === "Install OmniRoute") {
+    } else if (pick === installLabel) {
       void vscode.commands.executeCommand("omnicopilot.installOmniRoute");
     }
   }

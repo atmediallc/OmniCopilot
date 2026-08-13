@@ -1,0 +1,22 @@
+{
+  "cmd.manage": "Bağlantını idarə et (URL / API açarı)",
+  "cmd.setApiKey": "API açarını təyin et",
+  "cmd.refreshModels": "Modelləri yenilə",
+  "cmd.checkConnection": "Bağlantını yoxla",
+  "cmd.openDashboard": "İdarə panelini aç",
+  "cmd.openGitHub": "OmniRoute-u GitHub-da aç",
+  "cmd.installOmniRoute": "OmniRoute-u quraşdır (Başlanğıc)",
+  "cmd.configureCliTool": "Kodlaşdırma CLI-ni konfiqurasiya et (Codex, Claude Code, Cline…)",
+  "cmd.quickActions": "Sürətli əməliyyatlar",
+  "view.connection": "Bağlantı",
+  "cfg.baseUrl": "OmniRoute baza URL-i (OpenAI ilə uyğun). Onu lokal quraşdırmanıza və ya istənilən uzaq OmniRoute instansiyasına yönəldin.",
+  "cfg.statusBar": "Status panelində OmniRoute bağlantı indikatorunu göstər.",
+  "cfg.healthCheckIntervalSeconds": "Status panelinin OmniRoute serverini nə qədər tez-tez yoxladığı (saniyə).",
+  "cfg.maxOutputTokens": "Hər cavab üçün ayrılan maksimum çıxış tokenləri.",
+  "cfg.defaultContextLength": "Kataloq qeydində kontekst uzunluğu göstərilməyən modellər üçün qəbul edilən kontekst uzunluğu.",
+  "cfg.modelFilter": "Seçicidə göstərilən modelləri məhdudlaşdırmaq üçün istəyə bağlı, hərf registrinə həssas olmayan alt sətir və ya regex (məs. \"glm|kimi\"). Boş qaldıqda hamısı göstərilir.",
+  "cfg.dashboardOpen": "OmniRoute idarə panelinin harada açılacağı.",
+  "cfg.dashboardOpen.external": "İdarə panelini standart veb-brauzerinizdə açın.",
+  "cfg.dashboardOpen.editor": "İdarə panelini VS Code redaktor tabında açın (Simple Browser). Yerləşdirməyə icazə verən OmniRoute versiyası tələb olunur.",
+  "cfg.cliPath": "\"Configure Coding CLI\" əmrinin istifadə etdiyi OmniRoute CLI-nin yolu."
+}
