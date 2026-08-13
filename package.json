@@ -1,0 +1,188 @@
+{
+  "name": "omnicopilot",
+  "displayName": "OmniRoute for GitHub Copilot Chat",
+  "description": "1000+ AI models in your Copilot Chat — free, open source, one endpoint. GPT, Claude, Gemini, DeepSeek, Kimi, GLM, Qwen and 339 providers via OmniRoute, with agent mode, tool calling and vision.",
+  "version": "0.1.0",
+  "publisher": "diegosouzapw",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/diegosouzapw/OmniCopilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/diegosouzapw/OmniCopilot/issues"
+  },
+  "homepage": "https://github.com/diegosouzapw/OmniRoute",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "language-models",
+    "copilot",
+    "github-copilot",
+    "byok",
+    "openai-compatible",
+    "omniroute",
+    "llm",
+    "ai",
+    "chat",
+    "proxy",
+    "router",
+    "free-models",
+    "claude",
+    "gpt",
+    "gemini",
+    "deepseek",
+    "kimi",
+    "glm",
+    "qwen",
+    "ollama",
+    "agent-mode",
+    "tool-calling"
+  ],
+  "badges": [
+    {
+      "url": "https://img.shields.io/github/stars/diegosouzapw/OmniRoute?style=social",
+      "description": "Star OmniRoute on GitHub",
+      "href": "https://github.com/diegosouzapw/OmniRoute"
+    }
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "omniroute",
+        "displayName": "OmniRoute",
+        "managementCommand": "omnicopilot.manage"
+      }
+    ],
+    "commands": [
+      {
+        "command": "omnicopilot.manage",
+        "category": "OmniRoute",
+        "title": "Manage Connection (URL / API Key)"
+      },
+      {
+        "command": "omnicopilot.setApiKey",
+        "category": "OmniRoute",
+        "title": "Set API Key"
+      },
+      {
+        "command": "omnicopilot.refreshModels",
+        "category": "OmniRoute",
+        "title": "Refresh Models"
+      },
+      {
+        "command": "omnicopilot.checkConnection",
+        "category": "OmniRoute",
+        "title": "Check Connection"
+      },
+      {
+        "command": "omnicopilot.openDashboard",
+        "category": "OmniRoute",
+        "title": "Open Dashboard"
+      },
+      {
+        "command": "omnicopilot.openGitHub",
+        "category": "OmniRoute",
+        "title": "Open OmniRoute on GitHub"
+      },
+      {
+        "command": "omnicopilot.installOmniRoute",
+        "category": "OmniRoute",
+        "title": "Install OmniRoute (Get Started)"
+      },
+      {
+        "command": "omnicopilot.configureCliTool",
+        "category": "OmniRoute",
+        "title": "Configure Coding CLI (Codex, Claude Code, Cline…)"
+      },
+      {
+        "command": "omnicopilot.quickActions",
+        "category": "OmniRoute",
+        "title": "Quick Actions"
+      }
+    ],
+    "configuration": {
+      "title": "OmniRoute for Copilot",
+      "properties": {
+        "omnicopilot.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:20128/v1",
+          "order": 1,
+          "description": "OmniRoute base URL (OpenAI-compatible). Point it at your local install or any remote OmniRoute instance."
+        },
+        "omnicopilot.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "order": 2,
+          "description": "Show the OmniRoute connection indicator in the status bar."
+        },
+        "omnicopilot.healthCheckIntervalSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 3600,
+          "order": 3,
+          "description": "How often the status bar probes the OmniRoute server (seconds)."
+        },
+        "omnicopilot.maxOutputTokens": {
+          "type": "number",
+          "default": 16384,
+          "minimum": 256,
+          "order": 4,
+          "description": "Maximum output tokens reserved per response."
+        },
+        "omnicopilot.defaultContextLength": {
+          "type": "number",
+          "default": 128000,
+          "minimum": 1024,
+          "order": 5,
+          "description": "Context length assumed for models whose catalog entry does not declare one."
+        },
+        "omnicopilot.modelFilter": {
+          "type": "string",
+          "default": "",
+          "order": 6,
+          "description": "Optional case-insensitive substring or regex to limit which models are listed in the picker (e.g. \"glm|kimi\"). Empty lists everything."
+        },
+        "omnicopilot.cliPath": {
+          "type": "string",
+          "default": "omniroute",
+          "order": 7,
+          "description": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "npm run check-types && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "icon": "node scripts/render-icon.mjs",
+    "package": "npm run check-types && node esbuild.mjs --production",
+    "vscode:prepublish": "npm run package",
+    "vsix": "vsce package -o omnicopilot.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/vsce": "^3.7.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.13.0",
+    "sharp": "^0.33.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.39.0",
+    "vitest": "^3.0.0"
+  }
+}

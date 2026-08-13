@@ -1,0 +1,100 @@
+<h1 align="center">OmniRoute for GitHub Copilot Chat</h1>
+
+<p align="center">
+  <img src="assets/icon.png" alt="OmniCopilot" width="128">
+</p>
+
+<p align="center">
+  <strong>1000+ AI models in your Copilot Chat — free, open source, one endpoint.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/diegosouzapw/OmniRoute">🌐 OmniRoute on GitHub</a> •
+  <a href="https://github.com/diegosouzapw/OmniCopilot">🔌 Extension source</a> •
+  <a href="https://github.com/diegosouzapw/OmniRoute/issues">🐛 Issues</a>
+</p>
+
+---
+
+**Don't replace Copilot — power it up.** No new sidebar, no new chat UI to learn. This extension drops every model from your [OmniRoute](https://github.com/diegosouzapw/OmniRoute) server — GPT, Claude, Gemini, DeepSeek, Kimi, GLM, Qwen, Llama and hundreds more across **339 providers** — straight into the model picker of the Copilot Chat you already use. Including **VS Code Insiders**.
+
+> 🆓 **No Copilot subscription required.** Since VS Code 1.122, provider models work without a GitHub sign-in and without any Copilot plan. VS Code + OmniRoute + this extension = a fully working AI chat with agent mode, for free.
+
+## Why this extension?
+
+- **1000+ models, one picker.** OmniRoute unifies 339 providers (OpenAI-compatible, Anthropic, Gemini, Ollama, local, OAuth-based free tiers…) behind a single endpoint. Every model it serves shows up in your Copilot Chat model dropdown.
+- **Agent mode, tool calling, MCP, instructions — all of it still works.** This plugs into VS Code's native language-model provider API, so Copilot's entire stack now runs on the model *you* choose.
+- **Vision included.** Models flagged as vision-capable in the OmniRoute catalog accept image attachments directly in chat.
+- **Combos & auto-fallback.** OmniRoute combos (priority, round-robin, cost-optimized, fusion…) appear as regular models — pick one and get automatic failover across providers behind the scenes.
+- **Online at a glance.** A status-bar dot shows whether your OmniRoute server is reachable; click it for quick actions.
+- **Configure your other tools too.** One command configures Codex CLI, Claude Code, Cline, Continue, Cursor, Aider and more to use OmniRoute — powered by the `omniroute` CLI under the hood.
+- **Secure by default.** The API key lives in VS Code's SecretStorage (OS keychain), never in `settings.json`.
+
+## Getting started
+
+### 1. Run OmniRoute (60 seconds)
+
+```bash
+npm install -g omniroute
+omniroute        # dashboard at http://localhost:20128
+```
+
+Add your providers/keys in the dashboard — or use the built-in free ones. Full guide: [github.com/diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute).
+
+Already running OmniRoute somewhere else (home server, VPS, tunnel)? Point the extension at it — see below.
+
+### 2. Install this extension
+
+Search for **"OmniRoute"** in the VS Code Extensions view, or grab the `.vsix` from the [releases](https://github.com/diegosouzapw/OmniCopilot/releases).
+
+### 3. Pick a model
+
+1. Open Copilot Chat and click the **model picker**
+2. Choose **Manage Models…** → **OmniRoute**
+3. Tick the models you want — they now live in your picker
+
+That's it. If OmniRoute runs on the default `http://localhost:20128`, there is nothing to configure.
+
+## Remote server / API key
+
+Run **`OmniRoute: Manage Connection`** from the Command Palette (or click the status-bar dot) to set:
+
+- **Server URL** — e.g. `http://my-vps:20128` (the `/v1` suffix is added automatically)
+- **API key** — only if your OmniRoute requires one (`REQUIRE_API_KEY`); stored in the OS keychain
+
+## Configure your coding CLIs
+
+Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension drives the `omniroute` CLI to generate ready-to-use profiles:
+
+| Tool | What you get |
+| --- | --- |
+| Codex CLI | `codex --profile glm52` style profiles in `~/.codex` |
+| Claude Code | `omniroute launch --profile <name>` launch profiles |
+| Cline / Roo / Kilo | Extension settings pointed at OmniRoute |
+| Continue / Cursor / Aider / Goose / Crush / OpenCode / Qwen Code | Tool-native config |
+
+## Settings
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `omnicopilot.baseUrl` | `http://localhost:20128/v1` | OmniRoute server (local or remote) |
+| `omnicopilot.modelFilter` | *(empty)* | Substring/regex to limit which models are listed |
+| `omnicopilot.maxOutputTokens` | `16384` | Output budget reserved per response |
+| `omnicopilot.defaultContextLength` | `128000` | Context assumed when the catalog omits it |
+| `omnicopilot.statusBar` | `true` | Show the connection dot |
+| `omnicopilot.healthCheckIntervalSeconds` | `30` | Probe frequency |
+| `omnicopilot.cliPath` | `omniroute` | Path to the OmniRoute CLI |
+
+## Good to know
+
+- **Chat, agent mode and utility tasks** run through your OmniRoute models. Inline code completions and embeddings-based features are outside VS Code's provider API and still require GitHub Copilot.
+- On **Copilot Business/Enterprise**, admins can disable third-party model providers via the "Bring Your Own Language Model Key" policy.
+- Requires VS Code **1.104+** (older versions than 1.122 also need a signed-in Copilot plan — that's a VS Code rule, not ours).
+
+## Free & open source
+
+OmniRoute is MIT-licensed and free forever — ⭐ [star it on GitHub](https://github.com/diegosouzapw/OmniRoute) and join the project. This extension is MIT too; issues and PRs welcome at [diegosouzapw/OmniCopilot](https://github.com/diegosouzapw/OmniCopilot).
+
+---
+
+*OmniRoute is an independent open-source project, not affiliated with GitHub or Microsoft. GitHub Copilot is a trademark of GitHub, Inc.*
