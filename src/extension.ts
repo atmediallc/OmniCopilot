@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, normalizeBaseUrl, serverRootUrl } from "./client";
+import { OmniRouteClient, serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
+import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider, SECRET_API_KEY } from "./provider";
 import { ConnectionStatusBar } from "./statusBar";
 
@@ -9,6 +10,7 @@ const VENDOR = "omniroute";
 
 let provider: OmniRouteChatProvider | undefined;
 let statusBar: ConnectionStatusBar | undefined;
+let panel: OmniPanelProvider | undefined;
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
@@ -37,6 +39,14 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
   log.info(`Language model chat provider registered (vendor: ${VENDOR})`);
 
+  panel = new OmniPanelProvider(context, log, async () => {
+    statusBar?.restart();
+    await provider?.refresh();
+  });
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(OmniPanelProvider.viewId, panel)
+  );
+
   registerCommands(context, log);
 
   context.subscriptions.push(
@@ -45,6 +55,7 @@ export function activate(context: vscode.ExtensionContext): void {
       log.info("Configuration changed — refreshing models and status");
       statusBar?.restart();
       void provider?.refresh();
+      void panel?.refreshStatus();
     })
   );
 
@@ -56,7 +67,9 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   const register = (id: string, fn: (...args: unknown[]) => unknown) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
-  register("omnicopilot.manage", () => manageConnection(context, log));
+  // The management gear in "Manage Models" and the status-bar menu both land
+  // on the visual panel (Activity Bar view) where URL + API key live.
+  register("omnicopilot.manage", () => panel?.focus());
   register("omnicopilot.setApiKey", () => setApiKey(context, log));
 
   register("omnicopilot.refreshModels", async () => {
@@ -146,37 +159,6 @@ async function quickActions(context: vscode.ExtensionContext): Promise<void> {
   if (picked) void vscode.commands.executeCommand(commandByAction[picked.action]);
 }
 
-/** Management command wired to the provider (gear icon in Manage Models). */
-async function manageConnection(
-  context: vscode.ExtensionContext,
-  log: vscode.LogOutputChannel
-): Promise<void> {
-  const cfg = getConfig();
-  const current = cfg.get<string>("baseUrl", "http://localhost:20128/v1");
-
-  const url = await vscode.window.showInputBox({
-    title: "OmniRoute server URL",
-    prompt: "Where is your OmniRoute running? Local default is http://localhost:20128/v1",
-    value: current,
-    ignoreFocusOut: true,
-  });
-  if (url === undefined) return;
-
-  const normalized = normalizeBaseUrl(url);
-  await cfg.update("baseUrl", normalized, vscode.ConfigurationTarget.Global);
-  log.info(`Base URL set to ${normalized}`);
-
-  await setApiKey(context, log, true);
-
-  const ok = await statusBar?.checkNow();
-  await provider?.refresh();
-  void vscode.window.showInformationMessage(
-    ok
-      ? `Connected — OmniRoute models are now available in the Copilot Chat model picker.`
-      : `Saved ${normalized}, but the server did not respond. Start OmniRoute and run "OmniRoute: Check Connection".`
-  );
-}
-
 async function setApiKey(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel,
@@ -229,7 +211,7 @@ async function checkFirstRun(
     }
   } else {
     const pick = await vscode.window.showInformationMessage(
-      "OmniCopilot: bring 1000+ AI models to Copilot Chat with OmniRoute — free and open source. No OmniRoute server detected yet.",
+      "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet.",
       "Install OmniRoute",
       "Configure connection"
     );
@@ -244,4 +226,5 @@ async function checkFirstRun(
 export function deactivate(): void {
   provider = undefined;
   statusBar = undefined;
+  panel = undefined;
 }
