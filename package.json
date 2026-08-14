@@ -162,6 +162,24 @@
           "order": 2,
           "description": "%cfg.statusBar%"
         },
+        "omnicopilot.fallbackMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "sameModel",
+            "sameFamily",
+            "full"
+          ],
+          "enumDescriptions": [
+            "%cfg.fallbackMode.none%",
+            "%cfg.fallbackMode.sameModel%",
+            "%cfg.fallbackMode.sameFamily%",
+            "%cfg.fallbackMode.full%"
+          ],
+          "default": "sameModel",
+          "order": 8,
+          "description": "%cfg.fallbackMode%"
+        },
         "omnicopilot.healthCheckIntervalSeconds": {
           "type": "number",
           "default": 30,

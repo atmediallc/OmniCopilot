@@ -75,7 +75,29 @@ describe("pickFallbackCandidates", () => {
     expect(got.every((c) => c.modelId !== "openai/gpt-4o-mini")).toBe(true);
   });
   it("respeta el límite max y excluye el primario", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, false, 1);
+    const got = pickFallbackCandidates(gpt4o, cat, false, "full", 1);
     expect(got).toHaveLength(1);
+  });
+  it("mode none devuelve lista vacía", () => {
+    const got = pickFallbackCandidates(gpt4o, cat, false, "none");
+    expect(got).toEqual([]);
+  });
+  it("mode sameModel solo reintenta el mismo modelo en otra ruta", () => {
+    const got = pickFallbackCandidates(gpt4o, cat, false, "sameModel");
+    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o" }]);
+  });
+  it("mode sameFamily excluye modelos de otra ruta que no son el mismo modelo", () => {
+    const got = pickFallbackCandidates(gpt4o, cat, false, "sameFamily");
+    // mismo modelo en r2 + familia misma ruta (gpt-4o-mini), pero no kimi/k2 (otra ruta, otra familia)
+    expect(got.map((c) => c.modelId)).toEqual(["openai/gpt-4o", "openai/gpt-4o-mini"]);
+  });
+  it("mode full alcanza cualquier modelo compatible en otros servidores", () => {
+    const got = pickFallbackCandidates(gpt4o, cat, false, "full");
+    // mismo modelo en r2, luego familia misma ruta (gpt-4o-mini), luego kimi/k2
+    expect(got.map((c) => c.modelId)).toEqual([
+      "openai/gpt-4o",
+      "openai/gpt-4o-mini",
+      "kimi/k2",
+    ]);
   });
 });

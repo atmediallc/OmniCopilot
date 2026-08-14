@@ -153,14 +153,23 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
   return out;
 }
 
-/** Ordered cross-route fallback candidates for a failing chat request:
- * 1) same original model id on another route, 2) same provider family on the
- * same route, 3) any compatible model elsewhere. Primary excluded. When tools
- * are needed, models reporting `tool_calling: false` are filtered out. */
+export type FallbackMode = "none" | "sameModel" | "sameFamily" | "full";
+
+/** Ordered cross-route fallback candidates for a failing chat request.
+ *
+ * `mode` controls how far the chain reaches:
+ * - `none`: only the primary model; never substitute.
+ * - `sameModel`: the same model id on another configured server.
+ * - `sameFamily`: additionally the same provider family on the same server.
+ * - `full`: then any compatible model anywhere (legacy behaviour).
+ *
+ * When tools are needed, models reporting `tool_calling: false` are filtered
+ * out. The primary model is always excluded. */
 export function pickFallbackCandidates(
   primary: CatalogEntry,
   catalog: CatalogModel[],
   needsTools: boolean,
+  mode: FallbackMode = "full",
   max = 4
 ): FallbackCandidate[] {
   const compatible = (c: CatalogModel) =>
@@ -175,21 +184,29 @@ export function pickFallbackCandidates(
     out.push({ routeId: c.entry.routeId, modelId: c.entry.modelId });
   };
 
+  if (mode === "none") return out;
+
   catalog
     .filter((c) => compatible(c) && c.entry.modelId === primary.modelId && c.entry.routeId !== primary.routeId)
     .forEach(push);
-  catalog
-    .filter(
-      (c) =>
-        compatible(c) &&
-        c.entry.routeId === primary.routeId &&
-        c.entry.modelId !== primary.modelId &&
-        c.entry.modelId.split("/")[0] === family
-    )
-    .forEach(push);
-  catalog
-    .filter((c) => compatible(c) && c.entry.prefixedId !== primary.prefixedId)
-    .forEach(push);
+
+  if (mode !== "sameModel") {
+    catalog
+      .filter(
+        (c) =>
+          compatible(c) &&
+          c.entry.routeId === primary.routeId &&
+          c.entry.modelId !== primary.modelId &&
+          c.entry.modelId.split("/")[0] === family
+      )
+      .forEach(push);
+  }
+
+  if (mode === "full") {
+    catalog
+      .filter((c) => compatible(c) && c.entry.prefixedId !== primary.prefixedId)
+      .forEach(push);
+  }
 
   return out.slice(0, max);
 }

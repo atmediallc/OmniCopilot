@@ -3,7 +3,7 @@ import { OmniRouteError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
-import type { CatalogModel, FallbackCandidate, RouteCatalog } from "./routes";
+import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
@@ -192,7 +192,12 @@ export class OmniRouteChatProvider
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
     const fallbacks = primaryEntry
-      ? pickFallbackCandidates(primaryEntry, this.cachedModels, Boolean(options.tools?.length))
+      ? pickFallbackCandidates(
+          primaryEntry,
+          this.cachedModels,
+          Boolean(options.tools?.length),
+          getConfig().get<FallbackMode>("fallbackMode", "sameModel")
+        )
       : [];
     // Prefer the cache's authoritative route/model (keys match VS Code's id);
     // fall back to the fields carried on the info object.
