@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, OmniRouteError, isTransientHttpError } from "./client";
+import { OmniRouteError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
-import { buildCatalog, loadRoutes, makeClientForRoute } from "./routes";
+import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
 import type { CatalogModel, RouteCatalog } from "./routes";
 
@@ -52,14 +52,7 @@ export class OmniRouteChatProvider
     this._onDidChange.fire();
   }
 
-  private async clientForRoute(routeId: string): Promise<OmniRouteClient> {
-    const routes = await loadRoutes(this.deps.context);
-    const route = routes.find((r) => r.id === routeId);
-    if (!route) throw new OmniRouteError(`Route ${routeId} is not configured`, undefined);
-    return makeClientForRoute(route);
-  }
-
-  // ── Model discovery ─────────────────────────────────────────────────────
+    // ── Model discovery ─────────────────────────────────────────────────────
 
   async provideLanguageModelChatInformation(
     options: { silent: boolean },
@@ -175,7 +168,6 @@ export class OmniRouteChatProvider
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken
   ): Promise<void> {
-    const client = await this.clientForRoute(model.routeId);
     const log = this.deps.log;
 
     const request: ChatRequest = {
@@ -194,18 +186,36 @@ export class OmniRouteChatProvider
       request.temperature = modelOptions.temperature;
     }
 
-    const candidateIds = [model.omniModelId];
+    // Route per candidate; a route disappearing mid-session is skipped, never
+    // fatal. Fallback chain (transient 429/5xx only): primary → same model on
+    // another route → same family on the same route → any compatible model.
+    const routes = await loadRoutes(this.deps.context);
+    const clientByRoute = new Map(routes.map((r) => [r.id, makeClientForRoute(r)]));
+
+    const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
+    const fallbacks = primaryEntry
+      ? pickFallbackCandidates(primaryEntry, this.cachedModels, Boolean(options.tools?.length))
+      : [];
+    const candidates = [{ routeId: model.routeId, modelId: model.omniModelId }, ...fallbacks];
+    const serverCount = new Set(candidates.map((c) => c.routeId)).size;
+    const lastIndex = candidates.length - 1;
 
     log.debug(
-      `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)`
+      `Chat → ${model.omniModelId} @${model.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
+        (fallbacks.length ? `, fallbacks: ${fallbacks.map((f) => `${f.routeId}:${f.modelId}`).join(", ")}` : "")
     );
 
     const abort = new AbortController();
     const cancelSub = token.onCancellationRequested(() => abort.abort());
 
     try {
-      for (const mid of candidateIds) {
-        const attemptRequest = mid === model.omniModelId ? request : { ...request, model: mid };
+      for (const [i, cand] of candidates.entries()) {
+        const client = clientByRoute.get(cand.routeId);
+        if (token.isCancellationRequested) return;
+        if (!client) continue;
+        const last = i === lastIndex;
+        const attemptRequest = cand.modelId === model.omniModelId ? request : { ...request, model: cand.modelId };
+
         try {
           for await (const event of client.streamChat(attemptRequest, abort.signal)) {
             if (token.isCancellationRequested) break;
@@ -228,7 +238,6 @@ export class OmniRouteChatProvider
           if (token.isCancellationRequested) return;
           const status = err instanceof OmniRouteError ? err.status : undefined;
           const transient = status !== undefined && isTransientHttpError(status);
-          const last = mid === candidateIds[candidateIds.length - 1];
           if (!transient) {
             this.deps.onActivity?.(false);
             log.error(`Chat request failed: ${String(err)}`);
@@ -236,20 +245,24 @@ export class OmniRouteChatProvider
           }
           if (last) {
             this.deps.onActivity?.(false);
-            log.error(`Chat request failed after ${candidateIds.length} model(s): ${String(err)}`);
+            log.error(`Chat request failed after ${candidates.length} model(s): ${String(err)}`);
             void vscode.window.showWarningMessage(
               vscode.l10n.t(
-                "OmniRoute is temporarily unavailable (HTTP {0}). Retried {1} model(s) without success — please retry shortly.",
+                "OmniRoute is temporarily unavailable (HTTP {0}). Retried {1} model(s) on {2} server(s) without success — please retry shortly.",
                 String(status),
-                String(candidateIds.length)
+                String(candidates.length),
+                String(serverCount)
               )
             );
             throw err;
           }
-          log.warn(`Model ${mid} transiently unavailable (HTTP ${status}) — trying fallback`);
+          log.warn(
+            `Model ${cand.modelId} @${cand.routeId} transiently unavailable (HTTP ${status}) — trying fallback`
+          );
           await delay(200);
         }
       }
+      throw new OmniRouteError("No configured route served this model", undefined);
     } finally {
       cancelSub.dispose();
     }
