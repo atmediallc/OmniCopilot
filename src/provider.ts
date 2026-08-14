@@ -202,15 +202,14 @@ export class OmniRouteChatProvider
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
-    // The route/model you selected is authoritative: the info object VS Code
-    // hands back carries routeId + omniModelId for exactly the pick you made.
-    // The cache lookup is only a fallback for ids it cannot resolve.
-    const primary: FallbackCandidate =
-      model.routeId && model.omniModelId
+    // The prefixedId (`MyPC · oc/big-pickle`) is the faithful record of what
+    // you picked in the picker — resolve the entry from the catalog we built.
+    // VS Code's model.routeId is unreliable (it can point at another server).
+    const primary: FallbackCandidate = primaryEntry
+      ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
+      : model.routeId && model.omniModelId
         ? { routeId: model.routeId, modelId: model.omniModelId }
-        : primaryEntry
-          ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
-          : { routeId: model.routeId, modelId: model.omniModelId };
+        : { routeId: model.routeId, modelId: model.omniModelId };
 
     // The user-selected model is ALWAYS tried first. Only the fallbacks get
     // reordered so that servers that just passed their liveness probe come
@@ -246,75 +245,95 @@ export class OmniRouteChatProvider
     let lastError: unknown;
 
     try {
+      // How many full attempts each server gets before we even consider the
+      // next server. Independent servers: the one you picked is exercised
+      // `retriesPerServer` times; only when all fail do we call the next.
+      const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
+
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
         if (token.isCancellationRequested) return;
         if (!client) continue;
 
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) break;
-
         const last = i === lastIndex;
         const attemptRequest = { ...request, model: cand.modelId };
         const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
-        let streamed = "";
 
-        try {
-          for await (const event of client.streamChat(attemptRequest, abort.signal)) {
-            if (token.isCancellationRequested) break;
-            if (event.kind === "text") {
-              streamed += event.text;
-              progress.report(new vscode.LanguageModelTextPart(event.text));
-              this.deps.onUsage?.({
-                serverName: routeName,
-                modelName: cand.modelId,
-                inputTokens,
-                outputTokens: estimateTokens(streamed),
-              });
-            } else {
-              let input: Record<string, unknown>;
-              try {
-                input = JSON.parse(event.args) as Record<string, unknown>;
-              } catch {
-                log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
-                input = {};
+        let attempted = 0;
+        let candError: unknown;
+        for (; attempted < retriesPerServer; attempted++) {
+          if (token.isCancellationRequested) return;
+
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+
+          let streamed = "";
+          try {
+            for await (const event of client.streamChat(attemptRequest, abort.signal)) {
+              if (token.isCancellationRequested) break;
+              if (event.kind === "text") {
+                streamed += event.text;
+                progress.report(new vscode.LanguageModelTextPart(event.text));
+                this.deps.onUsage?.({
+                  serverName: routeName,
+                  modelName: cand.modelId,
+                  inputTokens,
+                  outputTokens: estimateTokens(streamed),
+                });
+              } else {
+                let input: Record<string, unknown>;
+                try {
+                  input = JSON.parse(event.args) as Record<string, unknown>;
+                } catch {
+                  log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
+                  input = {};
+                }
+                progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
-              progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
+            }
+            this.deps.onActivity?.(true);
+            return;
+          } catch (err) {
+            if (token.isCancellationRequested) return;
+            const status = err instanceof OmniRouteError ? err.status : undefined;
+            // Network-level failures (no HTTP status, e.g. `fetch failed`) are
+            // treated as transient so the server can be re-attempted.
+            const transient = status === undefined || isTransientHttpError(status);
+            if (!transient) {
+              this.deps.onActivity?.(false);
+              log.error(`Chat request failed: ${String(err)}`);
+              throw err;
+            }
+            candError = err;
+            log.warn(
+              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${String(err)})`
+            );
+            if (attempted + 1 < retriesPerServer) {
+              await delay(400 * Math.pow(2, attempted));
+              continue;
             }
           }
-          this.deps.onActivity?.(true);
-          return;
-        } catch (err) {
-          if (token.isCancellationRequested) return;
-          const status = err instanceof OmniRouteError ? err.status : undefined;
-          // Network-level failures (no HTTP status, e.g. `fetch failed`) are
-          // treated as transient so the fallback chain tries another server.
-          const transient = status === undefined || isTransientHttpError(status);
-          if (!transient) {
-            this.deps.onActivity?.(false);
-            log.error(`Chat request failed: ${String(err)}`);
-            throw err;
-          }
-          if (last) {
-            this.deps.onActivity?.(false);
-            const reason = err instanceof OmniRouteError ? err.message : String(err);
-            log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
-            void vscode.window.showErrorMessage(
-              vscode.l10n.t(
-                "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
-                model.omniModelId,
-                String(serverCount),
-                reason
-              )
-            );
-            throw err;
-          }
-          log.warn(
-            `Model ${cand.modelId} @${cand.routeId} unavailable (${String(err)}) — trying fallback`
-          );
-          lastError = err;
-          await delay(200);
         }
+
+        lastError = candError;
+        log.warn(
+          `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${String(candError)}); next server`
+        );
+        if (last) {
+          this.deps.onActivity?.(false);
+          const reason = candError instanceof OmniRouteError ? candError.message : String(candError);
+          log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+          void vscode.window.showErrorMessage(
+            vscode.l10n.t(
+              "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
+              model.omniModelId,
+              String(serverCount),
+              reason
+            )
+          );
+          throw candError;
+        }
+        await delay(200);
       }
       if (lastError !== undefined) {
         const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
