@@ -24,8 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   statusBar = new ConnectionStatusBar(
     async () => {
-      const routes = await loadRoutes(context);
-      return routes.map(makeClientForRoute);
+      return loadRoutes(context);
     },
     log
   );
@@ -35,6 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context,
     log,
     onActivity: (ok) => statusBar?.reportActivity(ok),
+    onUsage: (usage) => statusBar?.reportUsage(usage),
   });
   context.subscriptions.push(provider);
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));

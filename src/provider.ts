@@ -16,6 +16,8 @@ export interface ProviderDeps {
   /** Called whenever a request round-trip settles, with success flag —
    * feeds the status bar without extra polling. */
   onActivity?: (ok: boolean) => void;
+  /** Live token usage while a chat response streams — feeds the status bar. */
+  onUsage?: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
 }
 
 function getConfig() {
@@ -204,6 +206,9 @@ export class OmniRouteChatProvider
     const abort = new AbortController();
     const cancelSub = token.onCancellationRequested(() => abort.abort());
 
+    // Estimate the input side of the request for the usage readout.
+    const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
+
     try {
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
@@ -211,12 +216,21 @@ export class OmniRouteChatProvider
         if (!client) continue;
         const last = i === lastIndex;
         const attemptRequest = cand.modelId === model.omniModelId ? request : { ...request, model: cand.modelId };
+        const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
+        let streamed = "";
 
         try {
           for await (const event of client.streamChat(attemptRequest, abort.signal)) {
             if (token.isCancellationRequested) break;
             if (event.kind === "text") {
+              streamed += event.text;
               progress.report(new vscode.LanguageModelTextPart(event.text));
+              this.deps.onUsage?.({
+                serverName: routeName,
+                modelName: cand.modelId,
+                inputTokens,
+                outputTokens: estimateTokens(streamed),
+              });
             } else {
               let input: Record<string, unknown>;
               try {
