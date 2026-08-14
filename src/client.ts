@@ -22,9 +22,12 @@ export interface ClientOptions {
   baseUrl: string;
   apiKey?: string;
   retry?: RetryPolicy;
-  /** Abort a streaming response that sends no data for this long (ms).
-   * Guards against dead proxies/servers that accept the connection and then
-   * go silent. Default 30000. */
+  /** Abort a streaming response if no byte arrives within this long (ms).
+   * Guards against dead proxies that accept the connection and never send
+   * headers/body. Default 15000. */
+  streamFirstByteTimeoutMs?: number;
+  /** Abort a streaming response that sends no further data for this long (ms)
+   * once streaming has started. Default 30000. */
   streamIdleTimeoutMs?: number;
 }
 
@@ -192,6 +195,7 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 15_000;
     const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
 
     // Derived signal so a stall can abort this attempt without cancelling the
@@ -221,32 +225,53 @@ export class OmniRouteClient {
     const decoder = new TextDecoder();
     let buffer = "";
 
-    // Idle-watchdog: reset on every byte; abort if the server goes silent.
-    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutErr = (ms: number) =>
+      new OmniRouteError(
+        ms === firstByteMs
+          ? `OmniRoute did not start responding within ${firstByteMs / 1000}s`
+          : `OmniRoute went silent for ${idleMs / 1000}s`,
+        408
+      );
+
+    // Watchdog: every read is raced against a fresh timeout. The threshold is
+    // the first-byte cap until the first byte arrives, then the idle cap (long
+    // tool-call chains naturally outgrow a short idle window). A dead proxy
+    // therefore fails fast instead of hanging the chat indefinitely.
+    let timerMs = firstByteMs;
+    let progressed = false;
     let stalled = false;
-    const kick = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => {
-        stalled = true;
-        ctrl.abort(new OmniRouteError(`Server sent no data for ${idleMs / 1000}s`, 408));
-      }, idleMs);
+
+    const stall = () => {
+      stalled = true;
+      const err = timeoutErr(timerMs);
+      ctrl.abort(err);
+      return err;
     };
-    const stallWait = () =>
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => {
-          stalled = true;
-          ctrl.abort(new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408));
-          reject(new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408));
-        }, idleMs);
-        stallTimer = t;
+
+    const waitMs = (ms: number) =>
+      new Promise<{ timeout: true }>((resolve) => {
+        setTimeout(() => resolve({ timeout: true }), ms);
       });
 
     try {
-      kick();
       for (;;) {
-        const chunk = await Promise.race([reader.read(), stallWait()]);
-        kick();
-        const { done, value } = chunk;
+        const timeoutP = waitMs(timerMs);
+        const readP = reader.read().then(
+          (v) => ({ ok: true as const, v }),
+          (e) => ({ ok: false as const, e })
+        );
+        const result = await Promise.race([readP, timeoutP]);
+
+        if ("timeout" in result) {
+          stalled = true;
+          throw stall();
+        }
+        if (!result.ok) throw result.e;
+        if (!progressed) {
+          progressed = true;
+          timerMs = idleMs;
+        }
+        const { done, value } = result.v;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -261,10 +286,9 @@ export class OmniRouteClient {
       // without an explicit finish_reason line.
       yield* assembler.flush();
     } catch (err) {
-      if (stalled) throw new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408);
+      if (stalled) throw stall();
       throw err;
     } finally {
-      if (stallTimer) clearTimeout(stallTimer);
       signal.removeEventListener("abort", relay);
     }
   }

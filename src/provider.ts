@@ -214,11 +214,21 @@ export class OmniRouteChatProvider
     // Estimate the input side of the request for the usage readout.
     const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
 
+    // Hard cap on the whole fallback chain so a dead fleet never leaves the
+    // user staring at a spinner. Checked before each candidate attempt.
+    const budgetMs = 60_000;
+    const deadline = Date.now() + budgetMs;
+    let lastError: unknown;
+
     try {
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
         if (token.isCancellationRequested) return;
         if (!client) continue;
+
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+
         const last = i === lastIndex;
         const attemptRequest = { ...request, model: cand.modelId };
         const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
@@ -277,8 +287,23 @@ export class OmniRouteChatProvider
           log.warn(
             `Model ${cand.modelId} @${cand.routeId} unavailable (${String(err)}) — trying fallback`
           );
+          lastError = err;
           await delay(200);
         }
+      }
+      if (lastError !== undefined) {
+        const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
+        this.deps.onActivity?.(false);
+        log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t(
+            "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
+            model.omniModelId,
+            String(serverCount),
+            reason
+          )
+        );
+        throw lastError;
       }
       throw new OmniRouteError("No configured route served this model", undefined);
     } finally {

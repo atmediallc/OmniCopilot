@@ -241,7 +241,11 @@ describe("OmniRouteClient retry behavior", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(never, { status: 200 })));
 
-    const client = new OmniRouteClient({ baseUrl: "http://x/v1", streamIdleTimeoutMs: 30 });
+    const client = new OmniRouteClient({
+      baseUrl: "http://x/v1",
+      streamFirstByteTimeoutMs: 30,
+      streamIdleTimeoutMs: 30,
+    });
     const ctrl = new AbortController();
     await expect(
       (async () => {
@@ -252,7 +256,7 @@ describe("OmniRouteClient retry behavior", () => {
           void _e;
         }
       })()
-    ).rejects.toThrow("no data");
+    ).rejects.toThrow("did not start responding");
   });
 
   it("stops before the first request when already aborted", async () => {
