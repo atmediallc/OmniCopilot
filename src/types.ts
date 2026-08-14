@@ -26,6 +26,13 @@ export interface ModelsResponse {
   data: OmniRouteModel[];
 }
 
+/** One configured server entry (URLs live in config; the API key in secrets). */
+export interface RouteConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+}
+
 /** OpenAI Chat Completions request/stream shapes (subset we use). */
 
 export type ChatContentPart =
