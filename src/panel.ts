@@ -174,8 +174,9 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   .hint { opacity: .7; font-style: italic; padding: 6px 0; }
   button.primary { width: 100%; padding: 6px; cursor: pointer; margin-top: 4px; }
   .links { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-  .link { cursor: pointer; opacity: .9; }
+  .link { cursor: pointer; opacity: .9; display: flex; align-items: center; gap: 6px; }
   .link:hover { text-decoration: underline; }
+  .codicon { font-family: "codicon"; font-size: 14px; line-height: 1; }
 </style>
 </head>
 <body>
@@ -186,11 +187,11 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 <button id="save" class="primary">${S.save}</button>
 
 <div class="links">
-  <div class="link" data-cmd="omnicopilot.refreshModels">$(sync) ${S.linkRefresh}</div>
-  <div class="link" data-cmd="omnicopilot.openDashboard">$(dashboard) ${S.linkDashboard}</div>
-  <div class="link" data-cmd="omnicopilot.configureCliTool">$(terminal) ${S.linkCli}</div>
-  <div class="link" data-cmd="omnicopilot.installOmniRoute">$(cloud-download) ${S.linkInstall}</div>
-  <div class="link" data-cmd="omnicopilot.openGitHub">$(github) ${S.linkGitHub}</div>
+  <div class="link" data-cmd="omnicopilot.refreshModels"><span class="codicon codicon-sync"></span> ${S.linkRefresh}</div>
+  <div class="link" data-cmd="omnicopilot.openDashboard"><span class="codicon codicon-dashboard"></span> ${S.linkDashboard}</div>
+  <div class="link" data-cmd="omnicopilot.configureCliTool"><span class="codicon codicon-terminal"></span> ${S.linkCli}</div>
+  <div class="link" data-cmd="omnicopilot.installOmniRoute"><span class="codicon codicon-cloud-download"></span> ${S.linkInstall}</div>
+  <div class="link" data-cmd="omnicopilot.openGitHub"><span class="codicon codicon-github"></span> ${S.linkGitHub}</div>
 </div>
 
 <script nonce="${nonce}">

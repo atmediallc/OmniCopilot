@@ -157,9 +157,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
     if (this.health.length > 0) {
       lines.push(
-        this.health
-          .map((h) => `${h.online ? "$(check)" : "$(circle-outline)"} ${h.name}`)
-          .join("\n")
+        this.health.map((h) => `${h.online ? "✓" : "○"} ${h.name}`).join("\n")
       );
     }
 

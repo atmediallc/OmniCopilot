@@ -3,7 +3,7 @@ import { OmniRouteError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
-import type { CatalogModel, RouteCatalog } from "./routes";
+import type { CatalogModel, FallbackCandidate, RouteCatalog } from "./routes";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
@@ -194,12 +194,17 @@ export class OmniRouteChatProvider
     const fallbacks = primaryEntry
       ? pickFallbackCandidates(primaryEntry, this.cachedModels, Boolean(options.tools?.length))
       : [];
-    const candidates = [{ routeId: model.routeId, modelId: model.omniModelId }, ...fallbacks];
+    // Prefer the cache's authoritative route/model (keys match VS Code's id);
+    // fall back to the fields carried on the info object.
+    const primary: FallbackCandidate = primaryEntry
+      ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
+      : { routeId: model.routeId, modelId: model.omniModelId };
+    const candidates = [primary, ...fallbacks];
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
     const lastIndex = candidates.length - 1;
 
-    log.debug(
-      `Chat → ${model.omniModelId} @${model.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
+    log.info(
+      `Chat → ${primary.modelId} @${primary.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
         (fallbacks.length ? `, fallbacks: ${fallbacks.map((f) => `${f.routeId}:${f.modelId}`).join(", ")}` : "")
     );
 
@@ -215,7 +220,7 @@ export class OmniRouteChatProvider
         if (token.isCancellationRequested) return;
         if (!client) continue;
         const last = i === lastIndex;
-        const attemptRequest = cand.modelId === model.omniModelId ? request : { ...request, model: cand.modelId };
+        const attemptRequest = { ...request, model: cand.modelId };
         const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
         let streamed = "";
 
@@ -247,7 +252,9 @@ export class OmniRouteChatProvider
         } catch (err) {
           if (token.isCancellationRequested) return;
           const status = err instanceof OmniRouteError ? err.status : undefined;
-          const transient = status !== undefined && isTransientHttpError(status);
+          // Network-level failures (no HTTP status, e.g. `fetch failed`) are
+          // treated as transient so the fallback chain tries another server.
+          const transient = status === undefined || isTransientHttpError(status);
           if (!transient) {
             this.deps.onActivity?.(false);
             log.error(`Chat request failed: ${String(err)}`);
@@ -267,7 +274,7 @@ export class OmniRouteChatProvider
             throw err;
           }
           log.warn(
-            `Model ${cand.modelId} @${cand.routeId} transiently unavailable (HTTP ${status}) — trying fallback`
+            `Model ${cand.modelId} @${cand.routeId} unavailable (${String(err)}) — trying fallback`
           );
           await delay(200);
         }

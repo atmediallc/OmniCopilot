@@ -89,9 +89,11 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /** Backoff for a failed attempt: honor Retry-After, else exponential + jitter. */
-function retryDelayMs(res: Response, attempt: number, policy: Required<RetryPolicy>): number {
-  const retryAfter = Number(res.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+function retryDelayMs(res: Response | undefined, attempt: number, policy: Required<RetryPolicy>): number {
+  if (res) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+  }
   const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
   return Math.min(policy.maxMs, base + Math.random() * Math.min(base, 200));
 }
@@ -153,7 +155,17 @@ export class OmniRouteClient {
     };
     for (let attempt = 0; ; attempt++) {
       if (signal.aborted) throw abortReason(signal);
-      const res = await fetch(url, init);
+      let res: Response;
+      try {
+        res = await fetch(url, init);
+      } catch (err) {
+        // Network-level failure (DNS, refused, reset, TLS…): transient unless
+        // this was the final attempt. Keeps flaky servers from killing a
+        // request outright and lets the caller's fallback chain take over.
+        if (attempt >= policy.maxAttempts - 1) throw err;
+        await sleep(retryDelayMs(undefined, attempt, policy), signal);
+        continue;
+      }
       if (res.ok || !isTransientHttpError(res.status) || attempt >= policy.maxAttempts - 1) {
         return res;
       }

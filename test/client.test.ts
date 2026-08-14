@@ -175,6 +175,30 @@ describe("OmniRouteClient retry behavior", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("retries network-level failures (fetch throws) and recovers", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        sseResponse(['data: {"choices":[{"delta":{"content":"hi"}}]}', "data: [DONE]"])
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collect(new OmniRouteClient({ baseUrl: "http://x/v1", retry }));
+    expect(events).toEqual([{ kind: "text", text: "hi" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces network errors after the final attempt", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      collect(new OmniRouteClient({ baseUrl: "http://x/v1", retry }))
+    ).rejects.toThrow(/fetch failed/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("recovers when a later attempt succeeds", async () => {
     const fetchMock = vi
       .fn()
