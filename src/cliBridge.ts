@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { serverRootUrl } from "./client";
-import { SECRET_API_KEY } from "./provider";
+import { loadRoutes } from "./routes";
 
 interface CliTool {
   id: string;
@@ -51,10 +51,27 @@ export async function configureCliTool(
     : await pickTool();
   if (!tool) return;
 
+  const routes = await loadRoutes(context);
+  if (routes.length === 0) {
+    void vscode.window.showWarningMessage(
+      vscode.l10n.t("Add an OmniRoute server in the panel before configuring a coding CLI.")
+    );
+    return;
+  }
+  let route = routes[0];
+  if (routes.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      routes.map((r) => ({ label: r.name, description: serverRootUrl(r.baseUrl), route: r })),
+      { title: vscode.l10n.t("OmniRoute: pick a server for {0}", tool.label) }
+    );
+    if (!picked) return;
+    route = picked.route;
+  }
+
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
   const cliPath = cfg.get<string>("cliPath", "omniroute").trim() || "omniroute";
-  const root = serverRootUrl(cfg.get<string>("baseUrl", "http://localhost:20128/v1"));
-  const apiKey = await context.secrets.get(SECRET_API_KEY);
+  const root = serverRootUrl(route.baseUrl);
+  const apiKey = route.apiKey;
 
   const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(root);
   const args = [tool.subcommand];
