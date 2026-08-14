@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, serverRootUrl } from "./client";
+import { serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
-import { OmniRouteChatProvider, SECRET_API_KEY } from "./provider";
+import { OmniRouteChatProvider } from "./provider";
+import { SECRET_PREFIX, loadRoutes, makeClientForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
@@ -16,18 +17,18 @@ function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
 }
 
-async function makeClient(context: vscode.ExtensionContext): Promise<OmniRouteClient> {
-  const baseUrl = getConfig().get<string>("baseUrl", "http://localhost:20128/v1");
-  const apiKey = await context.secrets.get(SECRET_API_KEY);
-  return new OmniRouteClient({ baseUrl, apiKey: apiKey || undefined });
-}
-
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("OmniRoute for Copilot", { log: true });
   context.subscriptions.push(log);
   log.info(`Activating v${context.extension.packageJSON.version}`);
 
-  statusBar = new ConnectionStatusBar(() => makeClient(context), log);
+  statusBar = new ConnectionStatusBar(
+    async () => {
+      const routes = await loadRoutes(context);
+      return routes.map(makeClientForRoute);
+    },
+    log
+  );
   context.subscriptions.push(statusBar);
 
   provider = new OmniRouteChatProvider({
@@ -80,21 +81,37 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   register("omnicopilot.checkConnection", async () => {
     const ok = await statusBar?.checkNow();
     if (ok) {
-      const client = await makeClient(context);
+      const routes = await loadRoutes(context);
       void vscode.window.showInformationMessage(
-        vscode.l10n.t("Connected to OmniRoute at {0}.", client.baseUrl)
+        vscode.l10n.t("Connected to OmniRoute at {0}.", routes[0]?.baseUrl ?? "")
       );
     } else {
       void vscode.window.showWarningMessage(
         vscode.l10n.t(
-          "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.baseUrl points at it."
+          "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.routes is configured."
         )
       );
     }
   });
 
   register("omnicopilot.openDashboard", async () => {
-    const root = serverRootUrl(getConfig().get<string>("baseUrl", "http://localhost:20128/v1"));
+    const routes = await loadRoutes(context);
+    if (routes.length === 0) return;
+    let root: string;
+    if (routes.length === 1) {
+      root = serverRootUrl(routes[0].baseUrl);
+    } else {
+      const picked = await vscode.window.showQuickPick(
+        routes.map((r) => ({
+          label: r.name,
+          description: serverRootUrl(r.baseUrl),
+          route: r,
+        })),
+        { title: vscode.l10n.t("OmniRoute: open dashboard") }
+      );
+      if (!picked) return;
+      root = serverRootUrl(picked.route.baseUrl);
+    }
     const mode = getConfig().get<string>("dashboardOpen", "external");
     if (mode === "editor") {
       // Simple Browser renders the dashboard in an editor tab. Needs an
@@ -142,15 +159,20 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
 
 /** Menu behind the status-bar item. */
 async function quickActions(context: vscode.ExtensionContext): Promise<void> {
-  const client = await makeClient(context);
-  const online = await client.ping(1500);
+  const routes = await loadRoutes(context);
+  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping(1500)));
+  const onlineCount = results.filter(Boolean).length;
+  const online = onlineCount > 0;
 
   const items: Array<vscode.QuickPickItem & { action: string }> = [
     {
       label: online
         ? `$(circle-filled) ${vscode.l10n.t("Online")}`
         : `$(circle-outline) ${vscode.l10n.t("Offline")}`,
-      description: client.baseUrl,
+      description:
+        routes.length === 1
+          ? routes[0].baseUrl
+          : `${vscode.l10n.t("{0}/{1} online", String(onlineCount), String(routes.length))}`,
       action: "check",
     },
     { label: `$(gear) ${vscode.l10n.t("Configure connection (URL / API key)")}`, action: "manage" },
@@ -188,12 +210,29 @@ async function setApiKey(
   log: vscode.LogOutputChannel,
   optionalFlow = false
 ): Promise<void> {
-  const existing = await context.secrets.get(SECRET_API_KEY);
+  const routes = await loadRoutes(context);
+  if (routes.length === 0) {
+    void vscode.window.showWarningMessage(
+      vscode.l10n.t("Add a route in the OmniRoute panel first, then set its API key.")
+    );
+    return;
+  }
+  let route = routes[0];
+  if (routes.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      routes.map((r) => ({ label: r.name, description: r.baseUrl, route: r })),
+      { title: vscode.l10n.t("OmniRoute: pick a server") }
+    );
+    if (!picked) return;
+    route = picked.route;
+  }
+
+  const existing = await context.secrets.get(SECRET_PREFIX + route.id);
   const key = await vscode.window.showInputBox({
-    title: vscode.l10n.t("OmniRoute API key"),
+    title: vscode.l10n.t("OmniRoute API key — {0}", route.name),
     prompt: optionalFlow
       ? vscode.l10n.t(
-          "Optional — leave empty if your OmniRoute does not require an API key. Stored in the OS keychain."
+          "Optional — leave empty if this server does not require an API key. Stored in the OS keychain."
         )
       : vscode.l10n.t("Stored securely in the OS keychain (SecretStorage). Leave empty to clear."),
     value: existing ?? "",
@@ -203,11 +242,11 @@ async function setApiKey(
   if (key === undefined) return;
 
   if (key.trim()) {
-    await context.secrets.store(SECRET_API_KEY, key.trim());
-    log.info("API key stored in SecretStorage");
+    await context.secrets.store(SECRET_PREFIX + route.id, key.trim());
+    log.info(`API key stored in SecretStorage (${route.id})`);
   } else if (existing) {
-    await context.secrets.delete(SECRET_API_KEY);
-    log.info("API key cleared");
+    await context.secrets.delete(SECRET_PREFIX + route.id);
+    log.info(`API key cleared (${route.id})`);
   }
   if (!optionalFlow) await provider?.refresh();
 }
@@ -221,9 +260,10 @@ async function checkFirstRun(
   if (context.globalState.get<boolean>(FLAG)) return;
   await context.globalState.update(FLAG, true);
 
-  const client = await makeClient(context);
-  const online = await client.ping();
-  log.info(`First run — OmniRoute ${online ? "detected" : "not detected"} at ${client.baseUrl}`);
+  const routes = await loadRoutes(context);
+  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
+  const online = results.some(Boolean);
+  log.info(`First run — OmniRoute ${online ? "detected" : "not detected"} (${routes.length} route(s))`);
 
   if (online) {
     const pick = await vscode.window.showInformationMessage(
