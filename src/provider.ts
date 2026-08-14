@@ -18,6 +18,9 @@ export interface ProviderDeps {
   onActivity?: (ok: boolean) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
   onUsage?: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
+  /** routeIds that passed the most recent liveness probe; chat deprioritizes
+   * the rest so unreachable servers aren't tried first. */
+  getOnlineRouteIds?: () => ReadonlySet<string> | undefined;
 }
 
 function getConfig() {
@@ -199,12 +202,29 @@ export class OmniRouteChatProvider
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
-    // Prefer the cache's authoritative route/model (keys match VS Code's id);
-    // fall back to the fields carried on the info object.
-    const primary: FallbackCandidate = primaryEntry
-      ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
-      : { routeId: model.routeId, modelId: model.omniModelId };
-    const candidates = [primary, ...fallbacks];
+    // The route/model you selected is authoritative: the info object VS Code
+    // hands back carries routeId + omniModelId for exactly the pick you made.
+    // The cache lookup is only a fallback for ids it cannot resolve.
+    const primary: FallbackCandidate =
+      model.routeId && model.omniModelId
+        ? { routeId: model.routeId, modelId: model.omniModelId }
+        : primaryEntry
+          ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
+          : { routeId: model.routeId, modelId: model.omniModelId };
+
+    // The user-selected model is ALWAYS tried first. Only the fallbacks get
+    // reordered so that servers that just passed their liveness probe come
+    // before dead proxies — never the other way around.
+    const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
+    const fallbacksByHealth =
+      knownOnline.size > 0
+        ? [...fallbacks].sort(
+            (a, b) =>
+              (knownOnline.has(a.routeId) ? 0 : 1) - (knownOnline.has(b.routeId) ? 0 : 1)
+          )
+        : fallbacks;
+
+    const candidates = [primary, ...fallbacksByHealth];
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
     const lastIndex = candidates.length - 1;
 

@@ -5,6 +5,7 @@ import type { Route } from "./routes";
 type Status = "online" | "partial" | "offline" | "checking";
 
 interface ServerHealth {
+  routeId: string;
   name: string;
   online: boolean;
 }
@@ -80,10 +81,17 @@ export class ConnectionStatusBar implements vscode.Disposable {
       return false;
     }
     const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
-    this.health = routes.map((r, i) => ({ name: r.name, online: results[i] }));
+    this.health = routes.map((r, i) => ({ routeId: r.id, name: r.name, online: results[i] }));
     const ok = this.health.filter((h) => h.online).length;
     this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
     return ok > 0;
+  }
+
+  /** routeIds that answered the most recent liveness probe. Used by the chat
+   * provider to deprioritize servers that were just unreachable, so a dead
+   * proxy isn't tried first on every request. */
+  onlineRouteIds(): ReadonlySet<string> {
+    return new Set(this.health.filter((h) => h.online).map((h) => h.routeId));
   }
 
   restart(): void {

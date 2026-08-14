@@ -35,6 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
     onActivity: (ok) => statusBar?.reportActivity(ok),
     onUsage: (usage) => statusBar?.reportUsage(usage),
+    getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
   });
   context.subscriptions.push(provider);
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
