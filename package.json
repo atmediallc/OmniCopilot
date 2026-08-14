@@ -134,10 +134,26 @@
     "configuration": {
       "title": "OmniRoute for Copilot",
       "properties": {
+        "omnicopilot.routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "baseUrl": { "type": "string" }
+            },
+            "required": ["id", "name", "baseUrl"]
+          },
+          "default": [],
+          "order": 1,
+          "description": "%cfg.routes%"
+        },
         "omnicopilot.baseUrl": {
           "type": "string",
           "default": "http://localhost:20128/v1",
-          "order": 1,
+          "order": 9,
+          "deprecationMessage": "%cfg.baseUrlDeprecated%",
           "description": "%cfg.baseUrl%"
         },
         "omnicopilot.statusBar": {

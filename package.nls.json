@@ -9,6 +9,8 @@
   "cmd.configureCliTool": "Configure Coding CLI (Codex, Claude Code, Cline…)",
   "cmd.quickActions": "Quick Actions",
   "view.connection": "Connection",
+  "cfg.routes": "List of OmniRoute servers (routes) to expose models from. Each needs an id, a display name and a base URL; API keys are stored securely per route.",
+  "cfg.baseUrlDeprecated": "Deprecated: use omnicopilot.routes instead (one entry per server). The legacy value migrates automatically to the first route.",
   "cfg.baseUrl": "OmniRoute base URL (OpenAI-compatible). Point it at your local install or any remote OmniRoute instance.",
   "cfg.statusBar": "Show the OmniRoute connection indicator in the status bar.",
   "cfg.healthCheckIntervalSeconds": "How often the status bar probes the OmniRoute server (seconds).",
