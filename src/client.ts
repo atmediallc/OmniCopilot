@@ -7,9 +7,21 @@ import type {
   StreamToolCallDelta,
 } from "./types";
 
+/** Backoff/retry knobs. Defaults target transient admission/rate-limit
+ * failures (429/5xx); permanent client errors (4xx) are never retried. */
+export interface RetryPolicy {
+  /** Total HTTP attempts including the first. Default 3. */
+  maxAttempts?: number;
+  /** Exponential backoff base in ms. Default 400. */
+  baseMs?: number;
+  /** Per-attempt delay cap in ms. Default 4000. */
+  maxMs?: number;
+}
+
 export interface ClientOptions {
   baseUrl: string;
   apiKey?: string;
+  retry?: RetryPolicy;
 }
 
 const USER_AGENT = "OmniCopilot-VSCode";
@@ -33,6 +45,72 @@ export function normalizeBaseUrl(raw: string): string {
 /** Base URL without the /v1 suffix (dashboard, CLI --remote flag). */
 export function serverRootUrl(baseUrl: string): string {
   return normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
+}
+
+/** Error carrying the upstream HTTP status, so callers can tell transient
+ * server-side failures (retry/fallback) apart from permanent ones. */
+export class OmniRouteError extends Error {
+  constructor(
+    message: string,
+    /** HTTP status when the failure came from an upstream response. */
+    public readonly status?: number
+  ) {
+    super(message);
+    this.name = "OmniRouteError";
+  }
+}
+
+/** Statuses worth retrying: request timeout, rate limit, and 5xx range. */
+export function isTransientHttpError(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 504);
+}
+
+const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 3, baseMs: 400, maxMs: 4000 };
+
+function abortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  return new Error("The operation was aborted");
+}
+
+/** Abortable delay: resolves after `ms` unless the signal aborts first. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortReason(signal));
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Backoff for a failed attempt: honor Retry-After, else exponential + jitter. */
+function retryDelayMs(res: Response, attempt: number, policy: Required<RetryPolicy>): number {
+  const retryAfter = Number(res.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+  const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
+  return Math.min(policy.maxMs, base + Math.random() * Math.min(base, 200));
+}
+
+/** Ordered fallback candidates for a chat request that keeps failing with
+ * transient server errors: same provider family first, then any compatible
+ * model. The primary id is always excluded. */
+export function pickFallbackModels(
+  primaryId: string,
+  models: OmniRouteModel[],
+  needsTools: boolean,
+  max = 2
+): OmniRouteModel[] {
+  const family = primaryId.split("/")[0];
+  const compatible = (m: OmniRouteModel) =>
+    m.id !== primaryId && (!needsTools || m.capabilities?.tool_calling !== false);
+  const sameFamily = models.filter((m) => compatible(m) && m.id.split("/")[0] === family);
+  const pool = sameFamily.length > 0 ? sameFamily : models.filter(compatible);
+  return pool.slice(0, max);
 }
 
 /** Thin HTTP client for an OmniRoute (or any OpenAI-compatible) server. */
@@ -61,12 +139,35 @@ export class OmniRouteClient {
     }
   }
 
+  /** fetch that retries transient failures (429/5xx) with exponential backoff,
+   * honoring the server's Retry-After header when present. The abort signal is
+   * read from `init.signal` (the shape fetch itself expects) so in-flight
+   * requests abort and inter-attempt sleeps are cancellable. */
+  private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+    const signal = init.signal ?? new AbortController().signal;
+    const maxAttempts = Math.max(1, this.opts.retry?.maxAttempts ?? RETRY_DEFAULTS.maxAttempts);
+    const policy: Required<RetryPolicy> = {
+      maxAttempts,
+      baseMs: this.opts.retry?.baseMs ?? RETRY_DEFAULTS.baseMs,
+      maxMs: this.opts.retry?.maxMs ?? RETRY_DEFAULTS.maxMs,
+    };
+    for (let attempt = 0; ; attempt++) {
+      if (signal.aborted) throw abortReason(signal);
+      const res = await fetch(url, init);
+      if (res.ok || !isTransientHttpError(res.status) || attempt >= policy.maxAttempts - 1) {
+        return res;
+      }
+      await sleep(retryDelayMs(res, attempt, policy), signal);
+    }
+  }
+
   async listModels(token?: { isCancellationRequested?: boolean }): Promise<OmniRouteModel[]> {
-    const res = await fetch(`${this.baseUrl}/models`, {
+    const res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
+      method: "GET",
       headers: headers(this.opts.apiKey, false),
     });
     if (!res.ok) {
-      throw new Error(`OmniRoute /models returned HTTP ${res.status}`);
+      throw new OmniRouteError(`OmniRoute /models returned HTTP ${res.status}`, res.status);
     }
     if (token?.isCancellationRequested) return [];
     const body = (await res.json()) as ModelsResponse;
@@ -75,7 +176,7 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
+    const res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: headers(this.opts.apiKey, true),
       body: JSON.stringify(request),
@@ -84,7 +185,10 @@ export class OmniRouteClient {
 
     if (!res.ok || !res.body) {
       const detail = await safeErrorDetail(res);
-      throw new Error(`OmniRoute request failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`);
+      throw new OmniRouteError(
+        `OmniRoute request failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`,
+        res.status
+      );
     }
 
     const assembler = new ToolCallAssembler();

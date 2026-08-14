@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteClient } from "./client";
+import { OmniRouteClient, OmniRouteError, isTransientHttpError, pickFallbackModels } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import type { ChatRequest, OmniRouteModel } from "./types";
 
@@ -19,6 +19,12 @@ export interface ProviderDeps {
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
+}
+
+/** Small non-abortable pause between fallback attempts to avoid hammering a
+ * busy server. Kept short; cancellation is re-checked on the next iteration. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class OmniRouteChatProvider
@@ -167,35 +173,70 @@ export class OmniRouteChatProvider
       request.temperature = modelOptions.temperature;
     }
 
+    // Fallbacks only matter when the server itself is transiently unavailable
+    // (429/5xx); permanent errors (auth, bad model) fail immediately.
+    const fallbackIds = pickFallbackModels(
+      model.omniModelId,
+      this.cachedModels,
+      Boolean(options.tools?.length)
+    ).map((m) => m.id);
+    const candidateIds = [model.omniModelId, ...fallbackIds];
+
     log.debug(
-      `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)`
+      `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
+        (fallbackIds.length ? `, fallbacks: ${fallbackIds.join(", ")}` : "")
     );
 
     const abort = new AbortController();
     const cancelSub = token.onCancellationRequested(() => abort.abort());
 
     try {
-      for await (const event of client.streamChat(request, abort.signal)) {
-        if (token.isCancellationRequested) break;
-        if (event.kind === "text") {
-          progress.report(new vscode.LanguageModelTextPart(event.text));
-        } else {
-          let input: Record<string, unknown>;
-          try {
-            input = JSON.parse(event.args) as Record<string, unknown>;
-          } catch {
-            log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
-            input = {};
+      for (const mid of candidateIds) {
+        const attemptRequest = mid === model.omniModelId ? request : { ...request, model: mid };
+        try {
+          for await (const event of client.streamChat(attemptRequest, abort.signal)) {
+            if (token.isCancellationRequested) break;
+            if (event.kind === "text") {
+              progress.report(new vscode.LanguageModelTextPart(event.text));
+            } else {
+              let input: Record<string, unknown>;
+              try {
+                input = JSON.parse(event.args) as Record<string, unknown>;
+              } catch {
+                log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
+                input = {};
+              }
+              progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
+            }
           }
-          progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
+          this.deps.onActivity?.(true);
+          return;
+        } catch (err) {
+          if (token.isCancellationRequested) return;
+          const status = err instanceof OmniRouteError ? err.status : undefined;
+          const transient = status !== undefined && isTransientHttpError(status);
+          const last = mid === candidateIds[candidateIds.length - 1];
+          if (!transient) {
+            this.deps.onActivity?.(false);
+            log.error(`Chat request failed: ${String(err)}`);
+            throw err;
+          }
+          if (last) {
+            this.deps.onActivity?.(false);
+            log.error(`Chat request failed after ${candidateIds.length} model(s): ${String(err)}`);
+            void vscode.window.showWarningMessage(
+              vscode.l10n.t(
+                "OmniRoute is temporarily unavailable (HTTP {0}). Retried {1} model(s) without success — please retry shortly.",
+                String(status),
+                String(candidateIds.length)
+              )
+            );
+            throw err;
+          }
+          log.warn(`Model ${mid} transiently unavailable (HTTP ${status}) — trying fallback`);
+          await delay(200);
         }
       }
-      this.deps.onActivity?.(true);
-    } catch (err) {
-      if (token.isCancellationRequested) return;
-      this.deps.onActivity?.(false);
-      log.error(`Chat request failed: ${String(err)}`);
-      throw err;
     } finally {
       cancelSub.dispose();
     }
