@@ -1,12 +1,17 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, OmniRouteError, isTransientHttpError, pickFallbackModels } from "./client";
+import { OmniRouteClient, OmniRouteError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
-import type { ChatRequest, OmniRouteModel } from "./types";
+import { buildCatalog, loadRoutes, makeClientForRoute } from "./routes";
+import type { ChatRequest } from "./types";
+import type { CatalogModel, RouteCatalog } from "./routes";
 
-export const SECRET_API_KEY = "omnicopilot.apiKey";
+// Legacy single-route secret moved to routes.ts; re-exported here until the
+// settings/panel/CLI consumers migrate to ./routes (Tasks 6-8).
+export { SECRET_API_KEY } from "./routes";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
+  routeId: string;
 }
 
 export interface ProviderDeps {
@@ -33,7 +38,7 @@ export class OmniRouteChatProvider
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
-  private cachedModels: OmniRouteModel[] = [];
+  private cachedModels: CatalogModel[] = [];
 
   constructor(private readonly deps: ProviderDeps) {}
 
@@ -47,10 +52,11 @@ export class OmniRouteChatProvider
     this._onDidChange.fire();
   }
 
-  private async makeClient(): Promise<OmniRouteClient> {
-    const baseUrl = getConfig().get<string>("baseUrl", "http://localhost:20128/v1");
-    const apiKey = await this.deps.context.secrets.get(SECRET_API_KEY);
-    return new OmniRouteClient({ baseUrl, apiKey: apiKey || undefined });
+  private async clientForRoute(routeId: string): Promise<OmniRouteClient> {
+    const routes = await loadRoutes(this.deps.context);
+    const route = routes.find((r) => r.id === routeId);
+    if (!route) throw new OmniRouteError(`Route ${routeId} is not configured`, undefined);
+    return makeClientForRoute(route);
   }
 
   // ── Model discovery ─────────────────────────────────────────────────────
@@ -59,28 +65,43 @@ export class OmniRouteChatProvider
     options: { silent: boolean },
     token: vscode.CancellationToken
   ): Promise<OmniModelInfo[]> {
-    const client = await this.makeClient();
+    const routes = await loadRoutes(this.deps.context);
+    if (routes.length === 0) return [];
 
-    try {
-      this.cachedModels = await client.listModels(token);
-      this.deps.onActivity?.(true);
-    } catch (err) {
-      this.deps.onActivity?.(false);
-      this.deps.log.warn(`Model discovery failed: ${String(err)}`);
-      if (!options.silent) {
-        void this.offerConnectionHelp();
-      }
-      // Contract: with silent=true never prompt; an unreachable server simply
-      // contributes no models until the user fixes the connection.
+    const segments: RouteCatalog[] = await Promise.all(
+      routes.map(async (r) => {
+        try {
+          const models = await makeClientForRoute(r).listModels(token);
+          this.deps.onActivity?.(true);
+          return { routeId: r.id, name: r.name, models };
+        } catch (err) {
+          this.deps.onActivity?.(false);
+          this.deps.log.warn(`Route "${r.name}" model discovery failed: ${String(err)}`);
+          return { routeId: r.id, name: r.name, models: [] };
+        }
+      })
+    );
+
+    const anyModel = segments.some((s) => s.models.length > 0);
+    if (!anyModel) {
+      // No route answered with a model list. Only prompt when the caller
+      // wants it (model picker opened by the user); otherwise contribute none.
+      if (!options.silent) void this.offerConnectionHelp();
       return [];
     }
 
-    const infos = this.toModelInfos(this.cachedModels);
-    this.deps.log.info(`Listed ${infos.length} models from ${client.baseUrl}`);
+    const catalog = buildCatalog(segments);
+    this.cachedModels = catalog;
+    const infos = this.toModelInfos(catalog);
+    // `this.cachedModels` is read here so Task 3 compiles clean before the
+    // chat fallback (Task 4) starts consuming it.
+    this.deps.log.info(
+      `Listed ${infos.length} models from ${segments.map((s) => `${s.name}(${s.models.length})`).join(", ")} (cached ${this.cachedModels.length})`
+    );
     return infos;
   }
 
-  private toModelInfos(models: OmniRouteModel[]): OmniModelInfo[] {
+  private toModelInfos(catalog: CatalogModel[]): OmniModelInfo[] {
     const cfg = getConfig();
     const maxOutput = cfg.get<number>("maxOutputTokens", 16384);
     const defaultContext = cfg.get<number>("defaultContextLength", 128000);
@@ -98,7 +119,8 @@ export class OmniRouteChatProvider
     }
 
     const infos: OmniModelInfo[] = [];
-    for (const model of models) {
+    for (const c of catalog) {
+      const model = c.model;
       if (!model?.id) continue;
       if (filter && !filter.test(model.id)) continue;
 
@@ -108,7 +130,7 @@ export class OmniRouteChatProvider
       const isCombo = model.owned_by === "combo";
 
       infos.push({
-        id: model.id,
+        id: c.entry.prefixedId,
         name: model.display_name?.trim() || model.id,
         family: model.owned_by || "omniroute",
         version: "1.0.0",
@@ -117,20 +139,19 @@ export class OmniRouteChatProvider
         maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
         maxOutputTokens,
         capabilities: {
-          // Catalog knows tool_calling/vision per model; default to tools ON
-          // (agent mode is the whole point) when the field is absent.
           toolCalling: caps.tool_calling !== false,
           imageInput: caps.vision === true,
         },
-        omniModelId: model.id,
+        omniModelId: c.entry.modelId,
+        routeId: c.entry.routeId,
       });
     }
     return infos;
   }
 
   private async offerConnectionHelp(): Promise<void> {
-    const cfg = getConfig();
-    const baseUrl = cfg.get<string>("baseUrl", "http://localhost:20128/v1");
+    const routes = await loadRoutes(this.deps.context);
+    const baseUrl = routes[0]?.baseUrl ?? "http://localhost:20128/v1";
     const configureLabel = vscode.l10n.t("Configure Connection");
     const installLabel = vscode.l10n.t("Install OmniRoute");
     const pick = await vscode.window.showWarningMessage(
@@ -154,7 +175,7 @@ export class OmniRouteChatProvider
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken
   ): Promise<void> {
-    const client = await this.makeClient();
+    const client = await this.clientForRoute(model.routeId);
     const log = this.deps.log;
 
     const request: ChatRequest = {
@@ -173,18 +194,10 @@ export class OmniRouteChatProvider
       request.temperature = modelOptions.temperature;
     }
 
-    // Fallbacks only matter when the server itself is transiently unavailable
-    // (429/5xx); permanent errors (auth, bad model) fail immediately.
-    const fallbackIds = pickFallbackModels(
-      model.omniModelId,
-      this.cachedModels,
-      Boolean(options.tools?.length)
-    ).map((m) => m.id);
-    const candidateIds = [model.omniModelId, ...fallbackIds];
+    const candidateIds = [model.omniModelId];
 
     log.debug(
-      `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
-        (fallbackIds.length ? `, fallbacks: ${fallbackIds.join(", ")}` : "")
+      `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)`
     );
 
     const abort = new AbortController();
