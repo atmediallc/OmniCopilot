@@ -39,8 +39,8 @@ describe("buildCatalog", () => {
       { routeId: "r2", name: "B", models: [model("kimi/k2")] },
     ]);
     expect(catalog).toEqual([
-      { entry: { routeId: "r1", modelId: "openai/gpt-4o", prefixedId: "A · openai/gpt-4o" }, model: model("openai/gpt-4o") },
-      { entry: { routeId: "r2", modelId: "kimi/k2", prefixedId: "B · kimi/k2" }, model: model("kimi/k2") },
+      { entry: { routeId: "r1", routeName: "A", modelId: "openai/gpt-4o", prefixedId: "A · openai/gpt-4o" }, model: model("openai/gpt-4o") },
+      { entry: { routeId: "r2", routeName: "B", modelId: "kimi/k2", prefixedId: "B · kimi/k2" }, model: model("kimi/k2") },
     ]);
   });
   it("desambigua el mismo modelo id de dos rutas con nombres iguales", () => {

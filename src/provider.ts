@@ -120,11 +120,11 @@ export class OmniRouteChatProvider
 
       infos.push({
         id: c.entry.prefixedId,
-        name: model.display_name?.trim() || model.id,
+        name: `${c.entry.routeName} · ${model.display_name?.trim() || model.id}`,
         family: model.owned_by || "omniroute",
         version: "1.0.0",
         detail: isCombo ? "combo" : model.owned_by,
-        tooltip: `OmniRoute · ${model.id}`,
+        tooltip: `OmniRoute · ${c.entry.routeName} · ${model.id}`,
         maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
         maxOutputTokens,
         capabilities: {

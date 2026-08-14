@@ -99,6 +99,8 @@ function hostLabelOf(raw: string): string {
 /** One model from one route in the united catalog. */
 export interface CatalogEntry {
   routeId: string;
+  /** Route's assigned Name (for display in the model picker). */
+  routeName: string;
   /** Original server model id — the one sent to the API. */
   modelId: string;
   /** Exposed, always-unique VS Code id (`name · modelId`). */
@@ -142,7 +144,10 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
       if (!model?.id) continue;
       const prefixed = prefixedId(r.name, r.routeId, model.id, taken);
       taken.add(prefixed);
-      out.push({ entry: { routeId: r.routeId, modelId: model.id, prefixedId: prefixed }, model });
+      out.push({
+        entry: { routeId: r.routeId, routeName: r.name, modelId: model.id, prefixedId: prefixed },
+        model,
+      });
     }
   }
   return out;
