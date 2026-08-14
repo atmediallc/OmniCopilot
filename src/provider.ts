@@ -262,13 +262,14 @@ export class OmniRouteChatProvider
           }
           if (last) {
             this.deps.onActivity?.(false);
-            log.error(`Chat request failed after ${candidates.length} model(s): ${String(err)}`);
-            void vscode.window.showWarningMessage(
+            const reason = err instanceof OmniRouteError ? err.message : String(err);
+            log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+            void vscode.window.showErrorMessage(
               vscode.l10n.t(
-                "OmniRoute is temporarily unavailable (HTTP {0}). Retried {1} model(s) on {2} server(s) without success — please retry shortly.",
-                String(status),
-                String(candidates.length),
-                String(serverCount)
+                "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
+                model.omniModelId,
+                String(serverCount),
+                reason
               )
             );
             throw err;

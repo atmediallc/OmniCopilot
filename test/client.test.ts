@@ -233,6 +233,28 @@ describe("OmniRouteClient retry behavior", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("aborts a silent stream via the idle watchdog", async () => {
+    const never = new ReadableStream<Uint8Array>({
+      start() {
+        void 0; // never enqueues nor closes — server hangs
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(never, { status: 200 })));
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1", streamIdleTimeoutMs: 30 });
+    const ctrl = new AbortController();
+    await expect(
+      (async () => {
+        for await (const _e of client.streamChat(
+          { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+          ctrl.signal
+        )) {
+          void _e;
+        }
+      })()
+    ).rejects.toThrow("no data");
+  });
+
   it("stops before the first request when already aborted", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);

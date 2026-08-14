@@ -22,6 +22,10 @@ export interface ClientOptions {
   baseUrl: string;
   apiKey?: string;
   retry?: RetryPolicy;
+  /** Abort a streaming response that sends no data for this long (ms).
+   * Guards against dead proxies/servers that accept the connection and then
+   * go silent. Default 30000. */
+  streamIdleTimeoutMs?: number;
 }
 
 const USER_AGENT = "OmniCopilot-VSCode";
@@ -188,11 +192,20 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
+
+    // Derived signal so a stall can abort this attempt without cancelling the
+    // caller's own signal (which would kill the fallback chain).
+    const ctrl = new AbortController();
+    const relay = () => ctrl.abort(signal.reason);
+    if (signal.aborted) ctrl.abort(signal.reason);
+    else signal.addEventListener("abort", relay, { once: true });
+
     const res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: headers(this.opts.apiKey, true),
       body: JSON.stringify(request),
-      signal,
+      signal: ctrl.signal,
     });
 
     if (!res.ok || !res.body) {
@@ -208,9 +221,32 @@ export class OmniRouteClient {
     const decoder = new TextDecoder();
     let buffer = "";
 
+    // Idle-watchdog: reset on every byte; abort if the server goes silent.
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    let stalled = false;
+    const kick = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        stalled = true;
+        ctrl.abort(new OmniRouteError(`Server sent no data for ${idleMs / 1000}s`, 408));
+      }, idleMs);
+    };
+    const stallWait = () =>
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => {
+          stalled = true;
+          ctrl.abort(new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408));
+          reject(new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408));
+        }, idleMs);
+        stallTimer = t;
+      });
+
     try {
+      kick();
       for (;;) {
-        const { done, value } = await reader.read();
+        const chunk = await Promise.race([reader.read(), stallWait()]);
+        kick();
+        const { done, value } = chunk;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -224,8 +260,12 @@ export class OmniRouteClient {
       // Flush any tool calls still being assembled when the stream ends
       // without an explicit finish_reason line.
       yield* assembler.flush();
+    } catch (err) {
+      if (stalled) throw new OmniRouteError(`OmniRoute timed out — no data for ${idleMs / 1000}s`, 408);
+      throw err;
     } finally {
-      reader.releaseLock();
+      if (stallTimer) clearTimeout(stallTimer);
+      signal.removeEventListener("abort", relay);
     }
   }
 
