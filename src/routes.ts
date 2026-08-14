@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
-import type { RouteConfig } from "./types";
+import type { OmniRouteModel, RouteConfig } from "./types";
 
 /** Legacy single-route secret (migrated into route-1). */
 export const SECRET_API_KEY = "omnicopilot.apiKey";
@@ -94,4 +94,97 @@ function hostLabelOf(raw: string): string {
   } catch {
     return "route-1";
   }
+}
+
+/** One model from one route in the united catalog. */
+export interface CatalogEntry {
+  routeId: string;
+  /** Original server model id — the one sent to the API. */
+  modelId: string;
+  /** Exposed, always-unique VS Code id (`name · modelId`). */
+  prefixedId: string;
+}
+
+export interface CatalogModel {
+  entry: CatalogEntry;
+  model: OmniRouteModel;
+}
+
+export interface FallbackCandidate {
+  routeId: string;
+  modelId: string;
+}
+
+export interface RouteCatalog {
+  routeId: string;
+  name: string;
+  models: OmniRouteModel[];
+}
+
+/** Sanitized, prefixed, unique model id. Collisions get ` #<routeId>` appended. */
+export function prefixedId(
+  routeName: string,
+  routeId: string,
+  modelId: string,
+  taken: ReadonlySet<string>
+): string {
+  const clean = routeName.trim().replace(/[^A-Za-z0-9 _.+-]/g, "").slice(0, 20);
+  const base = `${clean || routeId} · ${modelId}`;
+  return taken.has(base) ? `${base} #${routeId}` : base;
+}
+
+/** Union of per-route raw catalogs into deduped, prefixed, route-tagged models. */
+export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
+  const taken = new Set<string>();
+  const out: CatalogModel[] = [];
+  for (const r of perRoute) {
+    for (const model of r.models) {
+      if (!model?.id) continue;
+      const prefixed = prefixedId(r.name, r.routeId, model.id, taken);
+      taken.add(prefixed);
+      out.push({ entry: { routeId: r.routeId, modelId: model.id, prefixedId: prefixed }, model });
+    }
+  }
+  return out;
+}
+
+/** Ordered cross-route fallback candidates for a failing chat request:
+ * 1) same original model id on another route, 2) same provider family on the
+ * same route, 3) any compatible model elsewhere. Primary excluded. When tools
+ * are needed, models reporting `tool_calling: false` are filtered out. */
+export function pickFallbackCandidates(
+  primary: CatalogEntry,
+  catalog: CatalogModel[],
+  needsTools: boolean,
+  max = 4
+): FallbackCandidate[] {
+  const compatible = (c: CatalogModel) =>
+    !needsTools || c.model.capabilities?.tool_calling !== false;
+  const family = primary.modelId.split("/")[0];
+
+  const out: FallbackCandidate[] = [];
+  const seen = new Set<string>([primary.prefixedId]);
+  const push = (c: CatalogModel) => {
+    if (seen.has(c.entry.prefixedId)) return;
+    seen.add(c.entry.prefixedId);
+    out.push({ routeId: c.entry.routeId, modelId: c.entry.modelId });
+  };
+
+  catalog
+    .filter((c) => compatible(c) && c.entry.modelId === primary.modelId && c.entry.routeId !== primary.routeId)
+    .forEach(push);
+  catalog
+    .filter(
+      (c) =>
+        compatible(c) &&
+        c.entry.routeId === primary.routeId &&
+        c.entry.modelId !== primary.modelId &&
+        c.entry.modelId.split("/")[0] === family
+    )
+    .forEach(push);
+  catalog
+    .filter((c) => compatible(c) && c.entry.prefixedId !== primary.prefixedId)
+    .forEach(push);
+
+  return out.slice(0, max);
 }
