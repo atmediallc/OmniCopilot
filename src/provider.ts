@@ -5,10 +5,6 @@ import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } 
 import type { ChatRequest } from "./types";
 import type { CatalogModel, RouteCatalog } from "./routes";
 
-// Legacy single-route secret moved to routes.ts; re-exported here until the
-// settings/panel/CLI consumers migrate to ./routes (Tasks 6-8).
-export { SECRET_API_KEY } from "./routes";
-
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
   routeId: string;
