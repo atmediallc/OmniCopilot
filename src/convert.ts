@@ -67,11 +67,22 @@ export function toOpenAiMessages(
     }
   }
 
-  // Some VS Code request histories place the system instruction after the
-  // conversation. OpenAI-compatible servers require system messages first.
+  // Some VS Code request histories place system instructions after the
+  // conversation. Some upstream adapters also require one leading system
+  // message, not several system entries interleaved with tool messages.
   const system = out.filter((message) => message.role === "system");
   if (system.length === 0) return out;
-  return [...system, ...out.filter((message) => message.role !== "system")];
+  const systemText: string[] = [];
+  const systemParts: ChatContentPart[] = [];
+  for (const message of system) {
+    if (typeof message.content === "string") systemText.push(message.content);
+    else if (Array.isArray(message.content)) systemParts.push(...message.content);
+  }
+  const leadingSystem: ChatMessage = {
+    role: "system",
+    content: systemParts.length > 0 ? systemParts : systemText.join("\n\n"),
+  };
+  return [leadingSystem, ...out.filter((message) => message.role !== "system")];
 }
 
 function mapRole(role: vscode.LanguageModelChatMessageRole): "system" | "user" | "assistant" {
