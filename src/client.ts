@@ -205,12 +205,31 @@ export class OmniRouteClient {
     if (signal.aborted) ctrl.abort(signal.reason);
     else signal.addEventListener("abort", relay, { once: true });
 
-    const res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: headers(this.opts.apiKey, true),
-      body: JSON.stringify(request),
-      signal: ctrl.signal,
-    });
+    // The first-byte cap must also bound the connect/headers phase: an
+    // upstream (proxy/OmniRoute) that accepts the connection and then hangs
+    // would otherwise block the whole request for as long as fetch allows.
+    const firstByteTimer = setTimeout(
+      () =>
+        ctrl.abort(
+          new OmniRouteError(
+            `OmniRoute did not start responding within ${firstByteMs / 1000}s`,
+            408
+          )
+        ),
+      firstByteMs
+    );
+
+    let res: Response;
+    try {
+      res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: headers(this.opts.apiKey, true),
+        body: JSON.stringify(request),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(firstByteTimer);
+    }
 
     if (!res.ok || !res.body) {
       const detail = await safeErrorDetail(res);
@@ -233,17 +252,21 @@ export class OmniRouteClient {
         408
       );
 
-    // Watchdog: every read is raced against a fresh timeout. The threshold is
-    // the first-byte cap until the first byte arrives, then the idle cap (long
-    // tool-call chains naturally outgrow a short idle window). A dead proxy
-    // therefore fails fast instead of hanging the chat indefinitely.
-    let timerMs = firstByteMs;
-    let progressed = false;
+    // Watchdog: the stream is bounded by the first-byte cap until the first
+    // real event arrives, then by the idle cap since the last real event.
+    // SSE keep-alive/comment lines (`: …`) do NOT extend the deadline — an
+    // upstream that streams keep-alives while stuck (e.g. a rate-limited proxy
+    // that eventually emits `data: {"error": …}`) must fail fast instead of
+    // leaving the chat hanging for minutes.
+    const firstByteDeadline = Date.now() + firstByteMs;
+    let idleDeadline = 0;
     let stalled = false;
+    let hasRealEvent = false;
 
     const stall = () => {
       stalled = true;
-      const err = timeoutErr(timerMs);
+      const ms = !hasRealEvent ? firstByteMs : idleMs;
+      const err = timeoutErr(ms);
       ctrl.abort(err);
       return err;
     };
@@ -255,7 +278,9 @@ export class OmniRouteClient {
 
     try {
       for (;;) {
-        const timeoutP = waitMs(timerMs);
+        const now = Date.now();
+        const deadline = !hasRealEvent ? firstByteDeadline : idleDeadline;
+        const timeoutP = waitMs(Math.max(deadline - now, 0));
         const readP = reader.read().then(
           (v) => ({ ok: true as const, v }),
           (e) => ({ ok: false as const, e })
@@ -267,10 +292,6 @@ export class OmniRouteClient {
           throw stall();
         }
         if (!result.ok) throw result.e;
-        if (!progressed) {
-          progressed = true;
-          timerMs = idleMs;
-        }
         const { done, value } = result.v;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -279,7 +300,12 @@ export class OmniRouteClient {
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
           buffer = buffer.slice(newlineIdx + 1);
-          yield* this.handleSseLine(line, assembler);
+          const emitted = this.handleSseLine(line, assembler);
+          for (const ev of emitted) {
+            if (!hasRealEvent) hasRealEvent = true;
+            idleDeadline = Date.now() + idleMs;
+            yield ev;
+          }
         }
       }
       // Flush any tool calls still being assembled when the stream ends
@@ -309,7 +335,7 @@ export class OmniRouteClient {
     }
 
     if (chunk.error?.message) {
-      throw new Error(chunk.error.message);
+      throw sseError(chunk.error.message);
     }
 
     const choice = chunk.choices?.[0];
@@ -360,4 +386,13 @@ async function safeErrorDetail(res: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/** Error from a streamed SSE `error` payload. The upstream message usually
+ *  carries a `[status]: detail` prefix — extract it so the provider can tell
+ *  transient (retry/fallback) failures from permanent ones. */
+function sseError(message: string): OmniRouteError {
+  const m = /^\[(\d{3})\]:\s*/.exec(message);
+  if (m) return new OmniRouteError(message, Number(m[1]));
+  return new OmniRouteError(message, undefined);
 }

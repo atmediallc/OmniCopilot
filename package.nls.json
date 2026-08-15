@@ -19,6 +19,7 @@
   "cfg.fallbackMode.sameFamily": "Also fall back within the same provider family on the same server (default).",
   "cfg.fallbackMode.full": "Full fallback: same model on other servers, same family locally, then any compatible model anywhere.",
   "cfg.retriesPerServer": "How many full attempts each server gets before the next server is tried. Your selected model is attempted this many times on its own server first.",
+  "cfg.maxTools": "Maximum number of tools to send to the model. Large tool counts can cause server errors (e.g. 503 Structurally heavy).",
   "cfg.healthCheckIntervalSeconds": "How often the status bar probes the OmniRoute server (seconds).",
   "cfg.maxOutputTokens": "Maximum output tokens reserved per response.",
   "cfg.defaultContextLength": "Context length assumed for models whose catalog entry does not declare one.",

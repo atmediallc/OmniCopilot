@@ -175,7 +175,14 @@ export class OmniRouteChatProvider
       model: model.omniModelId,
       messages: toOpenAiMessages(messages),
       stream: true,
-      tools: toOpenAiTools(options.tools),
+      tools: (() => {
+        const allTools = toOpenAiTools(options.tools);
+        if (!allTools?.length) return allTools;
+        const maxTools = getConfig().get<number>("maxTools", 32);
+        if (allTools.length <= maxTools) return allTools;
+        log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
+        return allTools.slice(0, maxTools);
+      })(),
     };
 
     if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
@@ -194,6 +201,11 @@ export class OmniRouteChatProvider
     const clientByRoute = new Map(routes.map((r) => [r.id, makeClientForRoute(r)]));
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
+    if (!primaryEntry) {
+      this.deps.log.error(
+        `Primary model not found in catalog: ${model.id}. Available: ${this.cachedModels.map((c) => c.entry.prefixedId).join(", ")}`
+      );
+    }
     const fallbacks = primaryEntry
       ? pickFallbackCandidates(
           primaryEntry,
@@ -202,18 +214,20 @@ export class OmniRouteChatProvider
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
-    // The prefixedId (`MyPC · oc/big-pickle`) is the faithful record of what
-    // you picked in the picker — resolve the entry from the catalog we built.
-    // VS Code's model.routeId is unreliable (it can point at another server).
+    // The prefixedId is the source of truth for what the user selected.
+    // Resolve the route from the catalog entry, NOT from model.routeId which
+    // can be stale or point to a different server.
     const primary: FallbackCandidate = primaryEntry
       ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
       : model.routeId && model.omniModelId
         ? { routeId: model.routeId, modelId: model.omniModelId }
         : { routeId: model.routeId, modelId: model.omniModelId };
 
-    // The user-selected model is ALWAYS tried first. Only the fallbacks get
-    // reordered so that servers that just passed their liveness probe come
-    // before dead proxies — never the other way around.
+    this.deps.log.info(
+      `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map(c => c.entry.prefixedId).join(", ")})`
+    );
+
+    // Reorder fallbacks to prioritize online servers, but keep primary first.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
     const fallbacksByHealth =
       knownOnline.size > 0
@@ -229,7 +243,7 @@ export class OmniRouteChatProvider
 
     log.info(
       `Chat → ${primary.modelId} @${primary.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
-        (fallbacks.length ? `, fallbacks: ${fallbacks.map((f) => `${f.routeId}:${f.modelId}`).join(", ")}` : "")
+        (fallbacks.length ? `, fallbacks: ${fallbacksByHealth.map((f) => `${f.routeId}:${f.modelId}`).join(", ")}` : "")
     );
 
     const abort = new AbortController();
@@ -238,22 +252,23 @@ export class OmniRouteChatProvider
     // Estimate the input side of the request for the usage readout.
     const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
 
-    // Hard cap on the whole fallback chain so a dead fleet never leaves the
-    // user staring at a spinner. Checked before each candidate attempt.
-    const budgetMs = 60_000;
-    const deadline = Date.now() + budgetMs;
     let lastError: unknown;
 
     try {
       // How many full attempts each server gets before we even consider the
       // next server. Independent servers: the one you picked is exercised
       // `retriesPerServer` times; only when all fail do we call the next.
+      // Each attempt is itself bounded by the client's first-byte (15s) and
+      // idle (30s) timeouts, so a dead proxy cannot hang the chain.
       const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
 
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
         if (token.isCancellationRequested) return;
-        if (!client) continue;
+        if (!client) {
+          lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+          continue;
+        }
 
         const last = i === lastIndex;
         const attemptRequest = { ...request, model: cand.modelId };
@@ -263,9 +278,6 @@ export class OmniRouteChatProvider
         let candError: unknown;
         for (; attempted < retriesPerServer; attempted++) {
           if (token.isCancellationRequested) return;
-
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) break;
 
           let streamed = "";
           try {

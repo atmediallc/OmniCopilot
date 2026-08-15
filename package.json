@@ -188,6 +188,14 @@
           "order": 7,
           "description": "%cfg.retriesPerServer%"
         },
+        "omnicopilot.maxTools": {
+          "type": "number",
+          "default": 32,
+          "minimum": 1,
+          "maximum": 128,
+          "order": 6,
+          "description": "%cfg.maxTools%"
+        },
         "omnicopilot.healthCheckIntervalSeconds": {
           "type": "number",
           "default": 30,
