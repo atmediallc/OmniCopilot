@@ -175,6 +175,16 @@ describe("OmniRouteClient retry behavior", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the provider disable nested chat retries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      collect(new OmniRouteClient({ baseUrl: "http://x/v1", retry, chatMaxAttempts: 1 }))
+    ).rejects.toThrow(/HTTP 503/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries network-level failures (fetch throws) and recovers", async () => {
     const fetchMock = vi
       .fn()

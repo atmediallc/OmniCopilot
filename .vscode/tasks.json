@@ -1,0 +1,31 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Validate latency optimization",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run && npm run package"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Package optimized extension",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npm run package"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

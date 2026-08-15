@@ -29,6 +29,8 @@ export interface ClientOptions {
   baseUrl: string;
   apiKey?: string;
   retry?: RetryPolicy;
+  /** Chat HTTP attempts. Keep at 1 when the provider owns cross-server retry. */
+  chatMaxAttempts?: number;
   log?: OmniLogger;
   /** Abort a streaming response if no byte arrives within this long (ms).
    * Guards against dead proxies that accept the connection and never send
@@ -89,7 +91,7 @@ export function isTransientHttpError(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 504);
 }
 
-const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 5, baseMs: 1000, maxMs: 10000 };
+const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 3, baseMs: 400, maxMs: 4000 };
 
 function abortReason(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason;
@@ -182,9 +184,12 @@ export class OmniRouteClient {
    * honoring the server's Retry-After header when present. The abort signal is
    * read from `init.signal` (the shape fetch itself expects) so in-flight
    * requests abort and inter-attempt sleeps are cancellable. */
-  private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  private async fetchWithRetry(url: string, init: RequestInit, maxAttemptsOverride?: number): Promise<Response> {
     const signal = init.signal ?? new AbortController().signal;
-    const maxAttempts = Math.max(1, this.opts.retry?.maxAttempts ?? RETRY_DEFAULTS.maxAttempts);
+    const maxAttempts = Math.max(
+      1,
+      maxAttemptsOverride ?? this.opts.retry?.maxAttempts ?? RETRY_DEFAULTS.maxAttempts
+    );
     const policy: Required<RetryPolicy> = {
       maxAttempts,
       baseMs: this.opts.retry?.baseMs ?? RETRY_DEFAULTS.baseMs,
@@ -260,8 +265,8 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 120_000;
-    const idleMs = this.opts.streamIdleTimeoutMs ?? 120_000;
+    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 15_000;
+    const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
 
     // Derived signal so a stall can abort this attempt without cancelling the
     // caller's own signal (which would kill the fallback chain).
@@ -287,12 +292,16 @@ export class OmniRouteClient {
 
     let res: Response;
     try {
-      res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: headers(this.opts.apiKey, true, true),
-        body: JSON.stringify(request),
-        signal: ctrl.signal,
-      });
+      res = await this.fetchWithRetry(
+        `${this.baseUrl}/chat/completions`,
+        {
+          method: "POST",
+          headers: headers(this.opts.apiKey, true, true),
+          body: JSON.stringify(request),
+          signal: ctrl.signal,
+        },
+        this.opts.chatMaxAttempts
+      );
     } finally {
       clearTimeout(firstByteTimer);
     }

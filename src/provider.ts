@@ -319,12 +319,9 @@ export class OmniRouteChatProvider
     let lastError: unknown;
 
     try {
-      // How many full attempts each server gets before we even consider the
-      // next server. Independent servers: the one you picked is exercised
-      // `retriesPerServer` times; only when all fail do we call the next.
-      // Each attempt is itself bounded by the client's first-byte (120s) and
-      // idle (120s) timeouts, so a dead proxy cannot hang the chain.
-      const retriesPerServer = getConfig().get<number>("retriesPerServer", 2);
+      // Single chat retry layer: route clients make one HTTP attempt, then
+      // this loop can immediately move to another server.
+      const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
 
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
@@ -392,7 +389,7 @@ export class OmniRouteChatProvider
             // candidate instead.
             if (err instanceof OmniRouteError && err.stall) break;
             if (attempted + 1 < retriesPerServer) {
-              await delay(1000 * Math.pow(2, attempted));
+              await delay(Math.min(2000, 250 * Math.pow(2, attempted)));
               continue;
             }
           }
@@ -416,7 +413,6 @@ export class OmniRouteChatProvider
           );
           throw candError;
         }
-        await delay(200);
       }
       if (lastError !== undefined) {
         const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
