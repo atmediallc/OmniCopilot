@@ -98,6 +98,18 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "Build 1.0.1 VSIX",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vsce package --no-dependencies"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }
