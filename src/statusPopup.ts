@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
-import { SECRET_PREFIX, loadRoutes } from "./routes";
+import { loadRoutes, makeClientForRoute } from "./routes";
 
 export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
@@ -120,8 +120,12 @@ export class OmniStatusPopup {
     const onlineRouteIds = new Set<string>();
     const serverDetails = await Promise.all(
       routes.map(async (r) => {
-        const key = await this.context.secrets.get(SECRET_PREFIX + r.id);
+        const client = makeClientForRoute(r);
         const serverMetric = metrics.servers[r.id] || {
+          routeId: r.id,
+          name: r.name,
+          baseUrl: r.baseUrl,
+          online: false,
           inputTokens: 0,
           outputTokens: 0,
           totalTokens: 0,
@@ -130,22 +134,12 @@ export class OmniStatusPopup {
           errorCount: 0,
         };
 
-        // Ping check
-        let online = false;
-        let latencyMs = 0;
-        try {
-          const t0 = Date.now();
-          const res = await fetch(`${r.baseUrl.replace(/\/+$/, "")}/models`, {
-            headers: key ? { Authorization: `Bearer ${key}` } : {},
-            signal: AbortSignal.timeout(3000),
-          });
-          online = res.ok;
-          latencyMs = Date.now() - t0;
-        } catch {
-          online = false;
-        }
+        const t0 = Date.now();
+        const online = await client.ping(3000);
+        const latencyMs = Date.now() - t0;
 
         if (online) onlineRouteIds.add(r.id);
+        void this.metricsTracker.recordActivity(r.id, r.name, r.baseUrl, online);
 
         return {
           id: r.id,

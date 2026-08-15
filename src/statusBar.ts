@@ -114,11 +114,9 @@ export class ConnectionStatusBar implements vscode.Disposable {
       return false;
     }
     const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
-    const now = Date.now();
     this.health = routes.map((r, i) => {
       const pingOk = results[i];
-      const recentActivity = now - (this.lastActive.get(r.id) ?? 0) < 30_000;
-      return { routeId: r.id, name: r.name, online: pingOk || recentActivity };
+      return { routeId: r.id, name: r.name, online: pingOk };
     });
     const ok = this.health.filter((h) => h.online).length;
     this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
@@ -198,30 +196,59 @@ export class ConnectionStatusBar implements vscode.Disposable {
     this.item.tooltip = this.buildTooltip(main);
   }
 
-  private buildTooltip(main: string): string {
-    const lines: string[] = [];
+  private buildTooltip(main: string): vscode.MarkdownString {
+    const md = new vscode.MarkdownString();
+    md.isTrusted = true;
+    md.supportThemeIcons = true;
 
-    if (this.health.length > 0) {
-      lines.push(
-        this.health.map((h) => `${h.online ? "✓" : "○"} ${h.name}`).join("\n")
+    md.appendMarkdown(`### $(symbol-enum-member) OmniRoute\n`);
+    md.appendMarkdown(`**${main}**\n\n`);
+
+    if (this.metricsTracker) {
+      const metrics = this.metricsTracker.getMetrics();
+      const totalFmt = fmtTokens(metrics.totalTokens);
+      const inFmt = fmtTokens(metrics.totalInputTokens);
+      const outFmt = fmtTokens(metrics.totalOutputTokens);
+
+      md.appendMarkdown(`---\n\n`);
+      md.appendMarkdown(`#### $(graph) ${vscode.l10n.t("Métricas de Tokens")}\n`);
+      md.appendMarkdown(
+        `- **${vscode.l10n.t("Tokens Totales")}:** \`${totalFmt}\` (${vscode.l10n.t("Entrada")}: \`${inFmt}\` · ${vscode.l10n.t("Salida")}: \`${outFmt}\`)\n`
+      );
+      md.appendMarkdown(
+        `- **${vscode.l10n.t("Peticiones Totales")}:** \`${metrics.totalRequests}\`\n\n`
       );
     }
 
     if (this.usage) {
-      if (lines.length > 0) lines.push("");
-      lines.push(
-        vscode.l10n.t("Model: {0}", this.usage.modelName),
-        vscode.l10n.t("Server: {0}", this.usage.serverName),
-        vscode.l10n.t(
-          "Tokens: {0} in · {1} out",
-          fmtTokens(this.usage.inputTokens),
-          fmtTokens(this.usage.outputTokens)
-        )
+      md.appendMarkdown(`#### $(zap) ${vscode.l10n.t("Última Petición")}\n`);
+      md.appendMarkdown(
+        `- **${vscode.l10n.t("Servidor")}:** ${this.usage.serverName} (${this.usage.modelName})\n`
+      );
+      md.appendMarkdown(
+        `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(this.usage.inputTokens + this.usage.outputTokens)}\` (In: \`${fmtTokens(this.usage.inputTokens)}\` · Out: \`${fmtTokens(this.usage.outputTokens)}\`)\n\n`
       );
     }
 
-    lines.push("", main, vscode.l10n.t("Click for actions."));
-    return lines.join("\n");
+    if (this.health.length > 0) {
+      md.appendMarkdown(`#### $(server) ${vscode.l10n.t("Servidores Conectados")}\n`);
+      const serverMetrics = this.metricsTracker?.getMetrics().servers ?? {};
+      for (const h of this.health) {
+        const icon = h.online ? "$(check)" : "$(circle-slash)";
+        const statusText = h.online ? vscode.l10n.t("Online") : vscode.l10n.t("Offline");
+        const sM = serverMetrics[h.routeId];
+        let detail = "";
+        if (sM && sM.totalTokens > 0) {
+          detail = ` — \`${fmtTokens(sM.totalTokens)}\` (${sM.requestCount} reqs)`;
+        }
+        md.appendMarkdown(`- ${icon} **${h.name}** (${statusText})${detail}\n`);
+      }
+      md.appendMarkdown(`\n`);
+    }
+
+    md.appendMarkdown(`---\n`);
+    md.appendMarkdown(`*$(info) ${vscode.l10n.t("Haz clic para abrir el panel de estado y métricas.")}*`);
+    return md;
   }
 
   dispose(): void {
