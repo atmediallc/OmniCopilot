@@ -259,6 +259,46 @@ describe("OmniRouteClient retry behavior", () => {
     ).rejects.toThrow("did not start responding");
   });
 
+  it("does not abort a reasoning stream that emits reasoning_content within the first-byte cap but no text yet", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = async (ms: number, line: string) => {
+          await new Promise((r) => setTimeout(r, ms));
+          controller.enqueue(encoder.encode(`${line}\n`));
+        };
+        // Reasoning chunks arrive inside the 30ms first-byte window and keep
+        // flowing; visible text only lands at 140ms. A watchdog that only
+        // counts text events aborts at 30ms — a bug for reasoning models.
+        await send(20, 'data: {"choices":[{"delta":{"reasoning_content":"pi"}}]}');
+        await send(60, 'data: {"choices":[{"delta":{"reasoning_content":"ng"}}]}');
+        await send(100, 'data: {"choices":[{"delta":{"reasoning_content":"po"}}]}');
+        await send(140, 'data: {"choices":[{"delta":{"content":"hola"}}]}');
+        await send(150, "data: [DONE]");
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(body, { status: 200 }))
+    );
+
+    const client = new OmniRouteClient({
+      baseUrl: "http://x/v1",
+      streamFirstByteTimeoutMs: 30,
+      streamIdleTimeoutMs: 200,
+    });
+    const ctrl = new AbortController();
+    const events: StreamEvent[] = [];
+    for await (const ev of client.streamChat(
+      { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+      ctrl.signal
+    )) {
+      events.push(ev);
+    }
+    expect(events).toEqual([{ kind: "text", text: "hola" }]);
+  });
+
   it("stops before the first request when already aborted", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);

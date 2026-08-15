@@ -253,11 +253,14 @@ export class OmniRouteClient {
       );
 
     // Watchdog: the stream is bounded by the first-byte cap until the first
-    // real event arrives, then by the idle cap since the last real event.
-    // SSE keep-alive/comment lines (`: …`) do NOT extend the deadline — an
-    // upstream that streams keep-alives while stuck (e.g. a rate-limited proxy
-    // that eventually emits `data: {"error": …}`) must fail fast instead of
-    // leaving the chat hanging for minutes.
+    // live SSE chunk arrives, then by the idle cap since the last live chunk.
+    // A chunk counts as live even when it yields no visible text yet
+    // (reasoning_content, tool-call deltas) — a server streaming those IS
+    // responding. Keep-alive/comment lines (`: …`) and empty `data:` payloads
+    // do NOT extend the deadline — an upstream that streams keep-alives while
+    // stuck (e.g. a rate-limited proxy that eventually emits
+    // `data: {"error": …}`) must fail fast instead of leaving the chat
+    // hanging for minutes.
     const firstByteDeadline = Date.now() + firstByteMs;
     let idleDeadline = 0;
     let stalled = false;
@@ -300,12 +303,12 @@ export class OmniRouteClient {
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
           buffer = buffer.slice(newlineIdx + 1);
-          const emitted = this.handleSseLine(line, assembler);
-          for (const ev of emitted) {
+          const { events, alive } = this.handleSseLine(line, assembler);
+          if (alive) {
             if (!hasRealEvent) hasRealEvent = true;
             idleDeadline = Date.now() + idleMs;
-            yield ev;
           }
+          yield* events;
         }
       }
       // Flush any tool calls still being assembled when the stream ends
@@ -319,38 +322,42 @@ export class OmniRouteClient {
     }
   }
 
-  private *handleSseLine(line: string, assembler: ToolCallAssembler): Generator<StreamEvent> {
-    if (!line.startsWith("data:")) return;
+  /** Parses one SSE line. `events` carries the user-visible events (text,
+   * flushed tool calls). `alive` is true whenever the line carried a valid
+   * JSON chunk — proof the upstream is streaming, even if it yields nothing
+   * yet (reasoning_content, partial tool_calls, usage-only). */
+  private handleSseLine(line: string, assembler: ToolCallAssembler): { events: StreamEvent[]; alive: boolean } {
+    if (!line.startsWith("data:")) return { events: [], alive: false };
     const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") {
-      if (payload === "[DONE]") yield* assembler.flush();
-      return;
-    }
+    if (!payload) return { events: [], alive: false };
+    if (payload === "[DONE]") return { events: [...assembler.flush()], alive: false };
 
     let chunk: StreamChunk;
     try {
       chunk = JSON.parse(payload) as StreamChunk;
     } catch {
-      return; // tolerate malformed keep-alive/comment payloads
+      return { events: [], alive: false }; // tolerate malformed keep-alive/comment payloads
     }
 
     if (chunk.error?.message) {
       throw sseError(chunk.error.message);
     }
 
+    const events: StreamEvent[] = [];
     const choice = chunk.choices?.[0];
-    if (!choice) return;
-
-    const delta = choice.delta;
-    if (delta?.content) {
-      yield { kind: "text", text: delta.content };
+    if (choice) {
+      const delta = choice.delta;
+      if (delta?.content) {
+        events.push({ kind: "text", text: delta.content });
+      }
+      if (delta?.tool_calls) {
+        assembler.accept(delta.tool_calls);
+      }
+      if (choice.finish_reason) {
+        events.push(...assembler.flush());
+      }
     }
-    if (delta?.tool_calls) {
-      assembler.accept(delta.tool_calls);
-    }
-    if (choice.finish_reason) {
-      yield* assembler.flush();
-    }
+    return { events, alive: true };
   }
 }
 
