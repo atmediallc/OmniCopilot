@@ -44,7 +44,7 @@ export class OmniStatusPopup {
             await this.metricsTracker.resetMetrics();
             await this.updateStateData();
             void vscode.window.showInformationMessage(
-              vscode.l10n.t("Métricas de tokens reiniciadas.")
+              vscode.l10n.t("Token metrics reset.")
             );
             break;
           case "toggleSetting": {
@@ -74,7 +74,7 @@ export class OmniStatusPopup {
           }
           case "snooze": {
             void vscode.window.showInformationMessage(
-              vscode.l10n.t("Métricas de la barra de estado pausadas por 5 minutos.")
+              vscode.l10n.t("Status bar metrics snoozed for 5 minutes.")
             );
             break;
           }
@@ -99,7 +99,7 @@ export class OmniStatusPopup {
 
     const panel = vscode.window.createWebviewPanel(
       "omniRouteStatusPopup",
-      "OmniRoute — Métricas y Estado",
+      vscode.l10n.t("OmniRoute — Status & Metrics"),
       {
         viewColumn: vscode.ViewColumn.Active,
         preserveFocus: false,
@@ -107,6 +107,7 @@ export class OmniStatusPopup {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
+        localResourceRoots: [context.extensionUri],
       }
     );
 
@@ -214,9 +215,10 @@ export class OmniStatusPopup {
 
   private getHtmlForWebview(): string {
     return `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniRoute Status & Metrics</title>
   <style>
@@ -278,9 +280,9 @@ export class OmniStatusPopup {
     }
     .badge-success { background: rgba(63, 185, 80, 0.15); color: var(--success); }
     .badge-danger { background: rgba(248, 81, 73, 0.15); color: var(--danger); }
-    .badge-impact-alta { background: rgba(248, 81, 73, 0.2); color: #ff7b72; }
-    .badge-impact-media { background: rgba(210, 153, 34, 0.2); color: #e3b341; }
-    .badge-impact-baja { background: rgba(56, 139, 253, 0.2); color: #58a6ff; }
+    .badge-impact-high, .badge-impact-alta { background: rgba(248, 81, 73, 0.2); color: #ff7b72; }
+    .badge-impact-medium, .badge-impact-media { background: rgba(210, 153, 34, 0.2); color: #e3b341; }
+    .badge-impact-low, .badge-impact-baja { background: rgba(56, 139, 253, 0.2); color: #58a6ff; }
 
     .header-actions {
       display: flex;
@@ -475,25 +477,25 @@ export class OmniStatusPopup {
       <div class="header-title">
         <span id="header-dot" class="dot dot-offline"></span>
         <span>OmniRoute</span>
-        <span id="header-badge" class="badge badge-danger">Cargando...</span>
+        <span id="header-badge" class="badge badge-danger">Loading...</span>
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.openDashboard')">📊 Dashboard</button>
-        <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.manage')">⚙ Configurar</button>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('refresh')">🔄 Refrescar</button>
+        <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.manage')">⚙ Configure</button>
+        <button class="btn btn-secondary btn-sm" onclick="sendMessage('refresh')">🔄 Refresh</button>
       </div>
     </div>
 
     <!-- Token Metrics Section -->
     <div class="section">
       <div class="section-title">
-        <span>Consumo de Tokens & Métricas de Servidores</span>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('resetMetrics')">Reiniciar Métricas</button>
+        <span>Token Consumption & Server Metrics</span>
+        <button class="btn btn-secondary btn-sm" onclick="sendMessage('resetMetrics')">Reset Metrics</button>
       </div>
 
       <div class="metric-group">
         <div class="metric-label-row">
-          <span>Tokens Totales Consumidos (Sesión)</span>
+          <span>Total Tokens Consumed (Session)</span>
           <strong id="total-tokens-text">0 tokens (0 reqs)</strong>
         </div>
         <div class="progress-bar-bg">
@@ -503,8 +505,8 @@ export class OmniStatusPopup {
 
       <div class="metric-group">
         <div class="metric-label-row">
-          <span>Tokens de Salida (Output)</span>
-          <strong id="output-tokens-text">0 tokens (0% del total)</strong>
+          <span>Output Tokens</span>
+          <strong id="output-tokens-text">0 tokens (0% of total)</strong>
         </div>
         <div class="progress-bar-bg">
           <div id="output-tokens-bar" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, #a371f7, #58a6ff);"></div>
@@ -512,9 +514,9 @@ export class OmniStatusPopup {
       </div>
 
       <div style="margin-top: 14px;">
-        <div style="font-weight: 500; margin-bottom: 8px;">Servidores Conectados (<span id="server-count">0</span>)</div>
+        <div style="font-weight: 500; margin-bottom: 8px;">Connected Servers (<span id="server-count">0</span>)</div>
         <div id="server-list" class="server-list">
-          <div style="opacity:0.6; font-style:italic">Cargando servidores...</div>
+          <div style="opacity:0.6; font-style:italic">Loading servers...</div>
         </div>
       </div>
     </div>
@@ -522,36 +524,36 @@ export class OmniStatusPopup {
     <!-- Quick Settings & Options -->
     <div class="section">
       <div class="section-title">
-        <span>Opciones Rápidas de OmniRoute</span>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('snooze')">Pausar (5m)</button>
+        <span>OmniRoute Quick Settings</span>
+        <button class="btn btn-secondary btn-sm" onclick="sendMessage('snooze')">Snooze (5m)</button>
       </div>
 
       <div class="toggle-list">
         <div class="toggle-item">
           <label class="toggle-label">
             <input type="checkbox" id="status-bar-toggle" onchange="toggleSetting('statusBar', this.checked)">
-            <span>Mostrar consumo de tokens en la barra de estado</span>
+            <span>Show token consumption in status bar</span>
           </label>
         </div>
 
         <div class="toggle-item">
-          <span>Estrategia de Conmutación (Fallback Mode):</span>
+          <span>Fallback Strategy:</span>
           <select id="fallback-select" onchange="changeFallbackMode(this.value)">
-            <option value="sameModel">Mismo Modelo (Recomendado)</option>
-            <option value="sameFamily">Misma Familia de Modelos</option>
-            <option value="full">Fallback Completo</option>
-            <option value="none">Desactivado (Sin Fallback)</option>
+            <option value="sameModel">Same Model (Recommended)</option>
+            <option value="sameFamily">Same Model Family</option>
+            <option value="full">Full Fallback</option>
+            <option value="none">Disabled (No Fallback)</option>
           </select>
         </div>
 
         <div class="toggle-item">
-          <span>Reintentos por servidor (Retries per server):</span>
-          <span id="retries-text" style="opacity:0.8; font-weight:500;">1 reintento(s) por servidor</span>
+          <span>Retries per server:</span>
+          <span id="retries-text" style="opacity:0.8; font-weight:500;">1 retry(ies) per server</span>
         </div>
 
         <div class="toggle-item">
-          <span>Sincronización de Catálogo de Modelos:</span>
-          <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.refreshModels')">🔄 Sincronizar Modelos</button>
+          <span>Model Catalog Sync:</span>
+          <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.refreshModels')">🔄 Sync Models</button>
         </div>
       </div>
     </div>
@@ -559,8 +561,8 @@ export class OmniStatusPopup {
     <!-- Smart Suggestions & Improvement Recommendations -->
     <div class="section">
       <div class="section-title">
-        <span>Sugerencias de Mejora & Optimización</span>
-        <span id="suggestions-count" style="font-size:11px; opacity:0.6">0 recomendaciones</span>
+        <span>Improvement & Optimization Suggestions</span>
+        <span id="suggestions-count" style="font-size:11px; opacity:0.6">0 recommendations</span>
       </div>
       <div id="suggestions-list" class="suggestions-list">
       </div>
@@ -568,9 +570,9 @@ export class OmniStatusPopup {
 
     <!-- Footer Links -->
     <div class="footer-links">
-      <a onclick="runCommand('omnicopilot.configureCliTool')">⚡ Configurar CLI Bridge (Aider/Claude)</a>
-      <a onclick="runCommand('omnicopilot.checkConnection')">🩺 Verificar Salud de Servidores</a>
-      <a onclick="runCommand('omnicopilot.openGitHub')">⭐ OmniRoute en GitHub</a>
+      <a onclick="runCommand('omnicopilot.configureCliTool')">⚡ Configure CLI Bridge (Aider/Claude)</a>
+      <a onclick="runCommand('omnicopilot.checkConnection')">🩺 Check Server Health</a>
+      <a onclick="runCommand('omnicopilot.openGitHub')">⭐ OmniRoute on GitHub</a>
     </div>
   </div>
 
@@ -637,7 +639,7 @@ export class OmniStatusPopup {
       }
       if (badgeEl) {
         badgeEl.className = 'badge ' + (isFullyOnline ? 'badge-success' : 'badge-danger');
-        badgeEl.textContent = totalCount === 0 ? 'Sin servidores' : (onlineCount + '/' + totalCount + ' conectados');
+        badgeEl.textContent = totalCount === 0 ? 'No servers' : (onlineCount + '/' + totalCount + ' connected');
       }
 
       // Update Token Progress Bars
@@ -658,7 +660,7 @@ export class OmniStatusPopup {
         totalTokensBar.style.width = totalPct + '%';
       }
       if (outputTokensText) {
-        outputTokensText.textContent = (metrics.formattedOutputTokens || '0') + ' tokens (' + outputPct + '% del total)';
+        outputTokensText.textContent = (metrics.formattedOutputTokens || '0') + ' tokens (' + outputPct + '% of total)';
       }
       if (outputTokensBar) {
         outputTokensBar.style.width = outputPct + '%';
@@ -670,7 +672,7 @@ export class OmniStatusPopup {
       if (serverCountEl) serverCountEl.textContent = String(totalCount);
       if (serverListEl) {
         if (servers.length === 0) {
-          serverListEl.innerHTML = '<div style="opacity:0.6; font-style:italic">No hay servidores configurados.</div>';
+          serverListEl.innerHTML = '<div style="opacity:0.6; font-style:italic">No servers configured.</div>';
         } else {
           serverListEl.innerHTML = servers.map(s => \`
             <div class="server-card">
@@ -686,11 +688,11 @@ export class OmniStatusPopup {
               </div>
               <div class="server-stats">
                 <div class="stat-item">
-                  <span class="stat-label">Tokens Entrada</span>
+                  <span class="stat-label">Input Tokens</span>
                   <span class="stat-value">\${fmtTokens(s.metric.inputTokens)}</span>
                 </div>
                 <div class="stat-item">
-                  <span class="stat-label">Tokens Salida</span>
+                  <span class="stat-label">Output Tokens</span>
                   <span class="stat-value">\${fmtTokens(s.metric.outputTokens)}</span>
                 </div>
                 <div class="stat-item">
@@ -698,11 +700,11 @@ export class OmniStatusPopup {
                   <span class="stat-value highlight">\${fmtTokens(s.metric.totalTokens)}</span>
                 </div>
                 <div class="stat-item">
-                  <span class="stat-label">Solicitudes</span>
+                  <span class="stat-label">Requests</span>
                   <span class="stat-value">\${s.metric.requestCount}</span>
                 </div>
               </div>
-              \${s.metric.lastUsedModel ? \`<div class="server-footer">Último modelo: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
+              \${s.metric.lastUsedModel ? \`<div class="server-footer">Last model: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
             </div>
           \`).join("");
         }
@@ -719,21 +721,21 @@ export class OmniStatusPopup {
         fallbackEl.value = state.fallbackMode;
       }
       if (retriesEl && typeof state.retriesPerServer === 'number') {
-        retriesEl.textContent = state.retriesPerServer + ' reintento(s) por servidor';
+        retriesEl.textContent = state.retriesPerServer + ' retry(ies) per server';
       }
 
       // Update Suggestions
       const suggestions = state.suggestions || [];
       const suggCountEl = document.getElementById('suggestions-count');
       const suggListEl = document.getElementById('suggestions-list');
-      if (suggCountEl) suggCountEl.textContent = suggestions.length + ' recomendaciones';
+      if (suggCountEl) suggCountEl.textContent = suggestions.length + ' recommendations';
       if (suggListEl) {
         suggListEl.innerHTML = suggestions.map(s => \`
           <div class="suggestion-card suggestion-\${s.type}">
             <div class="suggestion-header">
               <span class="suggestion-icon">\${getSuggestionIcon(s.type)}</span>
               <strong>\${escapeHtml(s.title)}</strong>
-              <span class="badge badge-impact-\${(s.impact || '').toLowerCase()}">Impacto: \${escapeHtml(s.impact)}</span>
+              <span class="badge badge-impact-\${(s.impact || '').toLowerCase()}">Impact: \${escapeHtml(s.impact)}</span>
             </div>
             <div class="suggestion-body">\${escapeHtml(s.description)}</div>
             \${

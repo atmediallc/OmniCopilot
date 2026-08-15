@@ -30,7 +30,7 @@ export interface ImprovementSuggestion {
   type: "optimization" | "redundancy" | "health" | "capability" | "info";
   title: string;
   description: string;
-  impact: "Alta" | "Media" | "Baja";
+  impact: "High" | "Medium" | "Low";
   actionLabel?: string;
   actionCommand?: string;
   actionArgs?: unknown[];
@@ -151,6 +151,12 @@ export class MetricsTracker {
       this.metrics.servers[routeId] = server;
     }
 
+    if (routeName && (routeName !== routeId || !server.name)) {
+      server.name = routeName;
+    }
+    if (baseUrl) {
+      server.baseUrl = baseUrl;
+    }
     server.online = success;
     if (!success) {
       server.errorCount += 1;
@@ -194,20 +200,20 @@ export class MetricsTracker {
       suggestions.push({
         id: "no_routes",
         type: "redundancy",
-        title: "Sin servidores OmniRoute configurados",
-        description: "Agrega al menos una URL de servidor OmniRoute (ej. http://localhost:20128/v1) para habilitar modelos de chat.",
-        impact: "Alta",
-        actionLabel: "Agregar Servidor",
+        title: "No OmniRoute servers configured",
+        description: "Add at least one OmniRoute server URL (e.g. http://localhost:20128/v1) to enable chat models.",
+        impact: "High",
+        actionLabel: "Add Server",
         actionCommand: "omnicopilot.manage",
       });
     } else if (routes.length === 1) {
       suggestions.push({
         id: "single_route",
         type: "redundancy",
-        title: "Mejora de Redundancia y Failover",
-        description: "Tienes solo 1 servidor configurado. Agrega un segundo servidor o endpoint de respaldo (Ollama, Groq, OpenRouter) para conmutación automática si falla el principal.",
-        impact: "Media",
-        actionLabel: "Configurar Servidores",
+        title: "Redundancy & Failover Improvement",
+        description: "You have only 1 server configured. Add a second server or backup endpoint (Ollama, Groq, OpenRouter) for automatic failover if the primary fails.",
+        impact: "Medium",
+        actionLabel: "Configure Servers",
         actionCommand: "omnicopilot.manage",
       });
     } else if (onlineRouteIds.size < routes.length) {
@@ -215,10 +221,10 @@ export class MetricsTracker {
       suggestions.push({
         id: "offline_servers",
         type: "health",
-        title: `${offlineCount} servidor(es) inalcanzable(s)`,
-        description: "Algunos servidores configurados no responden a los pings de salud. Verifica que los servicios proxy o servidores locales estén en ejecución.",
-        impact: "Alta",
-        actionLabel: "Probar Conexión",
+        title: `${offlineCount} unreachable server(s)`,
+        description: "Some configured servers are not responding to health pings. Verify that local proxy services or servers are running.",
+        impact: "High",
+        actionLabel: "Test Connection",
         actionCommand: "omnicopilot.checkConnection",
       });
     }
@@ -228,10 +234,10 @@ export class MetricsTracker {
       suggestions.push({
         id: "enable_fallback",
         type: "optimization",
-        title: "Activar Conmutación Automática (Auto-fallback)",
-        description: "La conmutación por error está desactivada ('none'). Cambia a 'sameModel' o 'full' para redirigir peticiones fallidas automáticamente.",
-        impact: "Media",
-        actionLabel: "Cambiar Modo Fallback",
+        title: "Enable Auto-fallback",
+        description: "Failover is set to 'none'. Change to 'sameModel' or 'full' to automatically redirect failed requests.",
+        impact: "Medium",
+        actionLabel: "Change Fallback Mode",
         actionCommand: "workbench.action.openSettings",
         actionArgs: ["omnicopilot.fallbackMode"],
       });
@@ -242,10 +248,10 @@ export class MetricsTracker {
       suggestions.push({
         id: "high_token_usage",
         type: "optimization",
-        title: "Optimización de Consumo de Tokens",
-        description: `Has consumido ${fmtTokens(this.metrics.totalTokens)} tokens en esta sesión. Puedes limitar las herramientas enviadas ajustando 'omnicopilot.maxTools' para ahorrar contexto.`,
-        impact: "Media",
-        actionLabel: "Ajustar maxTools",
+        title: "Token Usage Optimization",
+        description: `You have consumed ${fmtTokens(this.metrics.totalTokens)} tokens in this session. Limit tools sent by adjusting 'omnicopilot.maxTools' to save context.`,
+        impact: "Medium",
+        actionLabel: "Adjust maxTools",
         actionCommand: "workbench.action.openSettings",
         actionArgs: ["omnicopilot.maxTools"],
       });
@@ -255,10 +261,10 @@ export class MetricsTracker {
     suggestions.push({
       id: "cli_integration",
       type: "capability",
-      title: "Integración con Herramientas CLI (Aider, Claude Code, Cursor)",
-      description: "Conecta tus servidores OmniRoute con herramientas de terminal como Claude Code, Aider, OpenHands o Cursor mediante la CLI de OmniRoute.",
-      impact: "Media",
-      actionLabel: "Configurar CLI",
+      title: "CLI Tool Integration (Aider, Claude Code, Cursor)",
+      description: "Connect your OmniRoute servers with terminal tools like Claude Code, Aider, OpenHands, or Cursor via the OmniRoute CLI.",
+      impact: "Medium",
+      actionLabel: "Configure CLI",
       actionCommand: "omnicopilot.configureCliTool",
     });
 
@@ -267,10 +273,10 @@ export class MetricsTracker {
       suggestions.push({
         id: "cluster_healthy",
         type: "info",
-        title: "Cluster OmniRoute 100% Operativo",
-        description: `Todos los ${routes.length} servidores están en línea con conmutación inteligente activa (${fallbackMode}).`,
-        impact: "Baja",
-        actionLabel: "Abrir Dashboard",
+        title: "OmniRoute Cluster Fully Operational",
+        description: `All ${routes.length} servers are online with active smart fallback (${fallbackMode}).`,
+        impact: "Low",
+        actionLabel: "Open Dashboard",
         actionCommand: "omnicopilot.openDashboard",
       });
     }

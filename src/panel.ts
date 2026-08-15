@@ -80,7 +80,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
-    view.webview.options = { enableScripts: true };
+    view.webview.options = { enableScripts: true, localResourceRoots: [this.context.extensionUri] };
     view.webview.html = this.html();
 
     view.webview.onDidReceiveMessage(async (msg: PanelMessage) => {

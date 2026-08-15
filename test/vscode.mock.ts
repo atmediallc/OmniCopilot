@@ -41,3 +41,41 @@ export enum LanguageModelChatToolMode {
   Auto = 1,
   Required = 2,
 }
+
+export class EventEmitter<T> {
+  private listeners: Array<(e: T) => unknown> = [];
+  event = (listener: (e: T) => unknown) => {
+    this.listeners.push(listener);
+    return {
+      dispose: () => {
+        this.listeners = this.listeners.filter((l) => l !== listener);
+      },
+    };
+  };
+  fire(data: T): void {
+    for (const listener of this.listeners) {
+      listener(data);
+    }
+  }
+  dispose(): void {}
+}
+
+export const l10n = {
+  t: (message: string | { message: string; args?: unknown[] }, ...args: unknown[]): string => {
+    let msg = typeof message === "string" ? message : message.message;
+    const finalArgs = typeof message === "object" && message.args ? message.args : args;
+    finalArgs.forEach((arg, idx) => {
+      msg = msg.replace(`{${idx}}`, String(arg));
+    });
+    return msg;
+  },
+};
+
+export const workspace = {
+  getConfiguration: (_section?: string) => {
+    return {
+      get: <T>(_key: string, defaultValue?: T): T => defaultValue as T,
+    };
+  },
+};
+

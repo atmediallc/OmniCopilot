@@ -277,14 +277,15 @@ export class OmniRouteChatProvider
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
+    if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
+      throw new OmniRouteError(`Model ${model.id} is not available or not properly configured`, undefined);
+    }
     // The prefixedId is the source of truth for what the user selected.
     // Resolve the route from the catalog entry, NOT from model.routeId which
     // can be stale or point to a different server.
     const primary: FallbackCandidate = primaryEntry
       ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
-      : model.routeId && model.omniModelId
-        ? { routeId: model.routeId, modelId: model.omniModelId }
-        : { routeId: model.routeId, modelId: model.omniModelId };
+      : { routeId: model.routeId!, modelId: model.omniModelId! };
 
     this.deps.log.info(
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map(c => c.entry.prefixedId).join(", ")})`
@@ -343,25 +344,12 @@ export class OmniRouteChatProvider
           if (token.isCancellationRequested) return;
 
           let streamed = "";
-          let lastUsageReportTime = 0;
           try {
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
                 streamed += event.text;
                 progress.report(new vscode.LanguageModelTextPart(event.text));
-                const now = Date.now();
-                if (now - lastUsageReportTime > 1000) {
-                  lastUsageReportTime = now;
-                  this.deps.onUsage?.({
-                    routeId: cand.routeId,
-                    baseUrl: client?.baseUrl ?? "",
-                    serverName: routeName,
-                    modelName: cand.modelId,
-                    inputTokens,
-                    outputTokens: estimateTokens(streamed),
-                  });
-                }
               } else {
                 let input: Record<string, unknown>;
                 try {
@@ -373,16 +361,14 @@ export class OmniRouteChatProvider
                 progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
             }
-            if (streamed) {
-              this.deps.onUsage?.({
-                routeId: cand.routeId,
-                baseUrl: client?.baseUrl ?? "",
-                serverName: routeName,
-                modelName: cand.modelId,
-                inputTokens,
-                outputTokens: estimateTokens(streamed),
-              });
-            }
+            this.deps.onUsage?.({
+              routeId: cand.routeId,
+              baseUrl: client?.baseUrl ?? "",
+              serverName: routeName,
+              modelName: cand.modelId,
+              inputTokens,
+              outputTokens: estimateTokens(streamed),
+            });
             this.deps.onActivity?.(true, cand.routeId);
             return;
           } catch (err) {

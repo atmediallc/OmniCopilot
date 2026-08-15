@@ -74,7 +74,8 @@ export class ConnectionStatusBar implements vscode.Disposable {
       this.setStatus(
         onlineCount === this.health.length ? "online" : onlineCount > 0 ? "partial" : "offline"
       );
-      void this.metricsTracker?.recordActivity(routeId, routeId, "", ok);
+      const serverName = existing?.name && existing.name !== routeId ? existing.name : routeId;
+      void this.metricsTracker?.recordActivity(routeId, serverName, "", ok);
     } else {
       if (ok) {
         this.setStatus("online");
@@ -212,19 +213,19 @@ export class ConnectionStatusBar implements vscode.Disposable {
       const outFmt = fmtTokens(metrics.totalOutputTokens);
 
       md.appendMarkdown(`---\n\n`);
-      md.appendMarkdown(`#### $(graph) ${vscode.l10n.t("Métricas de Tokens")}\n`);
+      md.appendMarkdown(`#### $(graph) ${vscode.l10n.t("Token Metrics")}\n`);
       md.appendMarkdown(
-        `- **${vscode.l10n.t("Tokens Totales")}:** \`${totalFmt}\` (${vscode.l10n.t("Entrada")}: \`${inFmt}\` · ${vscode.l10n.t("Salida")}: \`${outFmt}\`)\n`
+        `- **${vscode.l10n.t("Total Tokens")}:** \`${totalFmt}\` (${vscode.l10n.t("Input")}: \`${inFmt}\` · ${vscode.l10n.t("Output")}: \`${outFmt}\`)\n`
       );
       md.appendMarkdown(
-        `- **${vscode.l10n.t("Peticiones Totales")}:** \`${metrics.totalRequests}\`\n\n`
+        `- **${vscode.l10n.t("Total Requests")}:** \`${metrics.totalRequests}\`\n\n`
       );
     }
 
     if (this.usage) {
-      md.appendMarkdown(`#### $(zap) ${vscode.l10n.t("Última Petición")}\n`);
+      md.appendMarkdown(`#### $(zap) ${vscode.l10n.t("Last Request")}\n`);
       md.appendMarkdown(
-        `- **${vscode.l10n.t("Servidor")}:** ${this.usage.serverName} (${this.usage.modelName})\n`
+        `- **${vscode.l10n.t("Server")}:** ${this.usage.serverName} (${this.usage.modelName})\n`
       );
       md.appendMarkdown(
         `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(this.usage.inputTokens + this.usage.outputTokens)}\` (In: \`${fmtTokens(this.usage.inputTokens)}\` · Out: \`${fmtTokens(this.usage.outputTokens)}\`)\n\n`
@@ -232,7 +233,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     }
 
     if (this.health.length > 0) {
-      md.appendMarkdown(`#### $(server) ${vscode.l10n.t("Servidores Conectados")}\n`);
+      md.appendMarkdown(`#### $(server) ${vscode.l10n.t("Connected Servers")}\n`);
       const serverMetrics = this.metricsTracker?.getMetrics().servers ?? {};
       for (const h of this.health) {
         const icon = h.online ? "$(check)" : "$(circle-slash)";
@@ -248,7 +249,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     }
 
     md.appendMarkdown(`---\n`);
-    md.appendMarkdown(`*$(info) ${vscode.l10n.t("Haz clic para abrir el panel de estado y métricas.")}*`);
+    md.appendMarkdown(`*$(info) ${vscode.l10n.t("Click to open status & metrics popup.")}*`);
     return md;
   }
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.5
+
+Comprehensive quality and security audit fixes:
+
+- **Metrics & Usage Performance**: Fixed token overcounting and high CPU / token estimation overhead by reporting usage metrics exactly once upon stream completion.
+- **Provider Fallback Reliability**: Fixed dead ternary condition during candidate fallback selection when primary route is configured.
+- **Vendor Slot Safety**: Capped maximum vendor routes registered to `vscode.lm.registerLanguageModelChatProvider` at 10 slots to prevent vendor route collisions.
+- **Concurrency Control**: Added mutex sync locks and try-catch error guards around provider registration to prevent activation race conditions.
+- **Status Bar & Webview Metrics**: Preserved custom server names in metrics tracking and status bar popups.
+- **Security & Webview Hardening**: Enforced Content-Security-Policy (CSP) headers and set `localResourceRoots` across webview panels.
+- **Internationalization (l10n)**: Defaulted source strings to English and updated localization bundles (`bundle.l10n.json`, `bundle.l10n.es.json`).
+- **Test Coverage**: Added automated unit tests for metrics tracking, token estimation, and provider initialization.
+
 ## 1.0.0
 
 First public release. 🎉

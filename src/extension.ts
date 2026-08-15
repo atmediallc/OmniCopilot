@@ -16,6 +16,7 @@ let providerDisposables: vscode.Disposable[] = [];
 let statusBar: ConnectionStatusBar | undefined;
 let panel: OmniPanelProvider | undefined;
 let metricsTracker: MetricsTracker | undefined;
+let syncPromise: Promise<void> = Promise.resolve();
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
@@ -27,7 +28,17 @@ async function refreshAll(): Promise<void> {
   }
 }
 
-async function syncProviders(
+function syncProviders(
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel
+): Promise<void> {
+  syncPromise = syncPromise.then(() => doSyncProviders(context, log)).catch((err) => {
+    log.error(`Failed to sync providers: ${String(err)}`);
+  });
+  return syncPromise;
+}
+
+async function doSyncProviders(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel
 ): Promise<void> {
@@ -38,6 +49,13 @@ async function syncProviders(
   activeProviders = [];
 
   const routes = await loadRoutes(context);
+  const activeRoutes = routes.slice(0, 10);
+  if (routes.length > 10) {
+    log.warn(
+      `OmniRoute supports up to 10 active servers simultaneously. Truncating ${routes.length} configured servers to 10.`
+    );
+  }
+
   const deps = {
     context,
     log,
@@ -47,24 +65,28 @@ async function syncProviders(
     getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
   };
 
-  if (routes.length <= 1) {
+  if (activeRoutes.length <= 1) {
     const p = new OmniRouteChatProvider(deps);
-    activeProviders.push(p);
-    providerDisposables.push(
-      p,
-      vscode.lm.registerLanguageModelChatProvider(VENDOR, p)
-    );
-    log.info(`Registered provider for vendor "${VENDOR}" (${routes.length} server(s) configured)`);
-  } else {
-    routes.forEach((route, index) => {
-      const vendorId = index === 0 ? VENDOR : index < 10 ? `omniroute-${index + 1}` : `omniroute-10`;
-      const p = new OmniRouteChatProvider(deps, route.id);
+    try {
+      const reg = vscode.lm.registerLanguageModelChatProvider(VENDOR, p);
       activeProviders.push(p);
-      providerDisposables.push(
-        p,
-        vscode.lm.registerLanguageModelChatProvider(vendorId, p)
-      );
-      log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}" (routeId: ${route.id})`);
+      providerDisposables.push(p, reg);
+      log.info(`Registered provider for vendor "${VENDOR}" (${activeRoutes.length} server(s) configured)`);
+    } catch (err) {
+      log.error(`Failed to register chat provider for vendor "${VENDOR}": ${String(err)}`);
+    }
+  } else {
+    activeRoutes.forEach((route, index) => {
+      const vendorId = index === 0 ? VENDOR : `omniroute-${index + 1}`;
+      const p = new OmniRouteChatProvider(deps, route.id);
+      try {
+        const reg = vscode.lm.registerLanguageModelChatProvider(vendorId, p);
+        activeProviders.push(p);
+        providerDisposables.push(p, reg);
+        log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}" (routeId: ${route.id})`);
+      } catch (err) {
+        log.error(`Failed to register chat provider for vendor "${vendorId}" (server: ${route.name}): ${String(err)}`);
+      }
     });
   }
 }
@@ -134,10 +156,10 @@ function registerCommands(
       const cts = new vscode.CancellationTokenSource();
       const models = await activeProviders[0].provideLanguageModelChatInformation({ silent: true }, cts.token);
       void vscode.window.showInformationMessage(
-        vscode.l10n.t("Modelos sincronizados: {0} modelo(s) encontrado(s) en {1} servidor(es).", models.length, routes.length)
+        vscode.l10n.t("Models synced: {0} model(s) found across {1} server(s).", models.length, routes.length)
       );
     } else {
-      void vscode.window.showInformationMessage(vscode.l10n.t("Lista de modelos actualizada."));
+      void vscode.window.showInformationMessage(vscode.l10n.t("Model list updated."));
     }
   });
 
