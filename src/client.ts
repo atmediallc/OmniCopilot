@@ -89,7 +89,7 @@ export function isTransientHttpError(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 504);
 }
 
-const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 3, baseMs: 400, maxMs: 4000 };
+const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 5, baseMs: 1000, maxMs: 10000 };
 
 function abortReason(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason;

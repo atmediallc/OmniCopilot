@@ -323,7 +323,7 @@ export class OmniRouteChatProvider
       // `retriesPerServer` times; only when all fail do we call the next.
       // Each attempt is itself bounded by the client's first-byte (120s) and
       // idle (120s) timeouts, so a dead proxy cannot hang the chain.
-      const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
+      const retriesPerServer = getConfig().get<number>("retriesPerServer", 2);
 
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
@@ -406,7 +406,7 @@ export class OmniRouteChatProvider
             // candidate instead.
             if (err instanceof OmniRouteError && err.stall) break;
             if (attempted + 1 < retriesPerServer) {
-              await delay(400 * Math.pow(2, attempted));
+              await delay(1000 * Math.pow(2, attempted));
               continue;
             }
           }
