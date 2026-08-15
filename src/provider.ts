@@ -334,24 +334,24 @@ export class OmniRouteChatProvider
           lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
           continue;
         }
-
         const last = i === lastIndex;
         const attemptRequest = { ...request, model: cand.modelId };
         const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
-
         let attempted = 0;
         let candError: unknown;
         for (; attempted < retriesPerServer; attempted++) {
           if (token.isCancellationRequested) return;
-
           let streamed = "";
+          let reportedAny = false;
           try {
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
                 streamed += event.text;
+                reportedAny = true;
                 progress.report(new vscode.LanguageModelTextPart(event.text));
               } else {
+                reportedAny = true;
                 let input: Record<string, unknown>;
                 try {
                   input = JSON.parse(event.args) as Record<string, unknown>;
@@ -374,6 +374,11 @@ export class OmniRouteChatProvider
             return;
           } catch (err) {
             if (token.isCancellationRequested) return;
+            if (reportedAny) {
+              this.deps.onActivity?.(false, cand.routeId);
+              log.error(`Chat request failed mid-stream: ${String(err)}`);
+              throw err;
+            }
             const status = err instanceof OmniRouteError ? err.status : undefined;
             // Network-level failures (no HTTP status, e.g. `fetch failed`) are
             // treated as transient so the server can be re-attempted.

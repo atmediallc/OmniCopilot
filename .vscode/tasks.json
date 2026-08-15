@@ -62,6 +62,30 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "Test and package midstream fix VSIX",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run && npx vsce package --no-dependencies"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build final vsix",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vsce package --no-dependencies"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }
