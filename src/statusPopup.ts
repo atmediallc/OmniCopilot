@@ -69,7 +69,16 @@ export class OmniStatusPopup {
             break;
           }
           case "runCommand": {
-            const payload = msg.value as { cmd: string; args?: unknown[] };
+            const payload = msg.value as { cmd?: unknown; args?: unknown[] };
+            const allowedCommands = new Set([
+              "omnicopilot.openDashboard",
+              "omnicopilot.manage",
+              "omnicopilot.refreshModels",
+              "omnicopilot.configureCliTool",
+              "omnicopilot.checkConnection",
+              "omnicopilot.openGitHub",
+            ]);
+            if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) break;
             if (payload.args && payload.args.length > 0) {
               await vscode.commands.executeCommand(payload.cmd, ...payload.args);
             } else {
@@ -784,20 +793,25 @@ export class OmniStatusPopup {
       if (suggCountEl) suggCountEl.textContent = suggestions.length + ' recommendations';
       if (suggListEl) {
         suggListEl.innerHTML = suggestions.map(s => \`
-          <div class="suggestion-card suggestion-\${s.type}">
+          <div class="suggestion-card suggestion-\${escapeHtml(s.type)}">
             <div class="suggestion-header">
               <span class="suggestion-icon">\${getSuggestionIcon(s.type)}</span>
               <strong>\${escapeHtml(s.title)}</strong>
-              <span class="badge badge-impact-\${(s.impact || '').toLowerCase()}">Impact: \${escapeHtml(s.impact)}</span>
+              <span class="badge badge-impact-\${escapeHtml((s.impact || '').toLowerCase())}">Impact: \${escapeHtml(s.impact)}</span>
             </div>
             <div class="suggestion-body">\${escapeHtml(s.description)}</div>
-            \${
-              s.actionLabel
-                ? \`<button class="btn btn-secondary btn-sm" onclick="runCommand('\${s.actionCommand}', \${JSON.stringify(s.actionArgs || [])})">\${escapeHtml(s.actionLabel)} →</button>\`
-                : ""
-            }
+            \${s.actionLabel ? \`<button class="btn btn-secondary btn-sm suggestion-action" data-command="\${escapeHtml(s.actionCommand || '')}" data-args="\${escapeHtml(JSON.stringify(s.actionArgs || []))}">\${escapeHtml(s.actionLabel)} →</button>\` : ""}
           </div>
         \`).join("");
+        suggListEl.querySelectorAll('.suggestion-action').forEach(button => {
+          button.addEventListener('click', () => {
+            const command = button.getAttribute('data-command');
+            if (!command) return;
+            let args = [];
+            try { args = JSON.parse(button.getAttribute('data-args') || '[]'); } catch { return; }
+            runCommand(command, args);
+          });
+        });
       }
     });
 

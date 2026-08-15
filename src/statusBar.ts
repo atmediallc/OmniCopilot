@@ -232,7 +232,6 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   private buildTooltip(main: string): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
     md.supportThemeIcons = true;
 
     md.appendMarkdown(`### $(symbol-enum-member) OmniRoute\n`);

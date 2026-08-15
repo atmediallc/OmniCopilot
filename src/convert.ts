@@ -67,7 +67,11 @@ export function toOpenAiMessages(
     }
   }
 
-  return out;
+  // Some VS Code request histories place the system instruction after the
+  // conversation. OpenAI-compatible servers require system messages first.
+  const system = out.filter((message) => message.role === "system");
+  if (system.length === 0) return out;
+  return [...system, ...out.filter((message) => message.role !== "system")];
 }
 
 function mapRole(role: vscode.LanguageModelChatMessageRole): "system" | "user" | "assistant" {

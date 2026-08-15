@@ -16,6 +16,16 @@ function msg(role: vscode.LanguageModelChatMessageRole, content: unknown[]): Any
 }
 
 describe("toOpenAiMessages", () => {
+  it("moves system messages to the beginning of the request", () => {
+    const out = toOpenAiMessages([
+      msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("hello")]),
+      msg(vscode.LanguageModelChatMessageRole.System, [new vscode.LanguageModelTextPart("rules")]),
+      msg(vscode.LanguageModelChatMessageRole.Assistant, [new vscode.LanguageModelTextPart("reply")]),
+    ]);
+
+    expect(out.map((message) => message.role)).toEqual(["system", "user", "assistant"]);
+  });
+
   it("converts a plain user text message to a string content", () => {
     const out = toOpenAiMessages([
       msg(vscode.LanguageModelChatMessageRole.User, [
