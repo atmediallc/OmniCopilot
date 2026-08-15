@@ -52,6 +52,29 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   /** Push a fresh status snapshot into the webview, if it is open. */
   async refreshStatus(): Promise<void> {
     if (!this.view) return;
+
+    // 1. Instantly render saved routes so input fields load in 0ms
+    try {
+      const routes = await loadRoutes(this.context);
+      const instantStatus: PanelStatus = {
+        type: "status",
+        routes: routes.map((r) => ({
+          id: r.id,
+          name: r.name,
+          url: r.baseUrl,
+          hasKey: Boolean(r.apiKey),
+          online: false,
+          modelCount: null,
+        })),
+        onlineCount: 0,
+        total: routes.length,
+      };
+      void this.view.webview.postMessage(instantStatus);
+    } catch {
+      // Ignore initial render errors
+    }
+
+    // 2. Fast parallel probe for live status
     void this.view.webview.postMessage(await this.buildStatus());
   }
 
@@ -122,15 +145,14 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       routes.map(async (r) => {
         const client = makeClientForRoute(r);
         const online = await client.ping(3000);
-        let modelCount: number | null = null;
-        if (online) {
-          try {
-            modelCount = (await client.listModels()).length;
-          } catch {
-            modelCount = null;
-          }
-        }
-        return { id: r.id, name: r.name, url: client.baseUrl, hasKey: Boolean(r.apiKey), online, modelCount };
+        return {
+          id: r.id,
+          name: r.name,
+          url: client.baseUrl,
+          hasKey: Boolean(r.apiKey),
+          online,
+          modelCount: null,
+        };
       })
     );
     return {

@@ -135,7 +135,7 @@ export class OmniRouteClient {
   }
 
   /** Fast availability probe. OmniRoute serves HEAD /v1/models explicitly. */
-  async ping(timeoutMs = 6000): Promise<boolean> {
+  async ping(timeoutMs = 3000): Promise<boolean> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {

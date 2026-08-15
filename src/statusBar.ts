@@ -113,9 +113,10 @@ export class ConnectionStatusBar implements vscode.Disposable {
       this.setStatus("offline");
       return false;
     }
-    const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
+    const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping(3000)));
     this.health = routes.map((r, i) => {
       const pingOk = results[i];
+      void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, pingOk);
       return { routeId: r.id, name: r.name, online: pingOk };
     });
     const ok = this.health.filter((h) => h.online).length;
