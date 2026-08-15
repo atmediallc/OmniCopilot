@@ -60,7 +60,11 @@ export class OmniRouteError extends Error {
   constructor(
     message: string,
     /** HTTP status when the failure came from an upstream response. */
-    public readonly status?: number
+    public readonly status?: number,
+    /** True when the stream stalled (no SSE within the timeout window).
+     * The upstream is alive and processing the same request, so re-sending it
+     * would just burn tokens again — callers should NOT retry the server. */
+    public readonly stall = false
   ) {
     super(message);
     this.name = "OmniRouteError";
@@ -213,7 +217,8 @@ export class OmniRouteClient {
         ctrl.abort(
           new OmniRouteError(
             `OmniRoute did not start responding within ${firstByteMs / 1000}s`,
-            408
+            408,
+            true
           )
         ),
       firstByteMs
@@ -249,7 +254,8 @@ export class OmniRouteClient {
         ms === firstByteMs
           ? `OmniRoute did not start responding within ${firstByteMs / 1000}s`
           : `OmniRoute went silent for ${idleMs / 1000}s`,
-        408
+        408,
+        true
       );
 
     // Watchdog: the stream is bounded by the first-byte cap until the first

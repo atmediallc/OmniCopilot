@@ -320,6 +320,11 @@ export class OmniRouteChatProvider
             log.warn(
               `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${String(err)})`
             );
+            // A stall means the upstream is alive and already processing the
+            // same request; re-sending it would burn tokens a second time.
+            // Skip remaining attempts on this server and move to the next
+            // candidate instead.
+            if (err instanceof OmniRouteError && err.stall) break;
             if (attempted + 1 < retriesPerServer) {
               await delay(400 * Math.pow(2, attempted));
               continue;
