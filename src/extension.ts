@@ -66,7 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): void {
-  const register = (id: string, fn: (...args: unknown[]) => unknown) =>
+  const register = (id: string, fn: (...args: readonly unknown[]) => void | Promise<void>) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
   // The management gear in "Manage Models" and the status-bar menu both land

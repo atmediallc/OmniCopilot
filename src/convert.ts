@@ -115,7 +115,10 @@ export function extractToolResultText(content: unknown): string {
     return content
       .map((c) => {
         if (c instanceof vscode.LanguageModelTextPart) return c.value;
-        if (c && typeof c === "object" && "value" in c) return String((c as { value: unknown }).value);
+        if (c && typeof c === "object" && "value" in c) {
+          const val = (c as Record<string, unknown>).value;
+          return String(val ?? "");
+        }
         return typeof c === "string" ? c : JSON.stringify(c);
       })
       .join("");

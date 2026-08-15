@@ -2,6 +2,19 @@ import * as vscode from "vscode";
 import { normalizeBaseUrl } from "./client";
 import { SECRET_PREFIX, loadRoutes, makeClientForRoute, saveRoutes } from "./routes";
 
+interface RawRouteInput {
+  id?: string;
+  name?: string;
+  url?: string;
+  apiKey?: string;
+}
+
+type PanelMessage =
+  | { type: "ready" | "test" }
+  | { type: "save"; routes?: RawRouteInput[] }
+  | { type: "clearKey"; routeId?: string }
+  | { type: "action"; command?: string };
+
 interface PanelRoute {
   id: string;
   name: string;
@@ -47,7 +60,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true };
     view.webview.html = this.html();
 
-    view.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
+    view.webview.onDidReceiveMessage(async (msg: PanelMessage) => {
       try {
         await this.handleMessage(msg);
       } catch (err) {
@@ -63,7 +76,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     void this.refreshStatus();
   }
 
-  private async handleMessage(msg: Record<string, unknown>): Promise<void> {
+  private async handleMessage(msg: PanelMessage): Promise<void> {
     switch (msg.type) {
       case "ready":
       case "test":
@@ -71,10 +84,10 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         break;
 
       case "save": {
-        const incoming = Array.isArray(msg.routes) ? (msg.routes as unknown[]) : [];
+        const incoming = Array.isArray(msg.routes) ? msg.routes : [];
         const routes: Array<{ id: string; name: string; baseUrl: string; apiKey?: string }> = [];
-        for (const raw of incoming) {
-          const o = raw as { id?: string; name?: string; url?: string; apiKey?: string };
+        for (const o of incoming) {
+          if (!o || typeof o !== "object") continue;
           const key = String(o.apiKey ?? "").trim();
           routes.push({
             id: String(o.id ?? ""),
