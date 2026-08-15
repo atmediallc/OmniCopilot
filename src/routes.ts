@@ -84,8 +84,18 @@ export function newRouteId(routes: Route[]): string {
 }
 
 /** Fresh client for a single route (stateless; callers may build them cheaply). */
-export function makeClientForRoute(route: Route, log?: OmniLogger): OmniRouteClient {
-  return new OmniRouteClient({ baseUrl: route.baseUrl, apiKey: route.apiKey, chatMaxAttempts: 1, log });
+export function makeClientForRoute(
+  route: Route,
+  log?: OmniLogger,
+  streamFirstByteTimeoutMs?: number
+): OmniRouteClient {
+  return new OmniRouteClient({
+    baseUrl: route.baseUrl,
+    apiKey: route.apiKey,
+    chatMaxAttempts: 1,
+    streamFirstByteTimeoutMs,
+    log,
+  });
 }
 
 /** Canonical vendor string for VS Code model provider registration (e.g. omniroute-Ashburn). */

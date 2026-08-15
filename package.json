@@ -238,6 +238,14 @@
           "order": 7,
           "description": "%cfg.retriesPerServer%"
         },
+        "omnicopilot.firstByteTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "maximum": 600,
+          "order": 8,
+          "description": "Maximum time to wait for a model's first response. Local models may need longer while loading or processing large agent prompts."
+        },
         "omnicopilot.maxTools": {
           "type": "number",
           "default": 32,

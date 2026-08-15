@@ -261,7 +261,11 @@ export class OmniRouteChatProvider
     // fatal. Fallback chain (transient 429/5xx only): primary → same model on
     // another route → same family on the same route → any compatible model.
     const routes = await loadRoutes(this.deps.context);
-    const clientByRoute = new Map(routes.map((r) => [r.id, makeClientForRoute(r, this.deps.log)]));
+    const firstByteTimeoutMs =
+      getConfig().get<number>("firstByteTimeoutSeconds", 120) * 1000;
+    const clientByRoute = new Map(
+      routes.map((r) => [r.id, makeClientForRoute(r, this.deps.log, firstByteTimeoutMs)])
+    );
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
     if (!primaryEntry) {

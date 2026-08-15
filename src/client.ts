@@ -34,7 +34,7 @@ export interface ClientOptions {
   log?: OmniLogger;
   /** Abort a streaming response if no byte arrives within this long (ms).
    * Guards against dead proxies that accept the connection and never send
-   * headers/body. Default 15000. */
+    * headers/body. Default 120000. */
   streamFirstByteTimeoutMs?: number;
   /** Abort a streaming response that sends no further data for this long (ms)
    * once streaming has started. Default 30000. */
@@ -265,7 +265,7 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 15_000;
+    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 120_000;
     const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
 
     // Derived signal so a stall can abort this attempt without cancelling the
