@@ -281,21 +281,34 @@ export class OmniRouteClient {
       return err;
     };
 
-    const waitMs = (ms: number) =>
-      new Promise<{ timeout: true }>((resolve) => {
-        setTimeout(() => resolve({ timeout: true }), ms);
+    const waitMs = (ms: number) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const promise = new Promise<{ timeout: true }>((resolve) => {
+        timer = setTimeout(() => resolve({ timeout: true }), ms);
       });
+      return {
+        promise,
+        cancel: () => {
+          if (timer) clearTimeout(timer);
+        },
+      };
+    };
 
     try {
       for (;;) {
         const now = Date.now();
         const deadline = !hasRealEvent ? firstByteDeadline : idleDeadline;
-        const timeoutP = waitMs(Math.max(deadline - now, 0));
+        const timeoutObj = waitMs(Math.max(deadline - now, 0));
         const readP = reader.read().then(
           (v) => ({ ok: true as const, v }),
           (e) => ({ ok: false as const, e })
         );
-        const result = await Promise.race([readP, timeoutP]);
+        let result: { ok: true; v: Awaited<ReturnType<typeof reader.read>> } | { ok: false; e: unknown } | { timeout: true };
+        try {
+          result = await Promise.race([readP, timeoutObj.promise]);
+        } finally {
+          timeoutObj.cancel();
+        }
 
         if ("timeout" in result) {
           stalled = true;

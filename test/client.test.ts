@@ -308,11 +308,11 @@ describe("OmniRouteClient retry behavior", () => {
     const client = new OmniRouteClient({ baseUrl: "http://x/v1", retry });
     await expect(
       (async () => {
-        for await (const _event of client.streamChat(
+        for await (const chunk of client.streamChat(
           { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
           ctrl.signal
         )) {
-          // no-op
+          void chunk;
         }
       })()
     ).rejects.toThrow(/aborted/i);
