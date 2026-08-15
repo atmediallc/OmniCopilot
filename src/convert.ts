@@ -76,9 +76,9 @@ export function toOpenAiMessages(
 
 function mapRole(role: vscode.LanguageModelChatMessageRole): "system" | "user" | "assistant" {
   if (role === vscode.LanguageModelChatMessageRole.Assistant) return "assistant";
-  // Role 3 (System) is still proposed API — not in the stable enum, but the
-  // editor may send it; map it defensively instead of downgrading to user.
-  if ((role as number) === 3) return "system";
+  // System is not in the stable VS Code enum, but some editor versions send
+  // it at runtime as numeric 3 or the literal string "system".
+  if ((role as unknown) === 3 || String(role).toLowerCase() === "system") return "system";
   return "user";
 }
 

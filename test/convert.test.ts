@@ -19,7 +19,7 @@ describe("toOpenAiMessages", () => {
   it("moves system messages to the beginning of the request", () => {
     const out = toOpenAiMessages([
       msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("hello")]),
-      msg(vscode.LanguageModelChatMessageRole.System, [new vscode.LanguageModelTextPart("rules")]),
+      msg(3 as vscode.LanguageModelChatMessageRole, [new vscode.LanguageModelTextPart("rules")]),
       msg(vscode.LanguageModelChatMessageRole.Assistant, [new vscode.LanguageModelTextPart("reply")]),
     ]);
 
