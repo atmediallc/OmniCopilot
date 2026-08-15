@@ -87,6 +87,19 @@ export function makeClientForRoute(route: Route): OmniRouteClient {
   return new OmniRouteClient({ baseUrl: route.baseUrl, apiKey: route.apiKey });
 }
 
+/** Canonical vendor string for VS Code model provider registration (e.g. omniroute-Ashburn). */
+export function vendorForRoute(
+  route: { id: string; name: string },
+  allRoutes: { id: string; name: string }[]
+): string {
+  const clean = route.name.trim() || route.id;
+  const matches = allRoutes.filter((r) => (r.name.trim() || r.id) === clean);
+  if (matches.length > 1) {
+    return `omniroute-${clean}-${route.id}`;
+  }
+  return `omniroute-${clean}`;
+}
+
 /** Host portion of a URL → auto-generated route name on migration. */
 function hostLabelOf(raw: string): string {
   try {

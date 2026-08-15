@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCatalog, newRouteId, pickFallbackCandidates, prefixedId } from "../src/routes";
+import { buildCatalog, newRouteId, pickFallbackCandidates, prefixedId, vendorForRoute } from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
 
 function model(id: string, toolCalling?: boolean): OmniRouteModel {
@@ -99,5 +99,21 @@ describe("pickFallbackCandidates", () => {
       "openai/gpt-4o-mini",
       "kimi/k2",
     ]);
+  });
+});
+
+describe("vendorForRoute", () => {
+  it("genera omniroute-NOMBRE para servidor unico", () => {
+    const routes = [{ id: "r1", name: "Ashburn" }];
+    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-Ashburn");
+  });
+
+  it("agrega el routeId si hay colision de nombres de servidor", () => {
+    const routes = [
+      { id: "r1", name: "Ashburn" },
+      { id: "r2", name: "Ashburn" },
+    ];
+    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-Ashburn-r1");
+    expect(vendorForRoute(routes[1], routes)).toBe("omniroute-Ashburn-r2");
   });
 });

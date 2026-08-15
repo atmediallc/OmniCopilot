@@ -3,18 +3,68 @@ import { serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
-import { SECRET_PREFIX, loadRoutes, makeClientForRoute } from "./routes";
+import { SECRET_PREFIX, loadRoutes, makeClientForRoute, vendorForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
 const VENDOR = "omniroute";
 
-let provider: OmniRouteChatProvider | undefined;
+let activeProviders: OmniRouteChatProvider[] = [];
+let providerDisposables: vscode.Disposable[] = [];
 let statusBar: ConnectionStatusBar | undefined;
 let panel: OmniPanelProvider | undefined;
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
+}
+
+async function refreshAll(): Promise<void> {
+  if (activeProviders.length > 0) {
+    await activeProviders[0].refresh();
+  }
+}
+
+async function syncProviders(
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel
+): Promise<void> {
+  for (const d of providerDisposables) {
+    d.dispose();
+  }
+  providerDisposables = [];
+  activeProviders = [];
+
+  const routes = await loadRoutes(context);
+  const deps = {
+    context,
+    log,
+    onActivity: (ok: boolean, routeId?: string) => statusBar?.reportActivity(ok, routeId),
+    onUsage: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) =>
+      statusBar?.reportUsage(usage),
+    getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
+  };
+
+  if (routes.length === 0) {
+    const p = new OmniRouteChatProvider(deps);
+    activeProviders.push(p);
+    providerDisposables.push(
+      p,
+      vscode.lm.registerLanguageModelChatProvider(VENDOR, p)
+    );
+    log.info(`Registered fallback provider (vendor: ${VENDOR})`);
+    return;
+  }
+
+  for (const r of routes) {
+    const vendor = vendorForRoute(r, routes);
+    const p = new OmniRouteChatProvider(deps, r.id);
+    activeProviders.push(p);
+    providerDisposables.push(
+      p,
+      vscode.lm.registerLanguageModelChatProvider(vendor, p)
+    );
+    log.info(`Registered provider for server "${r.name}" (vendor: ${vendor})`);
+  }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -30,33 +80,25 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   context.subscriptions.push(statusBar);
 
-  provider = new OmniRouteChatProvider({
-    context,
-    log,
-    onActivity: (ok, routeId) => statusBar?.reportActivity(ok, routeId),
-    onUsage: (usage) => statusBar?.reportUsage(usage),
-    getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
-  });
-  context.subscriptions.push(provider);
-  context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
-  log.info(`Language model chat provider registered (vendor: ${VENDOR})`);
+  void syncProviders(context, log);
 
   panel = new OmniPanelProvider(context, log, async () => {
     statusBar?.restart();
-    await provider?.refresh();
+    await syncProviders(context, log);
+    await refreshAll();
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(OmniPanelProvider.viewId, panel)
   );
 
-  registerCommands(context, log);
+  registerCommands(context, log, refreshAll);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration("omnicopilot")) return;
       log.info("Configuration changed — refreshing models and status");
       statusBar?.restart();
-      void provider?.refresh();
+      void syncProviders(context, log).then(() => refreshAll());
       void panel?.refreshStatus();
     })
   );
@@ -65,7 +107,11 @@ export function activate(context: vscode.ExtensionContext): void {
   void checkFirstRun(context, log);
 }
 
-function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): void {
+function registerCommands(
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel,
+  onRefresh: () => Promise<void>
+): void {
   const register = (id: string, fn: (...args: readonly unknown[]) => void | Promise<void>) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
@@ -75,7 +121,7 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   register("omnicopilot.setApiKey", () => setApiKey(context, log));
 
   register("omnicopilot.refreshModels", async () => {
-    await provider?.refresh();
+    await onRefresh();
     void vscode.window.showInformationMessage(vscode.l10n.t("OmniRoute model list refreshed."));
   });
 
@@ -249,7 +295,7 @@ async function setApiKey(
     await context.secrets.delete(SECRET_PREFIX + route.id);
     log.info(`API key cleared (${route.id})`);
   }
-  if (!optionalFlow) await provider?.refresh();
+  if (!optionalFlow) await refreshAll();
 }
 
 /** One-time welcome: point users at the model picker or at installing OmniRoute. */
@@ -297,7 +343,11 @@ async function checkFirstRun(
 }
 
 export function deactivate(): void {
-  provider = undefined;
+  for (const d of providerDisposables) {
+    d.dispose();
+  }
+  providerDisposables = [];
+  activeProviders = [];
   statusBar = undefined;
   panel = undefined;
 }

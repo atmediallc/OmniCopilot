@@ -39,11 +39,19 @@ export class OmniRouteChatProvider
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
-  private cachedModels: CatalogModel[] = [];
-  private lastCatalogFetch = 0;
+  private static sharedCachedModels: CatalogModel[] = [];
+  private static sharedLastCatalogFetch = 0;
+  private static sharedFetchPromise: Promise<CatalogModel[]> | null = null;
   private static readonly CACHE_TTL_MS = 30_000;
 
-  constructor(private readonly deps: ProviderDeps) {}
+  constructor(
+    private readonly deps: ProviderDeps,
+    public readonly filterRouteId?: string
+  ) {}
+
+  get cachedModels(): CatalogModel[] {
+    return OmniRouteChatProvider.sharedCachedModels;
+  }
 
   dispose(): void {
     this._onDidChange.dispose();
@@ -51,12 +59,12 @@ export class OmniRouteChatProvider
 
   /** Re-query the catalog and tell VS Code the model list changed. */
   async refresh(): Promise<void> {
-    this.cachedModels = [];
-    this.lastCatalogFetch = 0;
+    OmniRouteChatProvider.sharedCachedModels = [];
+    OmniRouteChatProvider.sharedLastCatalogFetch = 0;
     this._onDidChange.fire();
   }
 
-    // ── Model discovery ─────────────────────────────────────────────────────
+  // ── Model discovery ─────────────────────────────────────────────────────
 
   async provideLanguageModelChatInformation(
     options: { silent: boolean },
@@ -65,26 +73,38 @@ export class OmniRouteChatProvider
     const routes = await loadRoutes(this.deps.context);
     if (routes.length === 0) return [];
 
-    const isFresh = Date.now() - this.lastCatalogFetch < OmniRouteChatProvider.CACHE_TTL_MS;
-    if (options.silent && this.cachedModels.length > 0 && isFresh) {
-      return this.toModelInfos(this.cachedModels);
+    const isFresh = Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < OmniRouteChatProvider.CACHE_TTL_MS;
+    if (options.silent && OmniRouteChatProvider.sharedCachedModels.length > 0 && isFresh) {
+      return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels);
     }
 
-    const segments: RouteCatalog[] = await Promise.all(
-      routes.map(async (r) => {
-        try {
-          const models = await makeClientForRoute(r).listModels(token);
-          this.deps.onActivity?.(true, r.id);
-          return { routeId: r.id, name: r.name, models };
-        } catch (err) {
-          this.deps.onActivity?.(false, r.id);
-          this.deps.log.warn(`Route "${r.name}" model discovery failed: ${String(err)}`);
-          return { routeId: r.id, name: r.name, models: [] };
-        }
-      })
-    );
+    if (!OmniRouteChatProvider.sharedFetchPromise) {
+      OmniRouteChatProvider.sharedFetchPromise = (async () => {
+        const segments: RouteCatalog[] = await Promise.all(
+          routes.map(async (r) => {
+            try {
+              const models = await makeClientForRoute(r).listModels(token);
+              this.deps.onActivity?.(true, r.id);
+              return { routeId: r.id, name: r.name, models };
+            } catch (err) {
+              this.deps.onActivity?.(false, r.id);
+              this.deps.log.warn(`Route "${r.name}" model discovery failed: ${String(err)}`);
+              return { routeId: r.id, name: r.name, models: [] };
+            }
+          })
+        );
 
-    const anyModel = segments.some((s) => s.models.length > 0);
+        const catalog = buildCatalog(segments);
+        OmniRouteChatProvider.sharedCachedModels = catalog;
+        OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+        return catalog;
+      })().finally(() => {
+        OmniRouteChatProvider.sharedFetchPromise = null;
+      });
+    }
+
+    const catalog = await OmniRouteChatProvider.sharedFetchPromise;
+    const anyModel = catalog.length > 0;
     if (!anyModel) {
       // No route answered with a model list. Only prompt when the caller
       // wants it (model picker opened by the user); otherwise contribute none.
@@ -92,14 +112,9 @@ export class OmniRouteChatProvider
       return [];
     }
 
-    const catalog = buildCatalog(segments);
-    this.cachedModels = catalog;
-    this.lastCatalogFetch = Date.now();
     const infos = this.toModelInfos(catalog);
-    // `this.cachedModels` is read here so Task 3 compiles clean before the
-    // chat fallback (Task 4) starts consuming it.
     this.deps.log.info(
-      `Listed ${infos.length} models from ${segments.map((s) => `${s.name}(${s.models.length})`).join(", ")} (cached ${this.cachedModels.length})`
+      `Listed ${infos.length} models for vendor (filterRouteId: ${this.filterRouteId ?? "all"}, total cached: ${catalog.length})`
     );
     return infos;
   }
@@ -123,6 +138,9 @@ export class OmniRouteChatProvider
 
     const infos: OmniModelInfo[] = [];
     for (const c of catalog) {
+      if (this.filterRouteId && c.entry.routeId !== this.filterRouteId) {
+        continue;
+      }
       const model = c.model;
       if (!model?.id) continue;
       if (filter && !filter.test(model.id)) continue;
@@ -132,9 +150,14 @@ export class OmniRouteChatProvider
       const caps = model.capabilities ?? {};
       const isCombo = model.owned_by === "combo";
 
+      const displayName = model.display_name?.trim() || model.id;
+      const name = this.filterRouteId
+        ? displayName
+        : `${c.entry.routeName} · ${displayName}`;
+
       infos.push({
         id: c.entry.prefixedId,
-        name: `${c.entry.routeName} · ${model.display_name?.trim() || model.id}`,
+        name,
         family: model.owned_by || "omniroute",
         version: "1.0.0",
         detail: isCombo ? "combo" : model.owned_by,
