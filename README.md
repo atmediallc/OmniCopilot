@@ -97,7 +97,7 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 
 ## Free & open source
 
-OmniRoute is MIT-licensed and free forever — ⭐ [star it on GitHub](https://github.com/diegosouzapw/OmniRoute) and join the project. This extension is MIT too; issues and PRs welcome at [diegosouzapw/OmniCopilot](https://github.com/diegosouzapw/OmniCopilot).
+OmniRoute is MIT-licensed and free forever — ⭐ [star it on GitHub](https://github.com/diegosouzapw/OmniRoute) and join the project. This extension is MIT too; issues and PRs welcome at [diegosouzapw/OmniCopilot](https://github.com/diegosouzapw/OmniCopilot). Maintainers publishing a new version: see [`docs/PUBLISHING.md`](docs/PUBLISHING.md) (Marketplace + Open VSX).
 
 ---
 
