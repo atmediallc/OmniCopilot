@@ -143,7 +143,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     const routes = await loadRoutes(this.context);
     const routeStatuses = await Promise.all(
       routes.map(async (r) => {
-        const client = makeClientForRoute(r);
+        const client = makeClientForRoute(r, this.log);
         const online = await client.ping(3000);
         return {
           id: r.id,

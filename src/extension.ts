@@ -227,15 +227,15 @@ function registerCommands(
     if (metricsTracker) {
       OmniStatusPopup.show(context, metricsTracker, log);
     } else {
-      void quickActions(context);
+      void quickActions(context, log);
     }
   });
 }
 
 /** Menu behind the status-bar item. */
-async function quickActions(context: vscode.ExtensionContext): Promise<void> {
+async function quickActions(context: vscode.ExtensionContext, log?: vscode.LogOutputChannel): Promise<void> {
   const routes = await loadRoutes(context);
-  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping(4000)));
+  const results = await Promise.all(routes.map((r) => makeClientForRoute(r, log).ping(4000)));
   const onlineCount = results.filter(Boolean).length;
   const online = onlineCount > 0;
 

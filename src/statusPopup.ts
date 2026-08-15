@@ -120,7 +120,7 @@ export class OmniStatusPopup {
     const onlineRouteIds = new Set<string>();
     const serverDetails = await Promise.all(
       routes.map(async (r) => {
-        const client = makeClientForRoute(r);
+        const client = makeClientForRoute(r, this.log);
         const serverMetric = metrics.servers[r.id] || {
           routeId: r.id,
           name: r.name,

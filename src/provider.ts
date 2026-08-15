@@ -105,7 +105,7 @@ export class OmniRouteChatProvider
         const segments: RouteCatalog[] = await Promise.all(
           routes.map(async (r) => {
             try {
-              const models = await makeClientForRoute(r).listModels(token);
+              const models = await makeClientForRoute(r, this.deps.log).listModels(token);
               this.deps.onActivity?.(true, r.id);
               return { routeId: r.id, name: r.name, models };
             } catch (err) {
@@ -253,7 +253,7 @@ export class OmniRouteChatProvider
     // fatal. Fallback chain (transient 429/5xx only): primary → same model on
     // another route → same family on the same route → any compatible model.
     const routes = await loadRoutes(this.deps.context);
-    const clientByRoute = new Map(routes.map((r) => [r.id, makeClientForRoute(r)]));
+    const clientByRoute = new Map(routes.map((r) => [r.id, makeClientForRoute(r, this.deps.log)]));
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
     if (!primaryEntry) {

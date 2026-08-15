@@ -18,10 +18,18 @@ export interface RetryPolicy {
   maxMs?: number;
 }
 
+export interface OmniLogger {
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+  debug?(message: string, ...args: unknown[]): void;
+}
+
 export interface ClientOptions {
   baseUrl: string;
   apiKey?: string;
   retry?: RetryPolicy;
+  log?: OmniLogger;
   /** Abort a streaming response if no byte arrives within this long (ms).
    * Guards against dead proxies that accept the connection and never send
    * headers/body. Default 15000. */
@@ -37,6 +45,7 @@ function headers(apiKey: string | undefined, json: boolean): Record<string, stri
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
     "Connection": "keep-alive",
+    "Accept": "application/json",
   };
   if (json) h["Content-Type"] = "application/json";
   if (apiKey) h["Authorization"] = `Bearer ${apiKey}`;
@@ -142,6 +151,7 @@ export class OmniRouteClient {
   async ping(timeoutMs = 3000): Promise<boolean> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const t0 = Date.now();
     try {
       let res = await fetch(`${this.baseUrl}/models`, {
         method: "HEAD",
@@ -155,8 +165,13 @@ export class OmniRouteClient {
           signal: ctrl.signal,
         });
       }
-      return res.ok || (res.status >= 400 && res.status < 500);
-    } catch {
+      const ok = res.ok || (res.status >= 400 && res.status < 500);
+      const elapsed = Date.now() - t0;
+      this.opts.log?.info(`[PING] ${this.baseUrl} -> ${ok ? "ONLINE" : "OFFLINE"} (HTTP ${res.status}, ${elapsed}ms)`);
+      return ok;
+    } catch (err) {
+      const elapsed = Date.now() - t0;
+      this.opts.log?.warn(`[PING FAILED] ${this.baseUrl} -> OFFLINE (${elapsed}ms): ${String(err)}`);
       return false;
     } finally {
       clearTimeout(timer);
@@ -175,34 +190,51 @@ export class OmniRouteClient {
       baseMs: this.opts.retry?.baseMs ?? RETRY_DEFAULTS.baseMs,
       maxMs: this.opts.retry?.maxMs ?? RETRY_DEFAULTS.maxMs,
     };
+    const method = init.method ?? "GET";
     for (let attempt = 0; ; attempt++) {
       if (signal.aborted) throw abortReason(signal);
+      const attemptT0 = Date.now();
       let res: Response;
       try {
+        this.opts.log?.info(`[HTTP ${method}] ${url} (Attempt ${attempt + 1}/${maxAttempts})`);
         res = await fetch(url, init);
+        const elapsed = Date.now() - attemptT0;
+        this.opts.log?.info(`[HTTP ${method}] ${url} -> ${res.status} ${res.statusText} (${elapsed}ms)`);
       } catch (err) {
-        if (signal.aborted) throw abortReason(signal);
-        // Network-level failure (DNS, refused, reset, TLS…): transient unless
-        // this was the final attempt. Keeps flaky servers from killing a
-        // request outright and lets the caller's fallback chain take over.
+        const elapsed = Date.now() - attemptT0;
+        if (signal.aborted) {
+          this.opts.log?.warn(`[HTTP ABORTED] ${method} ${url} after ${elapsed}ms: ${String(err)}`);
+          throw abortReason(signal);
+        }
+        this.opts.log?.warn(`[HTTP ERROR] ${method} ${url} after ${elapsed}ms: ${String(err)}`);
         if (attempt >= policy.maxAttempts - 1) throw err;
-        await sleep(retryDelayMs(undefined, attempt, policy), signal);
+        const delay = retryDelayMs(undefined, attempt, policy);
+        this.opts.log?.info(`[HTTP RETRY] Waiting ${delay}ms before attempt ${attempt + 2}...`);
+        await sleep(delay, signal);
         continue;
       }
       if (res.ok || !isTransientHttpError(res.status) || attempt >= policy.maxAttempts - 1) {
         return res;
       }
-      await sleep(retryDelayMs(res, attempt, policy), signal);
+      const delay = retryDelayMs(res, attempt, policy);
+      this.opts.log?.warn(`[HTTP ${res.status}] Transient error from ${url}. Retrying in ${delay}ms...`);
+      await sleep(delay, signal);
     }
   }
 
   async listModels(token?: { isCancellationRequested?: boolean; onCancellationRequested?: (listener: () => void) => { dispose(): void } }): Promise<OmniRouteModel[]> {
     const ctrl = new AbortController();
+    const timeoutMs = 8000;
+    const timer = setTimeout(() => ctrl.abort(new Error(`Timeout listing models after ${timeoutMs}ms`)), timeoutMs);
     let sub: { dispose(): void } | undefined;
     if (token?.onCancellationRequested) {
-      if (token.isCancellationRequested) return [];
+      if (token.isCancellationRequested) {
+        clearTimeout(timer);
+        return [];
+      }
       sub = token.onCancellationRequested(() => ctrl.abort());
     }
+    const t0 = Date.now();
     try {
       const res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
         method: "GET",
@@ -214,8 +246,14 @@ export class OmniRouteClient {
       }
       if (token?.isCancellationRequested) return [];
       const body = (await res.json()) as ModelsResponse;
-      return Array.isArray(body.data) ? body.data : [];
+      const models = Array.isArray(body.data) ? body.data : [];
+      this.opts.log?.info(`[MODELS] Listed ${models.length} model(s) from ${this.baseUrl} in ${Date.now() - t0}ms`);
+      return models;
+    } catch (err) {
+      this.opts.log?.warn(`[MODELS ERROR] Failed listing models from ${this.baseUrl}: ${String(err)}`);
+      throw err;
     } finally {
+      clearTimeout(timer);
       sub?.dispose();
     }
   }

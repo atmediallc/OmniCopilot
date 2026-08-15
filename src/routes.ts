@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
+import type { OmniLogger } from "./client";
 import type { OmniRouteModel, RouteConfig } from "./types";
 
 /** Legacy single-route secret (migrated into route-1). */
@@ -83,8 +84,8 @@ export function newRouteId(routes: Route[]): string {
 }
 
 /** Fresh client for a single route (stateless; callers may build them cheaply). */
-export function makeClientForRoute(route: Route): OmniRouteClient {
-  return new OmniRouteClient({ baseUrl: route.baseUrl, apiKey: route.apiKey });
+export function makeClientForRoute(route: Route, log?: OmniLogger): OmniRouteClient {
+  return new OmniRouteClient({ baseUrl: route.baseUrl, apiKey: route.apiKey, log });
 }
 
 /** Canonical vendor string for VS Code model provider registration (e.g. omniroute-Ashburn). */
