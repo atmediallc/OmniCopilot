@@ -85,47 +85,47 @@
       },
       {
         "vendor": "omniroute-2",
-        "displayName": "OmniRoute (Servidor 2)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-3",
-        "displayName": "OmniRoute (Servidor 3)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-4",
-        "displayName": "OmniRoute (Servidor 4)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-5",
-        "displayName": "OmniRoute (Servidor 5)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-6",
-        "displayName": "OmniRoute (Servidor 6)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-7",
-        "displayName": "OmniRoute (Servidor 7)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-8",
-        "displayName": "OmniRoute (Servidor 8)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-9",
-        "displayName": "OmniRoute (Servidor 9)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       },
       {
         "vendor": "omniroute-10",
-        "displayName": "OmniRoute (Servidor 10)",
+        "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
       }
     ],

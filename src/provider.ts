@@ -86,7 +86,7 @@ export class OmniRouteChatProvider
 
   async provideLanguageModelChatInformation(
     options: { silent: boolean },
-    token: vscode.CancellationToken
+    _token: vscode.CancellationToken
   ): Promise<OmniModelInfo[]> {
     const routes = await loadRoutes(this.deps.context);
     if (routes.length === 0) return [];
@@ -102,15 +102,18 @@ export class OmniRouteChatProvider
 
     if (!OmniRouteChatProvider.sharedFetchPromise) {
       OmniRouteChatProvider.sharedFetchPromise = (async () => {
+        let allSucceeded = true;
         const segments: RouteCatalog[] = await Promise.all(
           routes.map(async (r) => {
             try {
-              const models = await makeClientForRoute(r, this.deps.log).listModels(token);
+              const models = await makeClientForRoute(r, this.deps.log).listModels();
               this.deps.onActivity?.(true, r.id);
+              this.deps.log.info(`Route "${r.name}" (${r.baseUrl}) model discovery succeeded: ${models.length} model(s)`);
               return { routeId: r.id, name: r.name, models };
             } catch (err) {
+              allSucceeded = false;
               this.deps.onActivity?.(false, r.id);
-              this.deps.log.warn(`Route "${r.name}" model discovery failed: ${String(err)}`);
+              this.deps.log.warn(`Route "${r.name}" (${r.baseUrl}) model discovery failed: ${String(err)}`);
               return { routeId: r.id, name: r.name, models: [] };
             }
           })
@@ -119,8 +122,13 @@ export class OmniRouteChatProvider
         const catalog = buildCatalog(segments);
         if (catalog.length > 0) {
           OmniRouteChatProvider.sharedCachedModels = catalog;
-          OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
-          void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
+          if (allSucceeded) {
+            OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+            void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
+          } else {
+            OmniRouteChatProvider.sharedLastCatalogFetch = 0;
+            this.deps.log.warn("Not all configured servers responded successfully during model discovery. Cache TTL will not be set so missing servers will be retried.");
+          }
         }
         return catalog;
       })().finally(() => {

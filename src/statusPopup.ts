@@ -7,6 +7,8 @@ export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
+  private autoRefreshTimer: NodeJS.Timeout | undefined;
+  private isUpdating = false;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -19,15 +21,28 @@ export class OmniStatusPopup {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
+    // Listen for real-time metrics changes from MetricsTracker
+    this.disposables.push(
+      this.metricsTracker.onDidChangeMetrics(() => {
+        void this.updateStateData();
+      })
+    );
+
+    // Auto-refresh ping & latency every 3 seconds
+    this.autoRefreshTimer = setInterval(() => {
+      void this.updateStateData();
+    }, 3000);
+
     this.panel.webview.onDidReceiveMessage(
       async (msg: { command: string; value?: unknown }) => {
         switch (msg.command) {
+          case "ready":
           case "refresh":
-            await this.updateWebview();
+            await this.updateStateData();
             break;
           case "resetMetrics":
             await this.metricsTracker.resetMetrics();
-            await this.updateWebview();
+            await this.updateStateData();
             void vscode.window.showInformationMessage(
               vscode.l10n.t("Métricas de tokens reiniciadas.")
             );
@@ -37,7 +52,7 @@ export class OmniStatusPopup {
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
-            await this.updateWebview();
+            await this.updateStateData();
             break;
           }
           case "changeFallbackMode": {
@@ -45,7 +60,7 @@ export class OmniStatusPopup {
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
-            await this.updateWebview();
+            await this.updateStateData();
             break;
           }
           case "runCommand": {
@@ -58,7 +73,6 @@ export class OmniStatusPopup {
             break;
           }
           case "snooze": {
-            // Snooze status bar readout for 5 minutes
             void vscode.window.showInformationMessage(
               vscode.l10n.t("Métricas de la barra de estado pausadas por 5 minutos.")
             );
@@ -70,7 +84,7 @@ export class OmniStatusPopup {
       this.disposables
     );
 
-    void this.updateWebview();
+    this.panel.webview.html = this.getHtmlForWebview();
   }
 
   public static show(
@@ -101,6 +115,10 @@ export class OmniStatusPopup {
   }
 
   public dispose(): void {
+    if (this.autoRefreshTimer) {
+      clearInterval(this.autoRefreshTimer);
+      this.autoRefreshTimer = undefined;
+    }
     OmniStatusPopup.currentPanel = undefined;
     this.panel.dispose();
     while (this.disposables.length) {
@@ -109,148 +127,88 @@ export class OmniStatusPopup {
     }
   }
 
-  private async updateWebview(): Promise<void> {
-    const routes = await loadRoutes(this.context);
-    const metrics = this.metricsTracker.getMetrics(routes);
-    const cfg = vscode.workspace.getConfiguration("omnicopilot");
-    const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
-    const statusBarEnabled = cfg.get<boolean>("statusBar", true);
-    const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
+  private async updateStateData(): Promise<void> {
+    if (this.isUpdating) return;
+    this.isUpdating = true;
+    try {
+      const routes = await loadRoutes(this.context);
+      const metrics = this.metricsTracker.getMetrics(routes);
+      const cfg = vscode.workspace.getConfiguration("omnicopilot");
+      const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
+      const statusBarEnabled = cfg.get<boolean>("statusBar", true);
+      const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
 
-    const onlineRouteIds = new Set<string>();
-    const serverDetails = await Promise.all(
-      routes.map(async (r) => {
-        const client = makeClientForRoute(r, this.log);
-        const serverMetric = metrics.servers[r.id] || {
-          routeId: r.id,
-          name: r.name,
-          baseUrl: r.baseUrl,
-          online: false,
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          requestCount: 0,
-          successCount: 0,
-          errorCount: 0,
-        };
+      const onlineRouteIds = new Set<string>();
+      const serverDetails = await Promise.all(
+        routes.map(async (r) => {
+          const client = makeClientForRoute(r, this.log);
+          const serverMetric = metrics.servers[r.id] || {
+            routeId: r.id,
+            name: r.name,
+            baseUrl: r.baseUrl,
+            online: false,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            requestCount: 0,
+            successCount: 0,
+            errorCount: 0,
+          };
 
-        const t0 = Date.now();
-        const online = await client.ping(3000);
-        const latencyMs = Date.now() - t0;
+          const t0 = Date.now();
+          const online = await client.ping(3000);
+          const latencyMs = Date.now() - t0;
 
-        if (online) onlineRouteIds.add(r.id);
-        void this.metricsTracker.recordActivity(r.id, r.name, r.baseUrl, online);
+          if (online) onlineRouteIds.add(r.id);
+          void this.metricsTracker.recordActivity(r.id, r.name, r.baseUrl, online);
 
-        return {
-          id: r.id,
-          name: r.name,
-          baseUrl: r.baseUrl,
-          online,
-          latencyMs,
-          metric: serverMetric,
-        };
-      })
-    );
+          return {
+            id: r.id,
+            name: r.name,
+            baseUrl: r.baseUrl,
+            online,
+            latencyMs,
+            metric: {
+              inputTokens: serverMetric.inputTokens,
+              outputTokens: serverMetric.outputTokens,
+              totalTokens: serverMetric.totalTokens,
+              requestCount: serverMetric.requestCount,
+              successCount: serverMetric.successCount,
+              errorCount: serverMetric.errorCount,
+              lastUsedModel: serverMetric.lastUsedModel,
+            },
+          };
+        })
+      );
 
-    const suggestions = this.metricsTracker.generateSuggestions(routes, onlineRouteIds);
+      const suggestions = this.metricsTracker.generateSuggestions(routes, onlineRouteIds);
 
-    this.panel.webview.html = this.getHtmlForWebview(
-      metrics,
-      serverDetails,
-      suggestions,
-      fallbackMode,
-      statusBarEnabled,
-      retriesPerServer
-    );
+      await this.panel.webview.postMessage({
+        command: "updateState",
+        state: {
+          metrics: {
+            totalInputTokens: metrics.totalInputTokens,
+            totalOutputTokens: metrics.totalOutputTokens,
+            totalTokens: metrics.totalTokens,
+            totalRequests: metrics.totalRequests,
+            formattedTotalTokens: fmtTokens(metrics.totalTokens),
+            formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
+          },
+          servers: serverDetails,
+          suggestions,
+          fallbackMode,
+          statusBarEnabled,
+          retriesPerServer,
+        },
+      });
+    } catch (err) {
+      this.log.error(`Error updating status popup state: ${String(err)}`);
+    } finally {
+      this.isUpdating = false;
+    }
   }
 
-  private getHtmlForWebview(
-    metrics: ReturnType<MetricsTracker["getMetrics"]>,
-    servers: Array<{
-      id: string;
-      name: string;
-      baseUrl: string;
-      online: boolean;
-      latencyMs: number;
-      metric: {
-        inputTokens: number;
-        outputTokens: number;
-        totalTokens: number;
-        requestCount: number;
-        successCount: number;
-        errorCount: number;
-        lastUsedModel?: string;
-      };
-    }>,
-    suggestions: ReturnType<MetricsTracker["generateSuggestions"]>,
-    fallbackMode: string,
-    statusBarEnabled: boolean,
-    retriesPerServer: number
-  ): string {
-    const onlineCount = servers.filter((s) => s.online).length;
-    const totalCount = servers.length;
-    const isFullyOnline = totalCount > 0 && onlineCount === totalCount;
-    const statusDotClass = isFullyOnline ? "dot-online" : onlineCount > 0 ? "dot-partial" : "dot-offline";
-    const statusText = totalCount === 0 ? "Sin servidores" : `${onlineCount}/${totalCount} conectados`;
-
-    // Simulated quota / budget metrics for progress bar
-    const maxReferenceTokens = 500000;
-    const totalPct = Math.min(Math.round((metrics.totalTokens / maxReferenceTokens) * 100), 100);
-    const outputPct = Math.min(
-      Math.round((metrics.totalOutputTokens / Math.max(metrics.totalTokens, 1)) * 100),
-      100
-    );
-
-    const serverRowsHtml = servers.map((s) => `
-      <div class="server-card">
-        <div class="server-header">
-          <div class="server-title">
-            <span class="dot ${s.online ? "dot-online" : "dot-offline"}"></span>
-            <strong>${escapeHtml(s.name)}</strong>
-            <span class="badge ${s.online ? "badge-success" : "badge-danger"}">
-              ${s.online ? `${s.latencyMs}ms` : "Offline"}
-            </span>
-          </div>
-          <span class="server-url">${escapeHtml(s.baseUrl)}</span>
-        </div>
-        <div class="server-stats">
-          <div class="stat-item">
-            <span class="stat-label">Tokens Entrada</span>
-            <span class="stat-value">${fmtTokens(s.metric.inputTokens)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Tokens Salida</span>
-            <span class="stat-value">${fmtTokens(s.metric.outputTokens)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Total Tokens</span>
-            <span class="stat-value highlight">${fmtTokens(s.metric.totalTokens)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Solicitudes</span>
-            <span class="stat-value">${s.metric.requestCount}</span>
-          </div>
-        </div>
-        ${s.metric.lastUsedModel ? `<div class="server-footer">Último modelo: <code>${escapeHtml(s.metric.lastUsedModel)}</code></div>` : ""}
-      </div>
-    `).join("");
-
-    const suggestionsHtml = suggestions.map((s) => `
-      <div class="suggestion-card suggestion-${s.type}">
-        <div class="suggestion-header">
-          <span class="suggestion-icon">${getSuggestionIcon(s.type)}</span>
-          <strong>${escapeHtml(s.title)}</strong>
-          <span class="badge badge-impact-${s.impact.toLowerCase()}">Impacto: ${s.impact}</span>
-        </div>
-        <div class="suggestion-body">${escapeHtml(s.description)}</div>
-        ${
-          s.actionLabel
-            ? `<button class="btn btn-secondary btn-sm" onclick="runCommand('${s.actionCommand}', ${JSON.stringify(s.actionArgs || [])})">${escapeHtml(s.actionLabel)} →</button>`
-            : ""
-        }
-      </div>
-    `).join("");
-
+  private getHtmlForWebview(): string {
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -302,6 +260,7 @@ export class OmniStatusPopup {
       height: 10px;
       border-radius: 50%;
       display: inline-block;
+      transition: background-color 0.3s ease;
     }
     .dot-online { background-color: var(--success); box-shadow: 0 0 6px var(--success); }
     .dot-partial { background-color: var(--warning); box-shadow: 0 0 6px var(--warning); }
@@ -510,9 +469,9 @@ export class OmniStatusPopup {
     <!-- Header -->
     <div class="header">
       <div class="header-title">
-        <span class="dot ${statusDotClass}"></span>
+        <span id="header-dot" class="dot dot-offline"></span>
         <span>OmniRoute</span>
-        <span class="badge ${isFullyOnline ? "badge-success" : "badge-danger"}">${statusText}</span>
+        <span id="header-badge" class="badge badge-danger">Cargando...</span>
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.openDashboard')">📊 Dashboard</button>
@@ -531,27 +490,27 @@ export class OmniStatusPopup {
       <div class="metric-group">
         <div class="metric-label-row">
           <span>Tokens Totales Consumidos (Sesión)</span>
-          <strong>${fmtTokens(metrics.totalTokens)} tokens (${metrics.totalRequests} reqs)</strong>
+          <strong id="total-tokens-text">0 tokens (0 reqs)</strong>
         </div>
         <div class="progress-bar-bg">
-          <div class="progress-bar-fill" style="width: ${totalPct}%"></div>
+          <div id="total-tokens-bar" class="progress-bar-fill" style="width: 0%"></div>
         </div>
       </div>
 
       <div class="metric-group">
         <div class="metric-label-row">
           <span>Tokens de Salida (Output)</span>
-          <strong>${fmtTokens(metrics.totalOutputTokens)} tokens (${outputPct}% del total)</strong>
+          <strong id="output-tokens-text">0 tokens (0% del total)</strong>
         </div>
         <div class="progress-bar-bg">
-          <div class="progress-bar-fill" style="width: ${outputPct}%; background: linear-gradient(90deg, #a371f7, #58a6ff);"></div>
+          <div id="output-tokens-bar" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, #a371f7, #58a6ff);"></div>
         </div>
       </div>
 
       <div style="margin-top: 14px;">
-        <div style="font-weight: 500; margin-bottom: 8px;">Servidores Conectados (${servers.length})</div>
-        <div class="server-list">
-          ${serverRowsHtml || '<div style="opacity:0.6; font-style:italic">No hay servidores configurados.</div>'}
+        <div style="font-weight: 500; margin-bottom: 8px;">Servidores Conectados (<span id="server-count">0</span>)</div>
+        <div id="server-list" class="server-list">
+          <div style="opacity:0.6; font-style:italic">Cargando servidores...</div>
         </div>
       </div>
     </div>
@@ -566,24 +525,24 @@ export class OmniStatusPopup {
       <div class="toggle-list">
         <div class="toggle-item">
           <label class="toggle-label">
-            <input type="checkbox" ${statusBarEnabled ? "checked" : ""} onchange="toggleSetting('statusBar', this.checked)">
+            <input type="checkbox" id="status-bar-toggle" onchange="toggleSetting('statusBar', this.checked)">
             <span>Mostrar consumo de tokens en la barra de estado</span>
           </label>
         </div>
 
         <div class="toggle-item">
           <span>Estrategia de Conmutación (Fallback Mode):</span>
-          <select onchange="changeFallbackMode(this.value)">
-            <option value="sameModel" ${fallbackMode === "sameModel" ? "selected" : ""}>Mismo Modelo (Recomendado)</option>
-            <option value="sameFamily" ${fallbackMode === "sameFamily" ? "selected" : ""}>Misma Familia de Modelos</option>
-            <option value="full" ${fallbackMode === "full" ? "selected" : ""}>Fallback Completo</option>
-            <option value="none" ${fallbackMode === "none" ? "selected" : ""}>Desactivado (Sin Fallback)</option>
+          <select id="fallback-select" onchange="changeFallbackMode(this.value)">
+            <option value="sameModel">Mismo Modelo (Recomendado)</option>
+            <option value="sameFamily">Misma Familia de Modelos</option>
+            <option value="full">Fallback Completo</option>
+            <option value="none">Desactivado (Sin Fallback)</option>
           </select>
         </div>
 
         <div class="toggle-item">
           <span>Reintentos por servidor (Retries per server):</span>
-          <span style="opacity:0.8; font-weight:500;">${retriesPerServer} reintento(s) por servidor</span>
+          <span id="retries-text" style="opacity:0.8; font-weight:500;">1 reintento(s) por servidor</span>
         </div>
 
         <div class="toggle-item">
@@ -597,10 +556,9 @@ export class OmniStatusPopup {
     <div class="section">
       <div class="section-title">
         <span>Sugerencias de Mejora & Optimización</span>
-        <span style="font-size:11px; opacity:0.6">${suggestions.length} recomendaciones</span>
+        <span id="suggestions-count" style="font-size:11px; opacity:0.6">0 recomendaciones</span>
       </div>
-      <div class="suggestions-list">
-        ${suggestionsHtml}
+      <div id="suggestions-list" class="suggestions-list">
       </div>
     </div>
 
@@ -630,27 +588,164 @@ export class OmniStatusPopup {
     function changeFallbackMode(mode) {
       vscode.postMessage({ command: 'changeFallbackMode', value: mode });
     }
+
+    function getSuggestionIcon(type) {
+      switch (type) {
+        case "optimization": return "💡";
+        case "redundancy": return "🛡️";
+        case "health": return "🚨";
+        case "capability": return "⚡";
+        default: return "ℹ️";
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function fmtTokens(n) {
+      if (!n || n <= 0) return '0';
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return String(n);
+    }
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (!msg || msg.command !== 'updateState' || !msg.state) return;
+      const state = msg.state;
+
+      // Update Header Status
+      const servers = state.servers || [];
+      const onlineCount = servers.filter(s => s.online).length;
+      const totalCount = servers.length;
+      const isFullyOnline = totalCount > 0 && onlineCount === totalCount;
+      const dotEl = document.getElementById('header-dot');
+      const badgeEl = document.getElementById('header-badge');
+      if (dotEl) {
+        dotEl.className = 'dot ' + (isFullyOnline ? 'dot-online' : onlineCount > 0 ? 'dot-partial' : 'dot-offline');
+      }
+      if (badgeEl) {
+        badgeEl.className = 'badge ' + (isFullyOnline ? 'badge-success' : 'badge-danger');
+        badgeEl.textContent = totalCount === 0 ? 'Sin servidores' : (onlineCount + '/' + totalCount + ' conectados');
+      }
+
+      // Update Token Progress Bars
+      const metrics = state.metrics || {};
+      const totalTokensText = document.getElementById('total-tokens-text');
+      const totalTokensBar = document.getElementById('total-tokens-bar');
+      const outputTokensText = document.getElementById('output-tokens-text');
+      const outputTokensBar = document.getElementById('output-tokens-bar');
+
+      const maxReferenceTokens = 500000;
+      const totalPct = Math.min(Math.round(((metrics.totalTokens || 0) / maxReferenceTokens) * 100), 100);
+      const outputPct = Math.min(Math.round(((metrics.totalOutputTokens || 0) / Math.max(metrics.totalTokens || 1, 1)) * 100), 100);
+
+      if (totalTokensText) {
+        totalTokensText.textContent = (metrics.formattedTotalTokens || '0') + ' tokens (' + (metrics.totalRequests || 0) + ' reqs)';
+      }
+      if (totalTokensBar) {
+        totalTokensBar.style.width = totalPct + '%';
+      }
+      if (outputTokensText) {
+        outputTokensText.textContent = (metrics.formattedOutputTokens || '0') + ' tokens (' + outputPct + '% del total)';
+      }
+      if (outputTokensBar) {
+        outputTokensBar.style.width = outputPct + '%';
+      }
+
+      // Update Server List
+      const serverCountEl = document.getElementById('server-count');
+      const serverListEl = document.getElementById('server-list');
+      if (serverCountEl) serverCountEl.textContent = String(totalCount);
+      if (serverListEl) {
+        if (servers.length === 0) {
+          serverListEl.innerHTML = '<div style="opacity:0.6; font-style:italic">No hay servidores configurados.</div>';
+        } else {
+          serverListEl.innerHTML = servers.map(s => \`
+            <div class="server-card">
+              <div class="server-header">
+                <div class="server-title">
+                  <span class="dot \${s.online ? "dot-online" : "dot-offline"}"></span>
+                  <strong>\${escapeHtml(s.name)}</strong>
+                  <span class="badge \${s.online ? "badge-success" : "badge-danger"}">
+                    \${s.online ? s.latencyMs + "ms" : "Offline"}
+                  </span>
+                </div>
+                <span class="server-url">\${escapeHtml(s.baseUrl)}</span>
+              </div>
+              <div class="server-stats">
+                <div class="stat-item">
+                  <span class="stat-label">Tokens Entrada</span>
+                  <span class="stat-value">\${fmtTokens(s.metric.inputTokens)}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Tokens Salida</span>
+                  <span class="stat-value">\${fmtTokens(s.metric.outputTokens)}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Total Tokens</span>
+                  <span class="stat-value highlight">\${fmtTokens(s.metric.totalTokens)}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Solicitudes</span>
+                  <span class="stat-value">\${s.metric.requestCount}</span>
+                </div>
+              </div>
+              \${s.metric.lastUsedModel ? \`<div class="server-footer">Último modelo: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
+            </div>
+          \`).join("");
+        }
+      }
+
+      // Update Settings & Toggles
+      const toggleEl = document.getElementById('status-bar-toggle');
+      const fallbackEl = document.getElementById('fallback-select');
+      const retriesEl = document.getElementById('retries-text');
+      if (toggleEl && typeof state.statusBarEnabled === 'boolean') {
+        toggleEl.checked = state.statusBarEnabled;
+      }
+      if (fallbackEl && state.fallbackMode) {
+        fallbackEl.value = state.fallbackMode;
+      }
+      if (retriesEl && typeof state.retriesPerServer === 'number') {
+        retriesEl.textContent = state.retriesPerServer + ' reintento(s) por servidor';
+      }
+
+      // Update Suggestions
+      const suggestions = state.suggestions || [];
+      const suggCountEl = document.getElementById('suggestions-count');
+      const suggListEl = document.getElementById('suggestions-list');
+      if (suggCountEl) suggCountEl.textContent = suggestions.length + ' recomendaciones';
+      if (suggListEl) {
+        suggListEl.innerHTML = suggestions.map(s => \`
+          <div class="suggestion-card suggestion-\${s.type}">
+            <div class="suggestion-header">
+              <span class="suggestion-icon">\${getSuggestionIcon(s.type)}</span>
+              <strong>\${escapeHtml(s.title)}</strong>
+              <span class="badge badge-impact-\${(s.impact || '').toLowerCase()}">Impacto: \${escapeHtml(s.impact)}</span>
+            </div>
+            <div class="suggestion-body">\${escapeHtml(s.description)}</div>
+            \${
+              s.actionLabel
+                ? \`<button class="btn btn-secondary btn-sm" onclick="runCommand('\${s.actionCommand}', \${JSON.stringify(s.actionArgs || [])})">\${escapeHtml(s.actionLabel)} →</button>\`
+                : ""
+            }
+          </div>
+        \`).join("");
+      }
+    });
+
+    // Request initial data on ready
+    sendMessage('ready');
   </script>
 </body>
 </html>`;
   }
-}
-
-function getSuggestionIcon(type: string): string {
-  switch (type) {
-    case "optimization": return "💡";
-    case "redundancy": return "🛡️";
-    case "health": return "🚨";
-    case "capability": return "⚡";
-    default: return "ℹ️";
-  }
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }

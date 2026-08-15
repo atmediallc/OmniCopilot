@@ -57,14 +57,14 @@ async function syncProviders(
     log.info(`Registered provider for vendor "${VENDOR}" (${routes.length} server(s) configured)`);
   } else {
     routes.forEach((route, index) => {
-      const vendorId = index === 0 ? VENDOR : `omniroute-${index + 1}`;
+      const vendorId = index === 0 ? VENDOR : index < 10 ? `omniroute-${index + 1}` : `omniroute-10`;
       const p = new OmniRouteChatProvider(deps, route.id);
       activeProviders.push(p);
       providerDisposables.push(
         p,
         vscode.lm.registerLanguageModelChatProvider(vendorId, p)
       );
-      log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}"`);
+      log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}" (routeId: ${route.id})`);
     });
   }
 }

@@ -40,6 +40,8 @@ const GLOBAL_STATE_KEY = "omnicopilot.tokenMetrics.v1";
 
 export class MetricsTracker {
   private metrics: SessionMetrics;
+  private readonly _onDidChangeMetrics = new vscode.EventEmitter<void>();
+  readonly onDidChangeMetrics = this._onDidChangeMetrics.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const saved = this.context.globalState.get<SessionMetrics>(GLOBAL_STATE_KEY);
@@ -64,6 +66,7 @@ export class MetricsTracker {
   /** Save metrics state to global storage. */
   private async persist(): Promise<void> {
     await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
+    this._onDidChangeMetrics.fire();
   }
 
   /** Reset all token usage metrics. */
