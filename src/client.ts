@@ -170,6 +170,7 @@ export class OmniRouteClient {
       try {
         res = await fetch(url, init);
       } catch (err) {
+        if (signal.aborted) throw abortReason(signal);
         // Network-level failure (DNS, refused, reset, TLS…): transient unless
         // this was the final attempt. Keeps flaky servers from killing a
         // request outright and lets the caller's fallback chain take over.
@@ -199,8 +200,8 @@ export class OmniRouteClient {
 
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
-    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 15_000;
-    const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
+    const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 120_000;
+    const idleMs = this.opts.streamIdleTimeoutMs ?? 120_000;
 
     // Derived signal so a stall can abort this attempt without cancelling the
     // caller's own signal (which would kill the fallback chain).

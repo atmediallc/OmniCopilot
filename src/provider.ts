@@ -258,9 +258,9 @@ export class OmniRouteChatProvider
       // How many full attempts each server gets before we even consider the
       // next server. Independent servers: the one you picked is exercised
       // `retriesPerServer` times; only when all fail do we call the next.
-      // Each attempt is itself bounded by the client's first-byte (15s) and
-      // idle (30s) timeouts, so a dead proxy cannot hang the chain.
-      const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
+      // Each attempt is itself bounded by the client's first-byte (120s) and
+      // idle (120s) timeouts, so a dead proxy cannot hang the chain.
+      const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
 
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
