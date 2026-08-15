@@ -50,6 +50,18 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "Create updated VSIX",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vsce package --no-dependencies"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }
