@@ -137,9 +137,9 @@ describe("helpers", () => {
 
 describe("URL normalization", () => {
   it("appends /v1 and strips trailing slashes", () => {
-    expect(normalizeBaseUrl("http://localhost:20128")).toBe("http://localhost:20128/v1");
-    expect(normalizeBaseUrl("http://localhost:20128/")).toBe("http://localhost:20128/v1");
-    expect(normalizeBaseUrl("http://localhost:20128/v1")).toBe("http://localhost:20128/v1");
+    expect(normalizeBaseUrl("http://localhost:20128")).toBe("http://127.0.0.1:20128/v1");
+    expect(normalizeBaseUrl("http://localhost:20128/")).toBe("http://127.0.0.1:20128/v1");
+    expect(normalizeBaseUrl("http://localhost:20128/v1")).toBe("http://127.0.0.1:20128/v1");
   });
 
   it("adds http:// when the scheme is missing", () => {
@@ -147,11 +147,11 @@ describe("URL normalization", () => {
   });
 
   it("falls back to the local default when empty", () => {
-    expect(normalizeBaseUrl("")).toBe("http://localhost:20128/v1");
+    expect(normalizeBaseUrl("")).toBe("http://127.0.0.1:20128/v1");
   });
 
   it("serverRootUrl strips the /v1 suffix", () => {
-    expect(serverRootUrl("http://localhost:20128/v1")).toBe("http://localhost:20128");
+    expect(serverRootUrl("http://localhost:20128/v1")).toBe("http://127.0.0.1:20128");
     expect(serverRootUrl("myhost:1234")).toBe("http://myhost:1234");
   });
 });

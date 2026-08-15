@@ -19,5 +19,6 @@
   "cfg.dashboardOpen": "Dónde se abre el panel de OmniRoute.",
   "cfg.dashboardOpen.external": "Abrir el panel en el explorador web predeterminado.",
   "cfg.dashboardOpen.editor": "Abrir el panel en una pestaña del editor de VS Code (Simple Browser). Requiere una versión de OmniRoute que permita la inserción.",
+  "cfg.modelCacheTtlMinutes": "Frecuencia en minutos para refrescar el catálogo de modelos automáticamente (15 minutos por defecto). Establezca 0 para sincronizar solo de forma manual.",
   "cfg.cliPath": "Ruta de la CLI de OmniRoute, usada por el comando \"Configure Coding CLI\"."
 }

@@ -28,5 +28,6 @@
   "cfg.dashboardOpen": "Where the OmniRoute dashboard opens.",
   "cfg.dashboardOpen.external": "Open the dashboard in your default web browser.",
   "cfg.dashboardOpen.editor": "Open the dashboard in a VS Code editor tab (Simple Browser). Requires an OmniRoute version that allows embedding.",
+  "cfg.modelCacheTtlMinutes": "How often in minutes to refresh the model catalog automatically (default 15 minutes). Set to 0 for manual sync only.",
   "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command."
 }

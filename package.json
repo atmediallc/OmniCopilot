@@ -82,6 +82,51 @@
         "vendor": "omniroute",
         "displayName": "OmniRoute",
         "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-2",
+        "displayName": "OmniRoute (Servidor 2)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-3",
+        "displayName": "OmniRoute (Servidor 3)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-4",
+        "displayName": "OmniRoute (Servidor 4)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-5",
+        "displayName": "OmniRoute (Servidor 5)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-6",
+        "displayName": "OmniRoute (Servidor 6)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-7",
+        "displayName": "OmniRoute (Servidor 7)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-8",
+        "displayName": "OmniRoute (Servidor 8)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-9",
+        "displayName": "OmniRoute (Servidor 9)",
+        "managementCommand": "omnicopilot.manage"
+      },
+      {
+        "vendor": "omniroute-10",
+        "displayName": "OmniRoute (Servidor 10)",
+        "managementCommand": "omnicopilot.manage"
       }
     ],
     "commands": [
@@ -243,10 +288,18 @@
           "order": 7,
           "description": "%cfg.dashboardOpen%"
         },
+        "omnicopilot.modelCacheTtlMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 0,
+          "maximum": 1440,
+          "order": 8,
+          "description": "%cfg.modelCacheTtlMinutes%"
+        },
         "omnicopilot.cliPath": {
           "type": "string",
           "default": "omniroute",
-          "order": 8,
+          "order": 9,
           "description": "%cfg.cliPath%"
         }
       }

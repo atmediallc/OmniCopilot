@@ -585,6 +585,11 @@ export class OmniStatusPopup {
           <span>Reintentos por servidor (Retries per server):</span>
           <span style="opacity:0.8; font-weight:500;">${retriesPerServer} reintento(s) por servidor</span>
         </div>
+
+        <div class="toggle-item">
+          <span>Sincronización de Catálogo de Modelos:</span>
+          <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.refreshModels')">🔄 Sincronizar Modelos</button>
+        </div>
       </div>
     </div>
 

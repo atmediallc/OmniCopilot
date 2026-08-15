@@ -42,7 +42,24 @@ export class OmniRouteChatProvider
   private static sharedCachedModels: CatalogModel[] = [];
   private static sharedLastCatalogFetch = 0;
   private static sharedFetchPromise: Promise<CatalogModel[]> | null = null;
-  private static readonly CACHE_TTL_MS = 30_000;
+  private static readonly CACHE_STATE_KEY = "omnicopilot.cachedCatalog.v1";
+  private static readonly CACHE_TIME_KEY = "omnicopilot.cachedCatalogTime.v1";
+
+  static loadPersistentCache(context: vscode.ExtensionContext): void {
+    const savedCatalog = context.globalState.get<CatalogModel[]>(OmniRouteChatProvider.CACHE_STATE_KEY);
+    const savedTime = context.globalState.get<number>(OmniRouteChatProvider.CACHE_TIME_KEY);
+    if (Array.isArray(savedCatalog) && savedCatalog.length > 0 && typeof savedTime === "number" && savedTime > 0) {
+      OmniRouteChatProvider.sharedCachedModels = savedCatalog;
+      OmniRouteChatProvider.sharedLastCatalogFetch = savedTime;
+    }
+  }
+
+  private static async persistCache(context: vscode.ExtensionContext, catalog: CatalogModel[]): Promise<void> {
+    if (catalog.length > 0) {
+      await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, catalog);
+      await context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, Date.now());
+    }
+  }
 
   constructor(
     private readonly deps: ProviderDeps,
@@ -61,6 +78,7 @@ export class OmniRouteChatProvider
   async refresh(): Promise<void> {
     OmniRouteChatProvider.sharedCachedModels = [];
     OmniRouteChatProvider.sharedLastCatalogFetch = 0;
+    await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, 0);
     this._onDidChange.fire();
   }
 
@@ -73,8 +91,12 @@ export class OmniRouteChatProvider
     const routes = await loadRoutes(this.deps.context);
     if (routes.length === 0) return [];
 
-    const isFresh = Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < OmniRouteChatProvider.CACHE_TTL_MS;
-    if (options.silent && OmniRouteChatProvider.sharedCachedModels.length > 0 && isFresh) {
+    const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
+    const isManualOnly = ttlMinutes <= 0;
+    const ttlMs = isManualOnly ? Number.POSITIVE_INFINITY : ttlMinutes * 60_000;
+    const isFresh = Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < ttlMs;
+
+    if (OmniRouteChatProvider.sharedCachedModels.length > 0 && isFresh) {
       return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels);
     }
 
@@ -95,8 +117,11 @@ export class OmniRouteChatProvider
         );
 
         const catalog = buildCatalog(segments);
-        OmniRouteChatProvider.sharedCachedModels = catalog;
-        OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+        if (catalog.length > 0) {
+          OmniRouteChatProvider.sharedCachedModels = catalog;
+          OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+          void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
+        }
         return catalog;
       })().finally(() => {
         OmniRouteChatProvider.sharedFetchPromise = null;
@@ -151,9 +176,7 @@ export class OmniRouteChatProvider
       const isCombo = model.owned_by === "combo";
 
       const displayName = model.display_name?.trim() || model.id;
-      const name = this.filterRouteId
-        ? displayName
-        : `${c.entry.routeName} · ${displayName}`;
+      const name = `${displayName} (${c.entry.routeName})`;
 
       infos.push({
         id: c.entry.prefixedId,

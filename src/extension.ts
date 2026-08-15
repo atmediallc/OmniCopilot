@@ -3,7 +3,7 @@ import { serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
-import { SECRET_PREFIX, loadRoutes, makeClientForRoute, vendorForRoute } from "./routes";
+import { SECRET_PREFIX, loadRoutes, makeClientForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
 import { MetricsTracker } from "./metrics";
 import { OmniStatusPopup } from "./statusPopup";
@@ -22,8 +22,8 @@ function getConfig() {
 }
 
 async function refreshAll(): Promise<void> {
-  if (activeProviders.length > 0) {
-    await activeProviders[0].refresh();
+  for (const p of activeProviders) {
+    await p.refresh();
   }
 }
 
@@ -47,26 +47,25 @@ async function syncProviders(
     getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
   };
 
-  if (routes.length === 0) {
+  if (routes.length <= 1) {
     const p = new OmniRouteChatProvider(deps);
     activeProviders.push(p);
     providerDisposables.push(
       p,
       vscode.lm.registerLanguageModelChatProvider(VENDOR, p)
     );
-    log.info(`Registered fallback provider (vendor: ${VENDOR})`);
-    return;
-  }
-
-  for (const r of routes) {
-    const vendor = vendorForRoute(r, routes);
-    const p = new OmniRouteChatProvider(deps, r.id);
-    activeProviders.push(p);
-    providerDisposables.push(
-      p,
-      vscode.lm.registerLanguageModelChatProvider(vendor, p)
-    );
-    log.info(`Registered provider for server "${r.name}" (vendor: ${vendor})`);
+    log.info(`Registered provider for vendor "${VENDOR}" (${routes.length} server(s) configured)`);
+  } else {
+    routes.forEach((route, index) => {
+      const vendorId = index === 0 ? VENDOR : `omniroute-${index + 1}`;
+      const p = new OmniRouteChatProvider(deps, route.id);
+      activeProviders.push(p);
+      providerDisposables.push(
+        p,
+        vscode.lm.registerLanguageModelChatProvider(vendorId, p)
+      );
+      log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}"`);
+    });
   }
 }
 
@@ -74,6 +73,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("OmniRoute for Copilot", { log: true });
   context.subscriptions.push(log);
   log.info(`Activating v${context.extension.packageJSON.version}`);
+
+  OmniRouteChatProvider.loadPersistentCache(context);
 
   metricsTracker = new MetricsTracker(context);
 
@@ -128,7 +129,16 @@ function registerCommands(
 
   register("omnicopilot.refreshModels", async () => {
     await onRefresh();
-    void vscode.window.showInformationMessage(vscode.l10n.t("OmniRoute model list refreshed."));
+    const routes = await loadRoutes(context);
+    if (activeProviders.length > 0) {
+      const cts = new vscode.CancellationTokenSource();
+      const models = await activeProviders[0].provideLanguageModelChatInformation({ silent: true }, cts.token);
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t("Modelos sincronizados: {0} modelo(s) encontrado(s) en {1} servidor(es).", models.length, routes.length)
+      );
+    } else {
+      void vscode.window.showInformationMessage(vscode.l10n.t("Lista de modelos actualizada."));
+    }
   });
 
   register("omnicopilot.checkConnection", async () => {

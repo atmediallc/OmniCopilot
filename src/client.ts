@@ -34,7 +34,10 @@ export interface ClientOptions {
 const USER_AGENT = "OmniCopilot-VSCode";
 
 function headers(apiKey: string | undefined, json: boolean): Record<string, string> {
-  const h: Record<string, string> = { "User-Agent": USER_AGENT };
+  const h: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    "Connection": "keep-alive",
+  };
   if (json) h["Content-Type"] = "application/json";
   if (apiKey) h["Authorization"] = `Bearer ${apiKey}`;
   return h;
@@ -43,9 +46,10 @@ function headers(apiKey: string | undefined, json: boolean): Record<string, stri
 /** Normalize a user-supplied base URL: trim, drop trailing slashes, ensure /v1. */
 export function normalizeBaseUrl(raw: string): string {
   let url = (raw || "").trim().replace(/\/+$/, "");
-  if (!url) return "http://localhost:20128/v1";
+  if (!url) return "http://127.0.0.1:20128/v1";
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   if (!/\/v1$/i.test(url)) url = `${url}/v1`;
+  url = url.replace(/:\/\/(localhost|\[::1\])/i, "://127.0.0.1");
   return url;
 }
 
