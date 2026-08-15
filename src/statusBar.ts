@@ -38,6 +38,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   private status: Status = "checking";
   private health: ServerHealth[] = [];
   private usage: ChatUsage | undefined;
+  private lastActive = new Map<string, number>();
   private disposed = false;
 
   constructor(
@@ -56,9 +57,30 @@ export class ConnectionStatusBar implements vscode.Disposable {
     void this.checkNow();
   }
 
-  /** Feed request outcomes from the provider so the dot reacts instantly. */
-  reportActivity(ok: boolean): void {
-    this.setStatus(ok ? "online" : "offline");
+  /** Feed request outcomes from the provider so the dot reacts instantly per route. */
+  reportActivity(ok: boolean, routeId?: string): void {
+    if (this.disposed) return;
+    if (routeId) {
+      if (ok) {
+        this.lastActive.set(routeId, Date.now());
+      }
+      const existing = this.health.find((h) => h.routeId === routeId);
+      if (existing) {
+        existing.online = ok;
+      } else {
+        this.health.push({ routeId, name: routeId, online: ok });
+      }
+      const onlineCount = this.health.filter((h) => h.online).length;
+      this.setStatus(
+        onlineCount === this.health.length ? "online" : onlineCount > 0 ? "partial" : "offline"
+      );
+    } else {
+      if (ok) {
+        this.setStatus("online");
+      } else {
+        void this.checkNow();
+      }
+    }
   }
 
   /** Live token usage from a streaming chat round-trip. */
@@ -81,7 +103,12 @@ export class ConnectionStatusBar implements vscode.Disposable {
       return false;
     }
     const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
-    this.health = routes.map((r, i) => ({ routeId: r.id, name: r.name, online: results[i] }));
+    const now = Date.now();
+    this.health = routes.map((r, i) => {
+      const pingOk = results[i];
+      const recentActivity = now - (this.lastActive.get(r.id) ?? 0) < 30_000;
+      return { routeId: r.id, name: r.name, online: pingOk || recentActivity };
+    });
     const ok = this.health.filter((h) => h.online).length;
     this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
     return ok > 0;

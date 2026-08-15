@@ -135,16 +135,23 @@ export class OmniRouteClient {
   }
 
   /** Fast availability probe. OmniRoute serves HEAD /v1/models explicitly. */
-  async ping(timeoutMs = 4000): Promise<boolean> {
+  async ping(timeoutMs = 6000): Promise<boolean> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(`${this.baseUrl}/models`, {
+      let res = await fetch(`${this.baseUrl}/models`, {
         method: "HEAD",
         headers: headers(this.opts.apiKey, false),
         signal: ctrl.signal,
       });
-      return res.ok || res.status === 401 || res.status === 403;
+      if (res.status === 405 || res.status === 404 || res.status === 501) {
+        res = await fetch(`${this.baseUrl}/models`, {
+          method: "GET",
+          headers: headers(this.opts.apiKey, false),
+          signal: ctrl.signal,
+        });
+      }
+      return res.ok || (res.status >= 400 && res.status < 500);
     } catch {
       return false;
     } finally {
@@ -185,17 +192,28 @@ export class OmniRouteClient {
     }
   }
 
-  async listModels(token?: { isCancellationRequested?: boolean }): Promise<OmniRouteModel[]> {
-    const res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
-      method: "GET",
-      headers: headers(this.opts.apiKey, false),
-    });
-    if (!res.ok) {
-      throw new OmniRouteError(`OmniRoute /models returned HTTP ${res.status}`, res.status);
+  async listModels(token?: { isCancellationRequested?: boolean; onCancellationRequested?: (listener: () => void) => { dispose(): void } }): Promise<OmniRouteModel[]> {
+    const ctrl = new AbortController();
+    let sub: { dispose(): void } | undefined;
+    if (token?.onCancellationRequested) {
+      if (token.isCancellationRequested) return [];
+      sub = token.onCancellationRequested(() => ctrl.abort());
     }
-    if (token?.isCancellationRequested) return [];
-    const body = (await res.json()) as ModelsResponse;
-    return Array.isArray(body.data) ? body.data : [];
+    try {
+      const res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
+        method: "GET",
+        headers: headers(this.opts.apiKey, false),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        throw new OmniRouteError(`OmniRoute /models returned HTTP ${res.status}`, res.status);
+      }
+      if (token?.isCancellationRequested) return [];
+      const body = (await res.json()) as ModelsResponse;
+      return Array.isArray(body.data) ? body.data : [];
+    } finally {
+      sub?.dispose();
+    }
   }
 
   /** POST /chat/completions with stream:true, yielding normalized events. */

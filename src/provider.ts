@@ -15,7 +15,7 @@ export interface ProviderDeps {
   log: vscode.LogOutputChannel;
   /** Called whenever a request round-trip settles, with success flag —
    * feeds the status bar without extra polling. */
-  onActivity?: (ok: boolean) => void;
+  onActivity?: (ok: boolean, routeId?: string) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
   onUsage?: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
   /** routeIds that passed the most recent liveness probe; chat deprioritizes
@@ -66,10 +66,10 @@ export class OmniRouteChatProvider
       routes.map(async (r) => {
         try {
           const models = await makeClientForRoute(r).listModels(token);
-          this.deps.onActivity?.(true);
+          this.deps.onActivity?.(true, r.id);
           return { routeId: r.id, name: r.name, models };
         } catch (err) {
-          this.deps.onActivity?.(false);
+          this.deps.onActivity?.(false, r.id);
           this.deps.log.warn(`Route "${r.name}" model discovery failed: ${String(err)}`);
           return { routeId: r.id, name: r.name, models: [] };
         }
@@ -303,7 +303,7 @@ export class OmniRouteChatProvider
                 progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
             }
-            this.deps.onActivity?.(true);
+            this.deps.onActivity?.(true, cand.routeId);
             return;
           } catch (err) {
             if (token.isCancellationRequested) return;
@@ -312,7 +312,7 @@ export class OmniRouteChatProvider
             // treated as transient so the server can be re-attempted.
             const transient = status === undefined || isTransientHttpError(status);
             if (!transient) {
-              this.deps.onActivity?.(false);
+              this.deps.onActivity?.(false, cand.routeId);
               log.error(`Chat request failed: ${String(err)}`);
               throw err;
             }
@@ -337,7 +337,7 @@ export class OmniRouteChatProvider
           `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${String(candError)}); next server`
         );
         if (last) {
-          this.deps.onActivity?.(false);
+          this.deps.onActivity?.(false, cand.routeId);
           const reason = candError instanceof OmniRouteError ? candError.message : String(candError);
           log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
           void vscode.window.showErrorMessage(
@@ -354,7 +354,7 @@ export class OmniRouteChatProvider
       }
       if (lastError !== undefined) {
         const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
-        this.deps.onActivity?.(false);
+        this.deps.onActivity?.(false, candidates[0]?.routeId);
         log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
         void vscode.window.showErrorMessage(
           vscode.l10n.t(

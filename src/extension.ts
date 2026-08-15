@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
   provider = new OmniRouteChatProvider({
     context,
     log,
-    onActivity: (ok) => statusBar?.reportActivity(ok),
+    onActivity: (ok, routeId) => statusBar?.reportActivity(ok, routeId),
     onUsage: (usage) => statusBar?.reportUsage(usage),
     getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
   });
@@ -161,7 +161,7 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
 /** Menu behind the status-bar item. */
 async function quickActions(context: vscode.ExtensionContext): Promise<void> {
   const routes = await loadRoutes(context);
-  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping(1500)));
+  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping(4000)));
   const onlineCount = results.filter(Boolean).length;
   const online = onlineCount > 0;
 
