@@ -21,7 +21,7 @@
   "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet.": "OmniCopilot: над 1200 AI модела в Copilot Chat с OmniRoute — над 90 безплатни доставчика, безплатно завинаги. Все още не е открит сървър на OmniRoute.",
   "OmniRoute API key": "API ключ за OmniRoute",
   "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model.": "OmniRoute е открит! Вашите модели са готови — отворете списъка за избор на модели в Copilot Chat и изберете който и да е модел на OmniRoute.",
-  "OmniRoute is a free, open-source AI router: one endpoint, 330+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically.": "OmniRoute е безплатен AI рутер с отворен код: една крайна точка, над 330 доставчика (над 90 безплатни), автоматично превключване при отказ. Инсталирайте го с npm и това разширение се активира автоматично.",
+  "OmniRoute is a free, open-source AI router: one endpoint, 340+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically.": "OmniRoute е безплатен AI рутер с отворен код: една крайна точка, над 340 доставчика (над 90 безплатни), автоматично превключване при отказ. Инсталирайте го с npm и това разширение се активира автоматично.",
   "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.baseUrl points at it.": "OmniRoute е недостъпен. Проверете дали работи (npx omniroute) и дали omnicopilot.baseUrl сочи към него.",
   "OmniRoute model list refreshed.": "Списъкът с модели на OmniRoute е опреснен.",
   "OmniRoute on GitHub": "OmniRoute в GitHub",
