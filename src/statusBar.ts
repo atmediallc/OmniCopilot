@@ -10,6 +10,7 @@ interface ServerHealth {
   routeId: string;
   name: string;
   online: boolean;
+  latencyMs?: number;
 }
 
 /** Live token snapshot for the most recent chat round-trip, fed by the provider. */
@@ -34,6 +35,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
   private timer: ReturnType<typeof setInterval> | undefined;
   private usageTimer: ReturnType<typeof setTimeout> | undefined;
+  private recheckTimer: ReturnType<typeof setTimeout> | undefined;
   private status: Status = "checking";
   private health: ServerHealth[] = [];
   private usage: ChatUsage | undefined;
@@ -76,6 +78,9 @@ export class ConnectionStatusBar implements vscode.Disposable {
       );
       const serverName = existing?.name && existing.name !== routeId ? existing.name : routeId;
       void this.metricsTracker?.recordActivity(routeId, serverName, "", ok);
+      // Let a fresh probe confirm the new state right away (300ms debounce
+      // coalesces bursts of onActivity from model discovery).
+      this.scheduleRecheck();
     } else {
       if (ok) {
         this.setStatus("online");
@@ -105,6 +110,21 @@ export class ConnectionStatusBar implements vscode.Disposable {
       if (!this.disposed) this.render();
     }, USAGE_STALE_MS);
     this.render();
+    // A chat round-trip just finished: re-probe servers right away so the
+    // dot reflects the real connection (latency + liveness) immediately
+    // instead of waiting for the next poll.
+    this.scheduleRecheck();
+  }
+
+  /** Debounced fresh probe after activity, so the dot tracks reality in near
+   * real time without spamming HEADs mid-chat. */
+  private scheduleRecheck(): void {
+    if (this.disposed) return;
+    if (this.recheckTimer) clearTimeout(this.recheckTimer);
+    this.recheckTimer = setTimeout(() => {
+      this.recheckTimer = undefined;
+      void this.checkNow();
+    }, 400);
   }
 
   async checkNow(): Promise<boolean> {
@@ -114,12 +134,17 @@ export class ConnectionStatusBar implements vscode.Disposable {
       this.setStatus("offline");
       return false;
     }
-    const results = await Promise.all(routes.map((r) => makeClientForRoute(r, this.log).ping(3000)));
-    this.health = routes.map((r, i) => {
-      const pingOk = results[i];
-      void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, pingOk);
-      return { routeId: r.id, name: r.name, online: pingOk };
-    });
+    const health = await Promise.all(
+      routes.map(async (r) => {
+        const client = makeClientForRoute(r, this.log);
+        const t0 = Date.now();
+        const online = await client.ping(3000);
+        const latencyMs = Date.now() - t0;
+        void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, online);
+        return { routeId: r.id, name: r.name, online, latencyMs };
+      })
+    );
+    this.health = health;
     const ok = this.health.filter((h) => h.online).length;
     this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
     return ok > 0;
@@ -148,7 +173,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.timer) clearInterval(this.timer);
     const seconds = vscode.workspace
       .getConfiguration("omnicopilot")
-      .get<number>("healthCheckIntervalSeconds", 30);
+      .get<number>("healthCheckIntervalSeconds", 10);
     this.timer = setInterval(() => void this.checkNow(), Math.max(seconds, 5) * 1000);
   }
 
@@ -189,7 +214,14 @@ export class ConnectionStatusBar implements vscode.Disposable {
     }
 
     let text = `${icon} OmniRoute`;
-    if (this.health.length > 0) text += ` ${online}/${this.health.length}`;
+    if (this.health.length > 0) {
+      text += ` ${online}/${this.health.length}`;
+      const latencies = this.health.map((h) => h.latencyMs).filter((v): v is number => v !== undefined);
+      if (latencies.length > 0) {
+        const avg = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length);
+        text += ` · ${avg}ms`;
+      }
+    }
     if (this.usage) text += ` · ${fmtTokens(this.usage.inputTokens + this.usage.outputTokens)}`;
 
     this.item.text = text;
@@ -240,8 +272,11 @@ export class ConnectionStatusBar implements vscode.Disposable {
         const statusText = h.online ? vscode.l10n.t("Online") : vscode.l10n.t("Offline");
         const sM = serverMetrics[h.routeId];
         let detail = "";
+        if (typeof h.latencyMs === "number") {
+          detail += ` — ${h.latencyMs}ms`;
+        }
         if (sM && sM.totalTokens > 0) {
-          detail = ` — \`${fmtTokens(sM.totalTokens)}\` (${sM.requestCount} reqs)`;
+          detail += ` · \`${fmtTokens(sM.totalTokens)}\` (${sM.requestCount} reqs)`;
         }
         md.appendMarkdown(`- ${icon} **${h.name}** (${statusText})${detail}\n`);
       }
@@ -257,6 +292,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     this.disposed = true;
     if (this.timer) clearInterval(this.timer);
     if (this.usageTimer) clearTimeout(this.usageTimer);
+    if (this.recheckTimer) clearTimeout(this.recheckTimer);
     this.item.dispose();
   }
 }

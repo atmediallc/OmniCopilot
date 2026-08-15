@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
-import { loadRoutes, makeClientForRoute } from "./routes";
+import { loadRoutes, makeClientForRoute, type Route } from "./routes";
 
 export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
@@ -21,10 +21,15 @@ export class OmniStatusPopup {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
-    // Listen for real-time metrics changes from MetricsTracker
+    // Listen for real-time metrics changes from MetricsTracker. These fire on
+    // every persist (deboounced ~1s after any activity). Refreshing the full
+    // state here would ping servers again → recordActivity → persist → ...,
+    // a self-sustaining ~1s ping loop. So metrics changes only re-render the
+    // cached state with fresh numbers; explicit pings stay on the 3s timer and
+    // on manual "ready"/"refresh".
     this.disposables.push(
       this.metricsTracker.onDidChangeMetrics(() => {
-        void this.updateStateData();
+        void this.renderMetricsOnly();
       })
     );
 
@@ -130,6 +135,41 @@ export class OmniStatusPopup {
 
   private lastUpdateMs = 0;
 
+  private lastState:
+    | {
+        metrics: Record<string, number | string>;
+        servers: unknown[];
+        suggestions: unknown[];
+        fallbackMode: string;
+        statusBarEnabled: boolean;
+        retriesPerServer: number;
+      }
+    | undefined;
+
+  private lastUsedRoutes: Route[] | undefined;
+
+  /** Re-render the previously pinged state with fresh metrics numbers only.
+   * Never pings servers, so it cannot re-trigger recordActivity/persist. */
+  private renderMetricsOnly(): void {
+    if (!this.panel.visible || !this.lastState) return;
+    const routes = this.lastUsedRoutes;
+    const metrics = this.metricsTracker.getMetrics(routes ?? []);
+    void this.panel.webview.postMessage({
+      command: "updateState",
+      state: {
+        ...this.lastState,
+        metrics: {
+          totalInputTokens: metrics.totalInputTokens,
+          totalOutputTokens: metrics.totalOutputTokens,
+          totalTokens: metrics.totalTokens,
+          totalRequests: metrics.totalRequests,
+          formattedTotalTokens: fmtTokens(metrics.totalTokens),
+          formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
+        },
+      },
+    });
+  }
+
   private async updateStateData(): Promise<void> {
     const now = Date.now();
     // Hidden retained webviews must not keep pinging servers: pings here also
@@ -210,6 +250,15 @@ export class OmniStatusPopup {
           retriesPerServer,
         },
       });
+      this.lastState = {
+        metrics: {},
+        servers: serverDetails,
+        suggestions,
+        fallbackMode,
+        statusBarEnabled,
+        retriesPerServer,
+      };
+      this.lastUsedRoutes = routes;
     } catch (err) {
       this.log.error(`Error updating status popup state: ${String(err)}`);
     } finally {

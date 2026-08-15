@@ -329,8 +329,10 @@ export class OmniRouteChatProvider
 
     try {
       // Single chat retry layer: route clients make one HTTP attempt, then
-      // this loop can immediately move to another server.
-      const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
+      // this loop can immediately move to another server. Defaults to 3
+      // attempts so transient 503 ("capacity busy") / 429 get a bounded,
+      // backoff-driven retry on the same server before giving up.
+      const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
 
       for (const [i, cand] of candidates.entries()) {
         const client = clientByRoute.get(cand.routeId);
