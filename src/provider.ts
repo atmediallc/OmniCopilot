@@ -17,7 +17,7 @@ export interface ProviderDeps {
    * feeds the status bar without extra polling. */
   onActivity?: (ok: boolean, routeId?: string) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
-  onUsage?: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: { routeId?: string; baseUrl?: string; serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
   /** routeIds that passed the most recent liveness probe; chat deprioritizes
    * the rest so unreachable servers aren't tried first. */
   getOnlineRouteIds?: () => ReadonlySet<string> | undefined;
@@ -319,6 +319,8 @@ export class OmniRouteChatProvider
                 streamed += event.text;
                 progress.report(new vscode.LanguageModelTextPart(event.text));
                 this.deps.onUsage?.({
+                  routeId: cand.routeId,
+                  baseUrl: client?.baseUrl ?? "",
                   serverName: routeName,
                   modelName: cand.modelId,
                   inputTokens,

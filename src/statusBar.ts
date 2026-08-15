@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { makeClientForRoute } from "./routes";
 import type { Route } from "./routes";
+import type { MetricsTracker } from "./metrics";
+import { fmtTokens } from "./metrics";
 
 type Status = "online" | "partial" | "offline" | "checking";
 
@@ -12,6 +14,8 @@ interface ServerHealth {
 
 /** Live token snapshot for the most recent chat round-trip, fed by the provider. */
 export interface ChatUsage {
+  routeId?: string;
+  baseUrl?: string;
   serverName: string;
   modelName: string;
   inputTokens: number;
@@ -21,16 +25,11 @@ export interface ChatUsage {
 /** After this idle period without new usage the token readout is cleared. */
 const USAGE_STALE_MS = 60_000;
 
-function fmtTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
-}
-
 /** Status-bar "dot": green when every OmniRoute server answers the HEAD
  * /v1/models probe, amber when only some do, red when none do. Also shows
  * how many servers are up and a live token readout. Hover → per-server health
  * plus the latest usage (what model, which server, how many tokens).
- * Click → quick actions menu. */
+ * Click → quick status popup window. */
 export class ConnectionStatusBar implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -43,11 +42,12 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   constructor(
     private readonly getRoutes: () => Promise<Route[]>,
-    private readonly log: vscode.LogOutputChannel
+    private readonly log: vscode.LogOutputChannel,
+    private readonly metricsTracker?: MetricsTracker
   ) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
     this.item.name = "OmniRoute";
-    this.item.command = "omnicopilot.quickActions";
+    this.item.command = "omnicopilot.showStatusPopup";
     this.render();
   }
 
@@ -74,6 +74,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
       this.setStatus(
         onlineCount === this.health.length ? "online" : onlineCount > 0 ? "partial" : "offline"
       );
+      void this.metricsTracker?.recordActivity(routeId, routeId, "", ok);
     } else {
       if (ok) {
         this.setStatus("online");
@@ -87,6 +88,16 @@ export class ConnectionStatusBar implements vscode.Disposable {
   reportUsage(usage: ChatUsage): void {
     if (this.disposed) return;
     this.usage = usage;
+    if (usage.routeId) {
+      void this.metricsTracker?.recordUsage(
+        usage.routeId,
+        usage.serverName,
+        usage.baseUrl ?? "",
+        usage.modelName,
+        usage.inputTokens,
+        usage.outputTokens
+      );
+    }
     if (this.usageTimer) clearTimeout(this.usageTimer);
     this.usageTimer = setTimeout(() => {
       this.usage = undefined;

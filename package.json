@@ -129,6 +129,11 @@
         "command": "omnicopilot.quickActions",
         "category": "OmniRoute",
         "title": "%cmd.quickActions%"
+      },
+      {
+        "command": "omnicopilot.showStatusPopup",
+        "category": "OmniRoute",
+        "title": "%cmd.showStatusPopup%"
       }
     ],
     "configuration": {

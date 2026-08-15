@@ -5,6 +5,8 @@ import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
 import { SECRET_PREFIX, loadRoutes, makeClientForRoute, vendorForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
+import { MetricsTracker } from "./metrics";
+import { OmniStatusPopup } from "./statusPopup";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
 const VENDOR = "omniroute";
@@ -13,6 +15,7 @@ let activeProviders: OmniRouteChatProvider[] = [];
 let providerDisposables: vscode.Disposable[] = [];
 let statusBar: ConnectionStatusBar | undefined;
 let panel: OmniPanelProvider | undefined;
+let metricsTracker: MetricsTracker | undefined;
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
@@ -39,7 +42,7 @@ async function syncProviders(
     context,
     log,
     onActivity: (ok: boolean, routeId?: string) => statusBar?.reportActivity(ok, routeId),
-    onUsage: (usage: { serverName: string; modelName: string; inputTokens: number; outputTokens: number }) =>
+    onUsage: (usage: { routeId?: string; baseUrl?: string; serverName: string; modelName: string; inputTokens: number; outputTokens: number }) =>
       statusBar?.reportUsage(usage),
     getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
   };
@@ -72,11 +75,14 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(log);
   log.info(`Activating v${context.extension.packageJSON.version}`);
 
+  metricsTracker = new MetricsTracker(context);
+
   statusBar = new ConnectionStatusBar(
     async () => {
       return loadRoutes(context);
     },
-    log
+    log,
+    metricsTracker
   );
   context.subscriptions.push(statusBar);
 
@@ -201,7 +207,19 @@ function registerCommands(
     configureCliTool(context, log, typeof toolId === "string" ? toolId : undefined)
   );
 
-  register("omnicopilot.quickActions", () => quickActions(context));
+  register("omnicopilot.showStatusPopup", () => {
+    if (metricsTracker) {
+      OmniStatusPopup.show(context, metricsTracker, log);
+    }
+  });
+
+  register("omnicopilot.quickActions", () => {
+    if (metricsTracker) {
+      OmniStatusPopup.show(context, metricsTracker, log);
+    } else {
+      void quickActions(context);
+    }
+  });
 }
 
 /** Menu behind the status-bar item. */
