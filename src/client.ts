@@ -270,70 +270,41 @@ export class OmniRouteClient {
 
     const timeoutErr = (ms: number) =>
       new OmniRouteError(
-        ms === firstByteMs
-          ? `OmniRoute did not start responding within ${firstByteMs / 1000}s`
-          : `OmniRoute went silent for ${idleMs / 1000}s`,
+        !hasRealEvent
+          ? `OmniRoute did not start responding within ${ms / 1000}s`
+          : `OmniRoute went silent for ${ms / 1000}s`,
         408,
         true
       );
 
-    // Watchdog: the stream is bounded by the first-byte cap until the first
-    // live SSE chunk arrives, then by the idle cap since the last live chunk.
-    // A chunk counts as live even when it yields no visible text yet
-    // (reasoning_content, tool-call deltas) — a server streaming those IS
-    // responding. Keep-alive/comment lines (`: …`) and empty `data:` payloads
-    // do NOT extend the deadline — an upstream that streams keep-alives while
-    // stuck (e.g. a rate-limited proxy that eventually emits
-    // `data: {"error": …}`) must fail fast instead of leaving the chat
-    // hanging for minutes.
-    const firstByteDeadline = Date.now() + firstByteMs;
-    let idleDeadline = 0;
-    let stalled = false;
+    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
     let hasRealEvent = false;
 
-    const stall = () => {
-      stalled = true;
+    const resetWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
       const ms = !hasRealEvent ? firstByteMs : idleMs;
-      const err = timeoutErr(ms);
-      ctrl.abort(err);
-      return err;
+      watchdogTimer = setTimeout(() => {
+        ctrl.abort(timeoutErr(ms));
+      }, ms);
     };
 
-    const waitMs = (ms: number) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const promise = new Promise<{ timeout: true }>((resolve) => {
-        timer = setTimeout(() => resolve({ timeout: true }), ms);
-      });
-      return {
-        promise,
-        cancel: () => {
-          if (timer) clearTimeout(timer);
-        },
-      };
-    };
+    resetWatchdog();
 
     try {
-      for (;;) {
-        const now = Date.now();
-        const deadline = !hasRealEvent ? firstByteDeadline : idleDeadline;
-        const timeoutObj = waitMs(Math.max(deadline - now, 0));
-        const readP = reader.read().then(
-          (v) => ({ ok: true as const, v }),
-          (e) => ({ ok: false as const, e })
-        );
-        let result: { ok: true; v: Awaited<ReturnType<typeof reader.read>> } | { ok: false; e: unknown } | { timeout: true };
-        try {
-          result = await Promise.race([readP, timeoutObj.promise]);
-        } finally {
-          timeoutObj.cancel();
-        }
+      ctrl.signal.addEventListener(
+        "abort",
+        () => {
+          try {
+            void reader.cancel(ctrl.signal.reason);
+          } catch {
+            // ignore
+          }
+        },
+        { once: true }
+      );
 
-        if ("timeout" in result) {
-          stalled = true;
-          throw stall();
-        }
-        if (!result.ok) throw result.e;
-        const { done, value } = result.v;
+      for (;;) {
+        const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -344,18 +315,25 @@ export class OmniRouteClient {
           const { events, alive } = this.handleSseLine(line, assembler);
           if (alive) {
             if (!hasRealEvent) hasRealEvent = true;
-            idleDeadline = Date.now() + idleMs;
+            resetWatchdog();
           }
           yield* events;
         }
+      }
+      if (ctrl.signal.aborted) {
+        if (ctrl.signal.reason instanceof OmniRouteError) throw ctrl.signal.reason;
+        throw abortReason(ctrl.signal);
       }
       // Flush any tool calls still being assembled when the stream ends
       // without an explicit finish_reason line.
       yield* assembler.flush();
     } catch (err) {
-      if (stalled) throw stall();
+      if (ctrl.signal.aborted && ctrl.signal.reason instanceof OmniRouteError) {
+        throw ctrl.signal.reason;
+      }
       throw err;
     } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
       signal.removeEventListener("abort", relay);
     }
   }

@@ -16,10 +16,17 @@ export function toOpenAiMessages(
   for (const msg of messages) {
     const parts = Array.isArray(msg.content) ? msg.content : [];
 
-    const toolResults = parts.filter(
-      (p): p is vscode.LanguageModelToolResultPart =>
-        p instanceof vscode.LanguageModelToolResultPart
-    );
+    const toolResults: vscode.LanguageModelToolResultPart[] = [];
+    const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+
+    for (const p of parts) {
+      if (p instanceof vscode.LanguageModelToolResultPart) {
+        toolResults.push(p);
+      } else if (p instanceof vscode.LanguageModelToolCallPart) {
+        toolCalls.push(p);
+      }
+    }
+
     if (toolResults.length > 0) {
       for (const result of toolResults) {
         out.push({
@@ -33,31 +40,25 @@ export function toOpenAiMessages(
       continue;
     }
 
-    if (msg.role === vscode.LanguageModelChatMessageRole.Assistant) {
-      const toolCalls = parts.filter(
-        (p): p is vscode.LanguageModelToolCallPart =>
-          p instanceof vscode.LanguageModelToolCallPart
-      );
-      if (toolCalls.length > 0) {
-        const text = parts
-          .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
-          .map((p) => p.value)
-          .join("");
-        out.push({
-          role: "assistant",
-          // OpenAI expects null content when tool_calls are present and no text
-          content: text || null,
-          tool_calls: toolCalls.map((tc) => ({
-            id: tc.callId,
-            type: "function" as const,
-            function: {
-              name: tc.name,
-              arguments: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {}),
-            },
-          })),
-        });
-        continue;
-      }
+    if (msg.role === vscode.LanguageModelChatMessageRole.Assistant && toolCalls.length > 0) {
+      const text = parts
+        .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
+        .map((p) => p.value)
+        .join("");
+      out.push({
+        role: "assistant",
+        // OpenAI expects null content when tool_calls are present and no text
+        content: text || null,
+        tool_calls: toolCalls.map((tc) => ({
+          id: tc.callId,
+          type: "function" as const,
+          function: {
+            name: tc.name,
+            arguments: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {}),
+          },
+        })),
+      });
+      continue;
     }
 
     const content = toContent(msg.content);

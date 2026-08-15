@@ -40,6 +40,8 @@ export class OmniRouteChatProvider
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
   private cachedModels: CatalogModel[] = [];
+  private lastCatalogFetch = 0;
+  private static readonly CACHE_TTL_MS = 30_000;
 
   constructor(private readonly deps: ProviderDeps) {}
 
@@ -50,6 +52,7 @@ export class OmniRouteChatProvider
   /** Re-query the catalog and tell VS Code the model list changed. */
   async refresh(): Promise<void> {
     this.cachedModels = [];
+    this.lastCatalogFetch = 0;
     this._onDidChange.fire();
   }
 
@@ -61,6 +64,11 @@ export class OmniRouteChatProvider
   ): Promise<OmniModelInfo[]> {
     const routes = await loadRoutes(this.deps.context);
     if (routes.length === 0) return [];
+
+    const isFresh = Date.now() - this.lastCatalogFetch < OmniRouteChatProvider.CACHE_TTL_MS;
+    if (options.silent && this.cachedModels.length > 0 && isFresh) {
+      return this.toModelInfos(this.cachedModels);
+    }
 
     const segments: RouteCatalog[] = await Promise.all(
       routes.map(async (r) => {
@@ -86,6 +94,7 @@ export class OmniRouteChatProvider
 
     const catalog = buildCatalog(segments);
     this.cachedModels = catalog;
+    this.lastCatalogFetch = Date.now();
     const infos = this.toModelInfos(catalog);
     // `this.cachedModels` is read here so Task 3 compiles clean before the
     // chat fallback (Task 4) starts consuming it.
