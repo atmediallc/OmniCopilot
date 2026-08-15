@@ -63,16 +63,27 @@ export class MetricsTracker {
     };
   }
 
+  private persistTimer: NodeJS.Timeout | undefined;
+
   /** Save metrics state to global storage. */
   private async persist(): Promise<void> {
-    await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
-    this._onDidChangeMetrics.fire();
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(async () => {
+      this.persistTimer = undefined;
+      await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
+      this._onDidChangeMetrics.fire();
+    }, 1000);
   }
 
   /** Reset all token usage metrics. */
   async resetMetrics(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
     this.metrics = this.createEmptyMetrics();
-    await this.persist();
+    await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
+    this._onDidChangeMetrics.fire();
   }
 
   /** Record token usage from a chat response. */

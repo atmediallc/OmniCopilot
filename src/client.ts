@@ -41,11 +41,11 @@ export interface ClientOptions {
 
 const USER_AGENT = "OmniCopilot-VSCode";
 
-function headers(apiKey: string | undefined, json: boolean): Record<string, string> {
+function headers(apiKey: string | undefined, json: boolean, isStream = false): Record<string, string> {
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
     "Connection": "keep-alive",
-    "Accept": "application/json",
+    "Accept": isStream ? "text/event-stream, application/json" : "application/json",
   };
   if (json) h["Content-Type"] = "application/json";
   if (apiKey) h["Authorization"] = `Bearer ${apiKey}`;
@@ -58,7 +58,7 @@ export function normalizeBaseUrl(raw: string): string {
   if (!url) return "http://127.0.0.1:20128/v1";
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   if (!/\/v1$/i.test(url)) url = `${url}/v1`;
-  url = url.replace(/:\/\/(localhost|\[::1\])/i, "://127.0.0.1");
+  url = url.replace(/:\/\/(localhost|0\.0\.0\.0|\[::1\])/i, "://127.0.0.1");
   return url;
 }
 
@@ -289,7 +289,7 @@ export class OmniRouteClient {
     try {
       res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: headers(this.opts.apiKey, true),
+        headers: headers(this.opts.apiKey, true, true),
         body: JSON.stringify(request),
         signal: ctrl.signal,
       });

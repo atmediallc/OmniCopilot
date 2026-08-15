@@ -127,9 +127,13 @@ export class OmniStatusPopup {
     }
   }
 
+  private lastUpdateMs = 0;
+
   private async updateStateData(): Promise<void> {
-    if (this.isUpdating) return;
+    const now = Date.now();
+    if (this.isUpdating || now - this.lastUpdateMs < 1000) return;
     this.isUpdating = true;
+    this.lastUpdateMs = now;
     try {
       const routes = await loadRoutes(this.context);
       const metrics = this.metricsTracker.getMetrics(routes);
