@@ -229,7 +229,10 @@ export class OmniRouteClient {
 
   async listModels(token?: { isCancellationRequested?: boolean; onCancellationRequested?: (listener: () => void) => { dispose(): void } }): Promise<OmniRouteModel[]> {
     const ctrl = new AbortController();
-    const timeoutMs = 8000;
+    // Large catalogs (3000+ models) or slow/remote servers (different IPs)
+    // can take well over 8s to list models. Keep this generous so model
+    // discovery doesn't abort mid-CONNECTION on real OmniRoute servers.
+    const timeoutMs = 30_000;
     const timer = setTimeout(() => ctrl.abort(new Error(`Timeout listing models after ${timeoutMs}ms`)), timeoutMs);
     let sub: { dispose(): void } | undefined;
     if (token?.onCancellationRequested) {

@@ -132,6 +132,10 @@ export class OmniStatusPopup {
 
   private async updateStateData(): Promise<void> {
     const now = Date.now();
+    // Hidden retained webviews must not keep pinging servers: pings here also
+    // trigger recordActivity → persist → onDidChangeMetrics → updateStateData,
+    // which would otherwise re-run this loop every ~1s indefinitely.
+    if (!this.panel.visible) return;
     if (this.isUpdating || now - this.lastUpdateMs < 1000) return;
     this.isUpdating = true;
     this.lastUpdateMs = now;

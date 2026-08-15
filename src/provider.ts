@@ -241,10 +241,15 @@ export class OmniRouteChatProvider
       tools: (() => {
         const allTools = toOpenAiTools(options.tools);
         if (!allTools?.length) return allTools;
-        const maxTools = getConfig().get<number>("maxTools", 32);
-        if (allTools.length <= maxTools) return allTools;
-        log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
-        return allTools.slice(0, maxTools);
+        // maxTools <= 0 means "send every tool VS Code provides". A positive
+        // value is an explicit hard cap for saving context.
+        const maxTools = getConfig().get<number>("maxTools", 0);
+        if (maxTools > 0 && allTools.length <= maxTools) return allTools;
+        if (maxTools > 0) {
+          log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
+          return allTools.slice(0, maxTools);
+        }
+        return allTools;
       })(),
     };
 
