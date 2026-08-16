@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { normalizeBaseUrl } from "./client";
 import { loadRoutes, makeClientForRoute, saveRoutes } from "./routes";
@@ -133,6 +134,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
           "omnicopilot.refreshModels",
           "omnicopilot.configureCliTool",
           "omnicopilot.checkConnection",
+          "omnicopilot.installOmniRoute",
           "omnicopilot.openGitHub",
         ]);
         if (typeof msg.command !== "string" || !allowedCommands.has(msg.command)) break;
@@ -167,7 +169,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private html(): string {
-    const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const nonce = crypto.randomBytes(16).toString("hex");
     const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
     const t = vscode.l10n.t;
     const S = {

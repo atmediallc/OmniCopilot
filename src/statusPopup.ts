@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import * as vscode from "vscode";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
@@ -91,6 +92,7 @@ export class OmniStatusPopup {
               "omnicopilot.refreshModels",
               "omnicopilot.configureCliTool",
               "omnicopilot.checkConnection",
+              "omnicopilot.installOmniRoute",
               "omnicopilot.openGitHub",
             ]);
             if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) break;
@@ -287,7 +289,7 @@ export class OmniStatusPopup {
   }
 
   private getHtmlForWebview(): string {
-    const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const nonce = crypto.randomBytes(16).toString("hex");
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
