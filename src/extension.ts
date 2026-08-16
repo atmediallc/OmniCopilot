@@ -118,7 +118,7 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
     const githubLabel = vscode.l10n.t("Open GitHub");
     const pick = await vscode.window.showInformationMessage(
       vscode.l10n.t(
-        "OmniRoute is a free, open-source AI router: one endpoint, 330+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically."
+        "OmniRoute is a free, open-source AI router: one endpoint, 340+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically."
       ),
       copyLabel,
       githubLabel

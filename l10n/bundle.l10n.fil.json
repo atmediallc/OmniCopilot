@@ -21,7 +21,7 @@
   "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet.": "OmniCopilot: dalhin ang 1200+ AI model sa Copilot Chat gamit ang OmniRoute — 90+ libreng provider, libre magpakailanman. Wala pang natutukoy na OmniRoute server.",
   "OmniRoute API key": "OmniRoute API key",
   "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model.": "Natukoy ang OmniRoute! Handa na ang iyong mga model — buksan ang model picker ng Copilot Chat at pumili ng anumang OmniRoute model.",
-  "OmniRoute is a free, open-source AI router: one endpoint, 330+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically.": "Ang OmniRoute ay isang libre at open-source na AI router: isang endpoint, 330+ provider (90+ libre), awtomatikong fallback. I-install ito gamit ang npm at awtomatikong magiging aktibo ang extension na ito.",
+  "OmniRoute is a free, open-source AI router: one endpoint, 340+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically.": "Ang OmniRoute ay isang libre at open-source na AI router: isang endpoint, 340+ provider (90+ libre), awtomatikong fallback. I-install ito gamit ang npm at awtomatikong magiging aktibo ang extension na ito.",
   "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.baseUrl points at it.": "Hindi maabot ang OmniRoute. Tiyaking tumatakbo ito (npx omniroute) at nakaturo dito ang omnicopilot.baseUrl.",
   "OmniRoute model list refreshed.": "Na-refresh ang listahan ng mga OmniRoute model.",
   "OmniRoute on GitHub": "OmniRoute sa GitHub",
