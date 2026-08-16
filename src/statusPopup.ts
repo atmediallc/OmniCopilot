@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
-import { loadRoutes, makeClientForRoute, type Route } from "./routes";
+import { loadRoutes, type Route } from "./routes";
+import type { ConnectionStatusBar } from "./statusBar";
+import type { StatusSnapshot } from "./status/statusRenderer";
 
 export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
@@ -14,7 +16,8 @@ export class OmniStatusPopup {
     panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
     private readonly metricsTracker: MetricsTracker,
-    private readonly log: vscode.LogOutputChannel
+    private readonly log: vscode.LogOutputChannel,
+    private readonly statusBar: ConnectionStatusBar
   ) {
     this.panel = panel;
     this.log.info("OmniStatusPopup webview panel created.");
@@ -33,10 +36,11 @@ export class OmniStatusPopup {
       })
     );
 
-    // Auto-refresh ping & latency every 3 seconds
-    this.autoRefreshTimer = setInterval(() => {
-      void this.updateStateData();
-    }, 3000);
+    this.disposables.push(
+      this.statusBar.onDidChangeSnapshot((snapshot) => {
+        void this.renderStatusSnapshot(snapshot);
+      })
+    );
 
     this.panel.webview.onDidReceiveMessage(
       async (msg: { command: string; value?: unknown }) => {
@@ -110,7 +114,8 @@ export class OmniStatusPopup {
   public static show(
     context: vscode.ExtensionContext,
     metricsTracker: MetricsTracker,
-    log: vscode.LogOutputChannel
+    log: vscode.LogOutputChannel,
+    statusBar: ConnectionStatusBar
   ): void {
     if (OmniStatusPopup.currentPanel) {
       OmniStatusPopup.currentPanel.reveal(vscode.ViewColumn.Active);
@@ -132,7 +137,7 @@ export class OmniStatusPopup {
     );
 
     OmniStatusPopup.currentPanel = panel;
-    new OmniStatusPopup(panel, context, metricsTracker, log);
+    new OmniStatusPopup(panel, context, metricsTracker, log, statusBar);
   }
 
   public dispose(): void {
@@ -185,6 +190,56 @@ export class OmniStatusPopup {
     });
   }
 
+  private async renderStatusSnapshot(snapshot: StatusSnapshot): Promise<void> {
+    if (!this.panel.visible) return;
+    const routes = this.lastUsedRoutes ?? await loadRoutes(this.context);
+    const byId = new Map(routes.map((route) => [route.id, route]));
+    const metrics = this.metricsTracker.getMetrics(routes);
+    const servers = snapshot.servers.map((server) => ({
+      id: server.routeId,
+      name: server.name,
+      baseUrl: byId.get(server.routeId)?.baseUrl ?? "",
+      online: server.online,
+      latencyMs: server.latencyMs,
+      metric: {
+        inputTokens: metrics.servers[server.routeId]?.inputTokens ?? 0,
+        outputTokens: metrics.servers[server.routeId]?.outputTokens ?? 0,
+        totalTokens: metrics.servers[server.routeId]?.totalTokens ?? server.tokens,
+        requestCount: metrics.servers[server.routeId]?.requestCount ?? server.requests,
+        successCount: metrics.servers[server.routeId]?.successCount ?? 0,
+        errorCount: metrics.servers[server.routeId]?.errorCount ?? 0,
+        lastUsedModel: metrics.servers[server.routeId]?.lastUsedModel,
+      },
+    }));
+    const state = {
+      ...(this.lastState ?? {
+        suggestions: [],
+        fallbackMode: "sameModel",
+        statusBarEnabled: true,
+        retriesPerServer: 1,
+      }),
+      metrics: {
+        totalInputTokens: metrics.totalInputTokens,
+        totalOutputTokens: metrics.totalOutputTokens,
+        totalTokens: metrics.totalTokens,
+        totalRequests: metrics.totalRequests,
+        formattedTotalTokens: fmtTokens(metrics.totalTokens),
+        formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
+      },
+      servers,
+    };
+    await this.panel.webview.postMessage({ command: "updateState", state });
+    this.lastState = {
+      metrics: state.metrics,
+      servers: state.servers,
+      suggestions: state.suggestions,
+      fallbackMode: state.fallbackMode,
+      statusBarEnabled: state.statusBarEnabled,
+      retriesPerServer: state.retriesPerServer,
+    };
+    this.lastUsedRoutes = routes;
+  }
+
   private async updateStateData(): Promise<void> {
     const now = Date.now();
     // Hidden retained webviews must not keep pinging servers: pings here also
@@ -196,60 +251,24 @@ export class OmniStatusPopup {
     this.lastUpdateMs = now;
     try {
       const routes = await loadRoutes(this.context);
-      const metrics = this.metricsTracker.getMetrics(routes);
       const cfg = vscode.workspace.getConfiguration("omnicopilot");
       const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
       const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
-
-      const onlineRouteIds = new Set<string>();
-      const serverDetails = await Promise.all(
-        routes.map(async (r) => {
-          const client = makeClientForRoute(r, this.log);
-          const serverMetric = metrics.servers[r.id] || {
-            routeId: r.id,
-            name: r.name,
-            baseUrl: r.baseUrl,
-            online: false,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            requestCount: 0,
-            successCount: 0,
-            errorCount: 0,
-          };
-
-          const t0 = Date.now();
-          const online = await client.ping(3000);
-          const latencyMs = Date.now() - t0;
-
-          if (online) onlineRouteIds.add(r.id);
-          void this.metricsTracker.recordActivity(r.id, r.name, r.baseUrl, online);
-
-          return {
-            id: r.id,
-            name: r.name,
-            baseUrl: r.baseUrl,
-            online,
-            latencyMs,
-            metric: {
-              inputTokens: serverMetric.inputTokens,
-              outputTokens: serverMetric.outputTokens,
-              totalTokens: serverMetric.totalTokens,
-              requestCount: serverMetric.requestCount,
-              successCount: serverMetric.successCount,
-              errorCount: serverMetric.errorCount,
-              lastUsedModel: serverMetric.lastUsedModel,
-            },
-          };
-        })
+      const snapshot = this.statusBar.getSnapshot();
+      const metrics = this.metricsTracker.getMetrics(routes);
+      const suggestions = this.metricsTracker.generateSuggestions(
+        routes,
+        new Set(snapshot.servers.filter((server) => server.online).map((server) => server.routeId))
       );
-
-      const suggestions = this.metricsTracker.generateSuggestions(routes, onlineRouteIds);
-
-      await this.panel.webview.postMessage({
-        command: "updateState",
-        state: {
+      await this.renderStatusSnapshot({ ...snapshot });
+      if (this.lastState) {
+        this.lastState = {
+          ...this.lastState,
+          suggestions,
+          fallbackMode,
+          statusBarEnabled,
+          retriesPerServer,
           metrics: {
             totalInputTokens: metrics.totalInputTokens,
             totalOutputTokens: metrics.totalOutputTokens,
@@ -258,21 +277,8 @@ export class OmniStatusPopup {
             formattedTotalTokens: fmtTokens(metrics.totalTokens),
             formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
           },
-          servers: serverDetails,
-          suggestions,
-          fallbackMode,
-          statusBarEnabled,
-          retriesPerServer,
-        },
-      });
-      this.lastState = {
-        metrics: {},
-        servers: serverDetails,
-        suggestions,
-        fallbackMode,
-        statusBarEnabled,
-        retriesPerServer,
-      };
+        };
+      }
       this.lastUsedRoutes = routes;
     } catch (err) {
       this.log.error(`Error updating status popup state: ${String(err)}`);

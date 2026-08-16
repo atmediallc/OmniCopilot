@@ -63,6 +63,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   /** Result of the most recent completed probe (coalescing stack guard). */
   private lastCheckOk = false;
   private loopTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly snapshotChanged = new vscode.EventEmitter<StatusSnapshot>();
 
   constructor(
     private readonly getRoutes: () => Promise<Route[]>,
@@ -282,6 +283,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   private render(): void {
     const snap = this.snapshot();
+    this.snapshotChanged.fire(snap);
     const main = this.mainLabel(snap.status);
     this.item.text = renderStatusText(snap);
     const tokens = statusColorTokens(snap);
@@ -350,11 +352,20 @@ export class ConnectionStatusBar implements vscode.Disposable {
     }
   }
 
+  public getSnapshot(): StatusSnapshot {
+    return this.snapshot();
+  }
+
+  public onDidChangeSnapshot(listener: (snapshot: StatusSnapshot) => void): vscode.Disposable {
+    return this.snapshotChanged.event(listener);
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.loopTimer) clearTimeout(this.loopTimer);
     if (this.usageTimer) clearTimeout(this.usageTimer);
     if (this.recheckTimer) clearTimeout(this.recheckTimer);
     this.item.dispose();
+    this.snapshotChanged.dispose();
   }
 }

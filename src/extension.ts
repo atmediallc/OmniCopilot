@@ -244,14 +244,14 @@ function registerCommands(
   );
 
   register("omnicopilot.showStatusPopup", () => {
-    if (metricsTracker) {
-      OmniStatusPopup.show(context, metricsTracker, log);
+    if (metricsTracker && statusBar) {
+      OmniStatusPopup.show(context, metricsTracker, log, statusBar);
     }
   });
 
   register("omnicopilot.quickActions", () => {
-    if (metricsTracker) {
-      OmniStatusPopup.show(context, metricsTracker, log);
+    if (metricsTracker && statusBar) {
+      OmniStatusPopup.show(context, metricsTracker, log, statusBar);
     } else {
       void quickActions(context, log);
     }
