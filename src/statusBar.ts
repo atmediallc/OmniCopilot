@@ -2,9 +2,15 @@ import * as vscode from "vscode";
 import { makeClientForRoute } from "./routes";
 import type { Route } from "./routes";
 import type { MetricsTracker } from "./metrics";
-import { fmtTokens } from "./metrics";
+import {
+  renderStatusText,
+  statusColorTokens,
+  type StatusKind,
+  type StatusSnapshot,
+} from "./status/statusRenderer";
+import { buildStatusTooltip } from "./status/statusTooltip";
 
-type Status = "online" | "partial" | "offline" | "checking";
+type Status = StatusKind;
 
 interface ServerHealth {
   routeId: string;
@@ -33,7 +39,6 @@ const USAGE_STALE_MS = 60_000;
  * Click → quick status popup window. */
 export class ConnectionStatusBar implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
-  private timer: ReturnType<typeof setInterval> | undefined;
   private usageTimer: ReturnType<typeof setTimeout> | undefined;
   private recheckTimer: ReturnType<typeof setTimeout> | undefined;
   private status: Status = "checking";
@@ -41,6 +46,23 @@ export class ConnectionStatusBar implements vscode.Disposable {
   private usage: ChatUsage | undefined;
   private lastActive = new Map<string, number>();
   private disposed = false;
+  /** Guards overlapping checkNow() runs so a slow probe can't stack pings. */
+  private checking = false;
+  /** In-flight chat requests across all provider slots. */
+  private activeRequestCount = 0;
+  /** Model currently streaming (set by the provider at request start). */
+  private activeModel: string | undefined;
+  /** Final failure message of the last request, when it errored out. */
+  private lastError: string | undefined;
+  /** Timestamp of the last successful response (relative-time readout). */
+  private lastResponseAt: number | undefined;
+  /** Fallback servers used by the last request (status-bar diagnosis). */
+  private fallbackCount = 0;
+  /** Consecutive all-offline probes; drives the health-check backoff. */
+  private consecutiveFailures = 0;
+  /** Result of the most recent completed probe (coalescing stack guard). */
+  private lastCheckOk = false;
+  private loopTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly getRoutes: () => Promise<Route[]>,
@@ -55,7 +77,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   start(): void {
     this.applyVisibility();
-    this.scheduleLoop();
+    this.scheduleNext();
     void this.checkNow();
   }
 
@@ -116,6 +138,59 @@ export class ConnectionStatusBar implements vscode.Disposable {
     this.scheduleRecheck();
   }
 
+  /** A chat request started streaming: flip the dot to a live "responding"
+   * state and record which model is being served. */
+  reportRequestStart(routeId: string | undefined, modelName: string): void {
+    if (this.disposed) return;
+    this.activeRequestCount += 1;
+    this.activeModel = modelName;
+    if (routeId) this.lastActive.set(routeId, Date.now());
+    this.setStatus("streaming");
+  }
+
+  /** A chat request settled. `error` carries the surfaced failure message;
+   * `fallbacksUsed` counts servers tried before the one that succeeded (or
+   * that exhausted the chain). */
+  reportRequestEnd(ok: boolean, error: string | undefined, fallbacksUsed = 0): void {
+    if (this.disposed) return;
+    this.activeRequestCount = Math.max(0, this.activeRequestCount - 1);
+    this.fallbackCount = fallbacksUsed;
+    if (ok) {
+      this.lastResponseAt = Date.now();
+      this.lastError = undefined;
+      this.activeModel = undefined;
+      this.setStatus(
+        this.health.length === 0
+          ? "checking"
+          : this.health.every((h) => h.online)
+            ? "online"
+            : this.health.some((h) => h.online)
+              ? "partial"
+              : "offline"
+      );
+    } else {
+      this.lastError = error;
+      this.activeModel = undefined;
+      if (error) {
+        this.setStatus("error");
+      } else {
+        // Cancel/abort without a failure message: fall back to the last
+        // known connection state instead of painting the dot red.
+        this.setStatus(
+          this.health.length === 0
+            ? "checking"
+            : this.health.every((h) => h.online)
+              ? "online"
+              : this.health.some((h) => h.online)
+                ? "partial"
+                : "offline"
+        );
+      }
+    }
+    this.render();
+    this.scheduleRecheck();
+  }
+
   /** Debounced fresh probe after activity, so the dot tracks reality in near
    * real time without spamming HEADs mid-chat. */
   private scheduleRecheck(): void {
@@ -128,26 +203,38 @@ export class ConnectionStatusBar implements vscode.Disposable {
   }
 
   async checkNow(): Promise<boolean> {
-    const routes = await this.getRoutes();
-    if (routes.length === 0) {
-      this.health = [];
-      this.setStatus("offline");
-      return false;
+    if (this.checking) return this.lastCheckOk;
+    this.checking = true;
+    try {
+      const routes = await this.getRoutes();
+      if (routes.length === 0) {
+        this.health = [];
+        this.consecutiveFailures += 1;
+        this.lastCheckOk = false;
+        this.setStatus("offline");
+        this.scheduleNext();
+        return false;
+      }
+      const health = await Promise.all(
+        routes.map(async (r) => {
+          const client = makeClientForRoute(r, this.log);
+          const t0 = Date.now();
+          const online = await client.ping(3000);
+          const latencyMs = Date.now() - t0;
+          void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, online);
+          return { routeId: r.id, name: r.name, online, latencyMs };
+        })
+      );
+      this.health = health;
+      const ok = this.health.filter((h) => h.online).length;
+      this.consecutiveFailures = ok > 0 ? 0 : this.consecutiveFailures + 1;
+      this.lastCheckOk = ok > 0;
+      this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
+      this.scheduleNext();
+      return ok > 0;
+    } finally {
+      this.checking = false;
     }
-    const health = await Promise.all(
-      routes.map(async (r) => {
-        const client = makeClientForRoute(r, this.log);
-        const t0 = Date.now();
-        const online = await client.ping(3000);
-        const latencyMs = Date.now() - t0;
-        void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, online);
-        return { routeId: r.id, name: r.name, online, latencyMs };
-      })
-    );
-    this.health = health;
-    const ok = this.health.filter((h) => h.online).length;
-    this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
-    return ok > 0;
   }
 
   /** routeIds that answered the most recent liveness probe. Used by the chat
@@ -159,7 +246,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   restart(): void {
     this.applyVisibility();
-    this.scheduleLoop();
+    this.scheduleNext();
     void this.checkNow();
   }
 
@@ -169,12 +256,18 @@ export class ConnectionStatusBar implements vscode.Disposable {
     else this.item.hide();
   }
 
-  private scheduleLoop(): void {
-    if (this.timer) clearInterval(this.timer);
+  /** Self-rescheduling probe loop. While every server is offline the interval
+   * backs off (up to 4×, capped at 60s) so an unreachable fleet isn't
+   * hammered with HEADs; it recovers instantly once a probe succeeds. */
+  private scheduleNext(): void {
+    if (this.disposed) return;
+    if (this.loopTimer) clearTimeout(this.loopTimer);
     const seconds = vscode.workspace
       .getConfiguration("omnicopilot")
       .get<number>("healthCheckIntervalSeconds", 10);
-    this.timer = setInterval(() => void this.checkNow(), Math.max(seconds, 5) * 1000);
+    const base = Math.max(seconds, 5) * 1000;
+    const delay = this.consecutiveFailures >= 2 ? Math.min(base * 4, 60_000) : base;
+    this.loopTimer = setTimeout(() => void this.checkNow(), delay);
   }
 
   private setStatus(status: Status): void {
@@ -188,108 +281,78 @@ export class ConnectionStatusBar implements vscode.Disposable {
   }
 
   private render(): void {
-    const online = this.health.filter((h) => h.online).length;
-    let main = "";
-    let color: vscode.ThemeColor | undefined;
-    let background: vscode.ThemeColor | undefined;
-    let icon = "$(circle-filled)";
+    const snap = this.snapshot();
+    const main = this.mainLabel(snap.status);
+    this.item.text = renderStatusText(snap);
+    const tokens = statusColorTokens(snap);
+    this.item.color = tokens.color ? new vscode.ThemeColor(tokens.color) : undefined;
+    this.item.backgroundColor = tokens.background ? new vscode.ThemeColor(tokens.background) : undefined;
 
-    switch (this.status) {
-      case "online":
-        main = vscode.l10n.t("All OmniRoute servers online.");
-        color = new vscode.ThemeColor("testing.iconPassed");
-        break;
-      case "partial":
-        main = vscode.l10n.t("Some OmniRoute servers unreachable.");
-        color = new vscode.ThemeColor("testing.iconWarning");
-        break;
-      case "offline":
-        main = vscode.l10n.t("OmniRoute unreachable.");
-        icon = "$(circle-outline)";
-        background = new vscode.ThemeColor("statusBarItem.warningBackground");
-        break;
-      default:
-        main = vscode.l10n.t("Checking OmniRoute connection…");
-        icon = "$(sync~spin)";
-    }
-
-    let text = `${icon} OmniRoute`;
-    if (this.health.length > 0) {
-      text += ` ${online}/${this.health.length}`;
-      const latencies = this.health.map((h) => h.latencyMs).filter((v): v is number => v !== undefined);
-      if (latencies.length > 0) {
-        const avg = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length);
-        text += ` · ${avg}ms`;
-      }
-    }
-    if (this.usage) text += ` · ${fmtTokens(this.usage.inputTokens + this.usage.outputTokens)}`;
-
-    this.item.text = text;
-    this.item.color = color;
-    this.item.backgroundColor = background;
-    this.item.tooltip = this.buildTooltip(main);
+    this.item.tooltip = buildStatusTooltip(
+      snap,
+      main,
+      this.metricsTracker
+        ? {
+            totalTokens: this.metricsTracker.getMetrics().totalTokens,
+            totalInputTokens: this.metricsTracker.getMetrics().totalInputTokens,
+            totalOutputTokens: this.metricsTracker.getMetrics().totalOutputTokens,
+            totalRequests: this.metricsTracker.getMetrics().totalRequests,
+          }
+        : undefined
+    );
   }
 
-  private buildTooltip(main: string): vscode.MarkdownString {
-    const md = new vscode.MarkdownString();
-    md.supportThemeIcons = true;
+  /** Pure state handed to the renderer — the adapter keeps no formatting. */
+  private snapshot(): StatusSnapshot {
+    const serverMetrics = this.metricsTracker?.getMetrics().servers ?? {};
+    return {
+      status: this.status,
+      servers: this.health.map((h) => ({
+        routeId: h.routeId,
+        name: h.name,
+        online: h.online,
+        latencyMs: h.latencyMs,
+        tokens: serverMetrics[h.routeId]?.totalTokens ?? 0,
+        requests: serverMetrics[h.routeId]?.requestCount ?? 0,
+      })),
+      usage: this.usage
+        ? {
+            serverName: this.usage.serverName,
+            modelName: this.usage.modelName,
+            inputTokens: this.usage.inputTokens,
+            outputTokens: this.usage.outputTokens,
+          }
+        : undefined,
+      lastError: this.lastError,
+      lastResponseAt: this.lastResponseAt,
+      activeRequestCount: this.activeRequestCount,
+      activeModel: this.activeModel,
+      fallbackCount: this.fallbackCount,
+    };
+  }
 
-    md.appendMarkdown(`### $(symbol-enum-member) OmniRoute\n`);
-    md.appendMarkdown(`**${main}**\n\n`);
-
-    if (this.metricsTracker) {
-      const metrics = this.metricsTracker.getMetrics();
-      const totalFmt = fmtTokens(metrics.totalTokens);
-      const inFmt = fmtTokens(metrics.totalInputTokens);
-      const outFmt = fmtTokens(metrics.totalOutputTokens);
-
-      md.appendMarkdown(`---\n\n`);
-      md.appendMarkdown(`#### $(graph) ${vscode.l10n.t("Token Metrics")}\n`);
-      md.appendMarkdown(
-        `- **${vscode.l10n.t("Total Tokens")}:** \`${totalFmt}\` (${vscode.l10n.t("Input")}: \`${inFmt}\` · ${vscode.l10n.t("Output")}: \`${outFmt}\`)\n`
-      );
-      md.appendMarkdown(
-        `- **${vscode.l10n.t("Total Requests")}:** \`${metrics.totalRequests}\`\n\n`
-      );
+  private mainLabel(status: Status): string {
+    switch (status) {
+      case "online":
+        return vscode.l10n.t("All OmniRoute servers online.");
+      case "partial":
+        return vscode.l10n.t("Some OmniRoute servers unreachable.");
+      case "offline":
+        return vscode.l10n.t("OmniRoute unreachable.");
+      case "streaming":
+        return vscode.l10n.t("OmniRoute is responding…");
+      case "error":
+        return this.lastError
+          ? vscode.l10n.t("OmniRoute request failed: {0}", this.lastError)
+          : vscode.l10n.t("OmniRoute request failed.");
+      default:
+        return vscode.l10n.t("Checking OmniRoute connection…");
     }
-
-    if (this.usage) {
-      md.appendMarkdown(`#### $(zap) ${vscode.l10n.t("Last Request")}\n`);
-      md.appendMarkdown(
-        `- **${vscode.l10n.t("Server")}:** ${this.usage.serverName} (${this.usage.modelName})\n`
-      );
-      md.appendMarkdown(
-        `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(this.usage.inputTokens + this.usage.outputTokens)}\` (In: \`${fmtTokens(this.usage.inputTokens)}\` · Out: \`${fmtTokens(this.usage.outputTokens)}\`)\n\n`
-      );
-    }
-
-    if (this.health.length > 0) {
-      md.appendMarkdown(`#### $(server) ${vscode.l10n.t("Connected Servers")}\n`);
-      const serverMetrics = this.metricsTracker?.getMetrics().servers ?? {};
-      for (const h of this.health) {
-        const icon = h.online ? "$(check)" : "$(circle-slash)";
-        const statusText = h.online ? vscode.l10n.t("Online") : vscode.l10n.t("Offline");
-        const sM = serverMetrics[h.routeId];
-        let detail = "";
-        if (typeof h.latencyMs === "number") {
-          detail += ` — ${h.latencyMs}ms`;
-        }
-        if (sM && sM.totalTokens > 0) {
-          detail += ` · \`${fmtTokens(sM.totalTokens)}\` (${sM.requestCount} reqs)`;
-        }
-        md.appendMarkdown(`- ${icon} **${h.name}** (${statusText})${detail}\n`);
-      }
-      md.appendMarkdown(`\n`);
-    }
-
-    md.appendMarkdown(`---\n`);
-    md.appendMarkdown(`*$(info) ${vscode.l10n.t("Click to open status & metrics popup.")}*`);
-    return md;
   }
 
   dispose(): void {
     this.disposed = true;
-    if (this.timer) clearInterval(this.timer);
+    if (this.loopTimer) clearTimeout(this.loopTimer);
     if (this.usageTimer) clearTimeout(this.usageTimer);
     if (this.recheckTimer) clearTimeout(this.recheckTimer);
     this.item.dispose();

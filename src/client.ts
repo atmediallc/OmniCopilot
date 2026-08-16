@@ -79,11 +79,40 @@ export class OmniRouteError extends Error {
     /** True when the stream stalled (no SSE within the timeout window).
      * The upstream is alive and processing the same request, so re-sending it
      * would just burn tokens again — callers should NOT retry the server. */
-    public readonly stall = false
+    public readonly stall = false,
+    /** Where the failure happened: connecting, receiving headers,
+     * mid-stream, or reported by the upstream. */
+    public readonly phase?: "connect" | "headers" | "stream" | "provider",
+    /** Upstream endpoint that failed, e.g. /models or /chat/completions. */
+    public readonly endpoint?: string,
+    /** Milliseconds the failed attempt took (status-bar diagnosis). */
+    public readonly latencyMs?: number
   ) {
     super(message);
     this.name = "OmniRouteError";
   }
+}
+
+/** Node's fetch (undici) throws an opaque `TypeError: fetch failed` and stashes
+ * the real reason — DNS failure (`ENOTFOUND`), connection refused
+ * (`ECONNREFUSED`), timeout (`ETIMEDOUT`), TLS error, dead SOCKS proxy — on
+ * `error.cause`. Surface that cause so users see *why* a server is offline
+ * instead of a bare "fetch failed". Guards against cyclic cause chains. */
+export function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  let msg = error.message;
+  let current: unknown = error;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    const cause = (current as { cause?: unknown }).cause;
+    if (!(cause instanceof Error) || seen.has(cause) || current.message.includes(cause.message)) {
+      break;
+    }
+    msg = `${msg}: ${cause.message}`;
+    current = cause;
+  }
+  return msg;
 }
 
 /** Statuses worth retrying: request timeout, rate limit, and 5xx range. */
@@ -212,7 +241,16 @@ export class OmniRouteClient {
           throw abortReason(signal);
         }
         this.opts.log?.warn(`[HTTP ERROR] ${method} ${url} after ${elapsed}ms: ${String(err)}`);
-        if (attempt >= policy.maxAttempts - 1) throw err;
+        if (attempt >= policy.maxAttempts - 1) {
+          throw new OmniRouteError(
+            describeFetchError(err),
+            undefined,
+            false,
+            "connect",
+            url.replace(/^https?:\/\/[^/]+/, ""),
+            elapsed
+          );
+        }
         const delay = retryDelayMs(undefined, attempt, policy);
         this.opts.log?.info(`[HTTP RETRY] Waiting ${delay}ms before attempt ${attempt + 2}...`);
         await sleep(delay, signal);
@@ -244,13 +282,28 @@ export class OmniRouteClient {
     }
     const t0 = Date.now();
     try {
-      const res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
+      let res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
         method: "GET",
         headers: headers(this.opts.apiKey, false),
         signal: ctrl.signal,
       });
+      // Some OpenAI-compatible servers expose /models off the root instead of
+      // under /v1. Fall back so model discovery still succeeds there.
+      if (!res.ok && (res.status === 404 || res.status === 405 || res.status === 501)) {
+        res = await this.fetchWithRetry(`${serverRootUrl(this.baseUrl)}/models`, {
+          method: "GET",
+          headers: headers(this.opts.apiKey, false),
+          signal: ctrl.signal,
+        });
+      }
       if (!res.ok) {
-        throw new OmniRouteError(`OmniRoute /models returned HTTP ${res.status}`, res.status);
+        throw new OmniRouteError(
+          `OmniRoute /models returned HTTP ${res.status}`,
+          res.status,
+          false,
+          "headers",
+          "/models"
+        );
       }
       if (token?.isCancellationRequested) return [];
       const body = (await res.json()) as ModelsResponse;
@@ -287,7 +340,9 @@ export class OmniRouteClient {
           new OmniRouteError(
             `OmniRoute did not start responding within ${firstByteMs / 1000}s`,
             408,
-            true
+            true,
+            "connect",
+            "/chat/completions"
           )
         ),
       firstByteMs
@@ -313,7 +368,10 @@ export class OmniRouteClient {
       const detail = await safeErrorDetail(res);
       throw new OmniRouteError(
         `OmniRoute request failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`,
-        res.status
+        res.status,
+        false,
+        "headers",
+        "/chat/completions"
       );
     }
 
@@ -328,7 +386,9 @@ export class OmniRouteClient {
           ? `OmniRoute did not start responding within ${ms / 1000}s`
           : `OmniRoute went silent for ${ms / 1000}s`,
         408,
-        true
+        true,
+        "stream",
+        "/chat/completions"
       );
 
     let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
@@ -478,6 +538,6 @@ async function safeErrorDetail(res: Response): Promise<string> {
  *  transient (retry/fallback) failures from permanent ones. */
 function sseError(message: string): OmniRouteError {
   const m = /^\[(\d{3})\]:\s*/.exec(message);
-  if (m) return new OmniRouteError(message, Number(m[1]));
-  return new OmniRouteError(message, undefined);
+  if (m) return new OmniRouteError(message, Number(m[1]), false, "stream", "/chat/completions");
+  return new OmniRouteError(message, undefined, false, "stream", "/chat/completions");
 }

@@ -48,8 +48,16 @@ export async function loadRoutes(context: vscode.ExtensionContext): Promise<Rout
   return [];
 }
 
-/** Persist routes: URLs → config, keys → secrets. Deletes secrets of routes
- * that were removed since the last config read. */
+/** Best-effort secret deletion (Thenable API, errors ignored). */
+function clearSecret(context: vscode.ExtensionContext, id: string): Thenable<void> {
+  return context.secrets.delete(id).then(undefined, () => undefined);
+}
+
+/** Persist routes: URLs → config, keys → secrets. Deletes secrets only of
+ * routes removed since the last config read. A route kept in the list without
+ * an `apiKey` keeps its existing secret (the panel form sends `""` when the
+ * user does not retype the key, so this must be a no-op). Clearing a key on a
+ * kept route goes through the explicit `setKey`/`clearKey` paths. */
 export async function saveRoutes(
   context: vscode.ExtensionContext,
   routes: Route[]
@@ -59,7 +67,7 @@ export async function saveRoutes(
 
   const remaining = new Set(routes.map((r) => r.id));
   for (const p of prior) {
-    if (!remaining.has(p.id)) void context.secrets.delete(SECRET_PREFIX + p.id);
+    if (!remaining.has(p.id)) await clearSecret(context, SECRET_PREFIX + p.id);
   }
 
   await cfg.update(
@@ -69,7 +77,9 @@ export async function saveRoutes(
   );
 
   for (const r of routes) {
-    if (r.apiKey) await context.secrets.store(SECRET_PREFIX + r.id, r.apiKey.trim());
+    if (r.apiKey) {
+      await context.secrets.store(SECRET_PREFIX + r.id, r.apiKey.trim());
+    }
   }
 }
 

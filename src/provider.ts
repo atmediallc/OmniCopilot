@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteError, isTransientHttpError } from "./client";
+import { OmniRouteError, describeFetchError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
@@ -18,6 +18,11 @@ export interface ProviderDeps {
   onActivity?: (ok: boolean, routeId?: string) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
   onUsage?: (usage: { routeId?: string; baseUrl?: string; serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
+  /** A chat request started streaming (status-bar live "responding" state). */
+  onRequestStart?: (routeId: string | undefined, modelName: string) => void;
+  /** A chat request settled. `error` is the surfaced failure message;
+   * `fallbacksUsed` counts servers tried before the winning/exhausted one. */
+  onRequestEnd?: (ok: boolean, error: string | undefined, fallbacksUsed: number) => void;
   /** routeIds that passed the most recent liveness probe; chat deprioritizes
    * the rest so unreachable servers aren't tried first. */
   getOnlineRouteIds?: () => ReadonlySet<string> | undefined;
@@ -335,8 +340,12 @@ export class OmniRouteChatProvider
       const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
 
       for (const [i, cand] of candidates.entries()) {
+        this.deps.onRequestStart?.(primary.routeId, model.omniModelId);
         const client = clientByRoute.get(cand.routeId);
-        if (token.isCancellationRequested) return;
+        if (token.isCancellationRequested) {
+          this.deps.onRequestEnd?.(false, undefined, i);
+          return;
+        }
         if (!client) {
           lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
           continue;
@@ -347,7 +356,10 @@ export class OmniRouteChatProvider
         let attempted = 0;
         let candError: unknown;
         for (; attempted < retriesPerServer; attempted++) {
-          if (token.isCancellationRequested) return;
+          if (token.isCancellationRequested) {
+            this.deps.onRequestEnd?.(false, undefined, i);
+            return;
+          }
           let streamed = "";
           let reportedAny = false;
           try {
@@ -378,12 +390,17 @@ export class OmniRouteChatProvider
               outputTokens: estimateTokens(streamed),
             });
             this.deps.onActivity?.(true, cand.routeId);
+            this.deps.onRequestEnd?.(true, undefined, i);
             return;
           } catch (err) {
-            if (token.isCancellationRequested) return;
+            if (token.isCancellationRequested) {
+              this.deps.onRequestEnd?.(false, undefined, i);
+              return;
+            }
             if (reportedAny) {
               this.deps.onActivity?.(false, cand.routeId);
               log.error(`Chat request failed mid-stream: ${String(err)}`);
+              this.deps.onRequestEnd?.(false, describeFetchError(err), i);
               throw err;
             }
             const status = err instanceof OmniRouteError ? err.status : undefined;
@@ -393,6 +410,7 @@ export class OmniRouteChatProvider
             if (!transient) {
               this.deps.onActivity?.(false, cand.routeId);
               log.error(`Chat request failed: ${String(err)}`);
+              this.deps.onRequestEnd?.(false, describeFetchError(err), i);
               throw err;
             }
             candError = err;
@@ -419,6 +437,7 @@ export class OmniRouteChatProvider
           this.deps.onActivity?.(false, cand.routeId);
           const reason = candError instanceof OmniRouteError ? candError.message : String(candError);
           log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+          this.deps.onRequestEnd?.(false, describeFetchError(candError), i);
           void vscode.window.showErrorMessage(
             vscode.l10n.t(
               "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
@@ -434,6 +453,7 @@ export class OmniRouteChatProvider
         const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
         this.deps.onActivity?.(false, candidates[0]?.routeId);
         log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+        this.deps.onRequestEnd?.(false, describeFetchError(lastError), candidates.length - 1);
         void vscode.window.showErrorMessage(
           vscode.l10n.t(
             "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",

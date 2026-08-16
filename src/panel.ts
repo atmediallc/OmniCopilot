@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { normalizeBaseUrl } from "./client";
-import { SECRET_PREFIX, loadRoutes, makeClientForRoute, saveRoutes } from "./routes";
+import { loadRoutes, makeClientForRoute, saveRoutes } from "./routes";
 
 interface RawRouteInput {
   id?: string;
@@ -12,7 +12,6 @@ interface RawRouteInput {
 type PanelMessage =
   | { type: "ready" | "test" }
   | { type: "save"; routes?: RawRouteInput[] }
-  | { type: "clearKey"; routeId?: string }
   | { type: "action"; command?: string };
 
 interface PanelRoute {
@@ -126,12 +125,6 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         await this.refreshStatus();
         break;
       }
-
-      case "clearKey":
-        await this.context.secrets.delete(SECRET_PREFIX + String(msg.routeId ?? ""));
-        this.log.info("API key cleared via panel");
-        await this.refreshStatus();
-        break;
 
       case "action":
         await vscode.commands.executeCommand(String(msg.command));

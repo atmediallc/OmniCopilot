@@ -54,6 +54,10 @@ export class OmniStatusPopup {
             break;
           case "toggleSetting": {
             const payload = msg.value as { setting: string; enabled: boolean };
+            // Only settings the popup is allowed to flip may be written.
+            const allowedSettings = new Set(["statusBar"]);
+            if (typeof payload?.setting !== "string" || !allowedSettings.has(payload.setting)) break;
+            if (typeof payload.enabled !== "boolean") break;
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
@@ -62,6 +66,8 @@ export class OmniStatusPopup {
           }
           case "changeFallbackMode": {
             const mode = msg.value as string;
+            const allowedModes = new Set(["sameModel", "sameFamily", "full", "none"]);
+            if (typeof mode !== "string" || !allowedModes.has(mode)) break;
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
@@ -276,11 +282,12 @@ export class OmniStatusPopup {
   }
 
   private getHtmlForWebview(): string {
+    const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniRoute Status & Metrics</title>
   <style>
@@ -542,9 +549,9 @@ export class OmniStatusPopup {
         <span id="header-badge" class="badge badge-danger">Loading...</span>
       </div>
       <div class="header-actions">
-        <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.openDashboard')">📊 Dashboard</button>
-        <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.manage')">⚙ Configure</button>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('refresh')">🔄 Refresh</button>
+        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.openDashboard">📊 Dashboard</button>
+        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.manage">⚙ Configure</button>
+        <button class="btn btn-secondary btn-sm" data-action="sendMessage" data-msg="refresh">🔄 Refresh</button>
       </div>
     </div>
 
@@ -552,7 +559,7 @@ export class OmniStatusPopup {
     <div class="section">
       <div class="section-title">
         <span>Token Consumption & Server Metrics</span>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('resetMetrics')">Reset Metrics</button>
+        <button class="btn btn-secondary btn-sm" data-action="sendMessage" data-msg="resetMetrics">Reset Metrics</button>
       </div>
 
       <div class="metric-group">
@@ -587,20 +594,20 @@ export class OmniStatusPopup {
     <div class="section">
       <div class="section-title">
         <span>OmniRoute Quick Settings</span>
-        <button class="btn btn-secondary btn-sm" onclick="sendMessage('snooze')">Snooze (5m)</button>
+        <button class="btn btn-secondary btn-sm" data-action="sendMessage" data-msg="snooze">Snooze (5m)</button>
       </div>
 
       <div class="toggle-list">
         <div class="toggle-item">
           <label class="toggle-label">
-            <input type="checkbox" id="status-bar-toggle" onchange="toggleSetting('statusBar', this.checked)">
+            <input type="checkbox" id="status-bar-toggle" data-action="toggleSetting" data-setting="statusBar">
             <span>Show token consumption in status bar</span>
           </label>
         </div>
 
         <div class="toggle-item">
           <span>Fallback Strategy:</span>
-          <select id="fallback-select" onchange="changeFallbackMode(this.value)">
+          <select id="fallback-select" data-action="changeFallbackMode">
             <option value="sameModel">Same Model (Recommended)</option>
             <option value="sameFamily">Same Model Family</option>
             <option value="full">Full Fallback</option>
@@ -615,7 +622,7 @@ export class OmniStatusPopup {
 
         <div class="toggle-item">
           <span>Model Catalog Sync:</span>
-          <button class="btn btn-secondary btn-sm" onclick="runCommand('omnicopilot.refreshModels')">🔄 Sync Models</button>
+          <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.refreshModels">🔄 Sync Models</button>
         </div>
       </div>
     </div>
@@ -632,14 +639,31 @@ export class OmniStatusPopup {
 
     <!-- Footer Links -->
     <div class="footer-links">
-      <a onclick="runCommand('omnicopilot.configureCliTool')">⚡ Configure CLI Bridge (Aider/Claude)</a>
-      <a onclick="runCommand('omnicopilot.checkConnection')">🩺 Check Server Health</a>
-      <a onclick="runCommand('omnicopilot.openGitHub')">⭐ OmniRoute on GitHub</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot.configureCliTool">⚡ Configure CLI Bridge (Aider/Claude)</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot.checkConnection">🩺 Check Server Health</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot.openGitHub">⭐ OmniRoute on GitHub</a>
     </div>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+
+    // Delegated handlers — no inline event attributes (CSP: script-src 'nonce-…')
+    document.addEventListener('click', (event) => {
+      const el = (event.target instanceof Element) ? event.target.closest('[data-action]') : null;
+      if (!el || !(el instanceof HTMLElement)) return;
+      event.preventDefault();
+      const action = el.dataset.action;
+      if (action === 'runCommand') runCommand(el.dataset.cmd);
+      else if (action === 'sendMessage') sendMessage(el.dataset.msg);
+    }, true);
+    document.addEventListener('change', (event) => {
+      const el = (event.target instanceof Element) ? event.target.closest('[data-action]') : null;
+      if (!el || !(el instanceof HTMLInputElement) && !(el instanceof HTMLSelectElement)) return;
+      const action = el.dataset.action;
+      if (action === 'toggleSetting') toggleSetting(el.dataset.setting, (el as HTMLInputElement).checked);
+      else if (action === 'changeFallbackMode') changeFallbackMode((el as HTMLSelectElement).value);
+    }, true);
 
     function sendMessage(command, value) {
       vscode.postMessage({ command, value });

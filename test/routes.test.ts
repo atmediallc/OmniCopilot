@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { buildCatalog, newRouteId, pickFallbackCandidates, prefixedId, vendorForRoute } from "../src/routes";
+import { beforeEach, describe, expect, it } from "vitest";
+import { buildCatalog, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, vendorForRoute, SECRET_PREFIX } from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
+import { secretStore, configValues, configUpdates, createMockContext } from "./vscode.mock";
 
 function model(id: string, toolCalling?: boolean): OmniRouteModel {
   return {
@@ -115,5 +116,56 @@ describe("vendorForRoute", () => {
     ];
     expect(vendorForRoute(routes[0], routes)).toBe("omniroute-Ashburn-r1");
     expect(vendorForRoute(routes[1], routes)).toBe("omniroute-Ashburn-r2");
+  });
+});
+
+describe("saveRoutes", () => {
+  beforeEach(() => {
+    secretStore.clear();
+    configUpdates.length = 0;
+    for (const k of Object.keys(configValues)) delete configValues[k];
+  });
+
+  function seedPrior(routes: Array<{ id: string; name: string; baseUrl: string }>) {
+    configValues["omnicopilot"] = { ...(configValues["omnicopilot"] ?? {}), routes };
+  }
+
+  it("mantiene el secreto cuando una ruta existente se guarda sin apiKey", async () => {
+    seedPrior([{ id: "route-1", name: "A", baseUrl: "http://a/v1" }]);
+    secretStore.set(SECRET_PREFIX + "route-1", "viejakey");
+    // El panel envía apiKey:"" si el usuario no la reescribe → no debe borrarse.
+    await saveRoutes(createMockContext() as never, [{ id: "route-1", name: "A", baseUrl: "http://a/v1" }]);
+    expect(secretStore.get(SECRET_PREFIX + "route-1")).toBe("viejakey");
+  });
+
+  it("borra el secreto de rutas eliminadas de la lista", async () => {
+    seedPrior([
+      { id: "route-1", name: "A", baseUrl: "http://a/v1" },
+      { id: "route-2", name: "B", baseUrl: "http://b/v1" },
+    ]);
+    secretStore.set(SECRET_PREFIX + "route-1", "k1");
+    secretStore.set(SECRET_PREFIX + "route-2", "k2");
+    await saveRoutes(createMockContext() as never, [{ id: "route-1", name: "A", baseUrl: "http://a/v1" }]);
+    expect(secretStore.has(SECRET_PREFIX + "route-2")).toBe(false);
+    expect(secretStore.has(SECRET_PREFIX + "route-1")).toBe(true);
+  });
+
+  it("guarda la apiKey de rutas con key y mantiene la de las que siguen", async () => {
+    secretStore.set(SECRET_PREFIX + "route-1", "k1");
+    await saveRoutes(createMockContext() as never, [
+      { id: "route-1", name: "A", baseUrl: "http://a/v1" },
+      { id: "route-2", name: "B", baseUrl: "http://b/v1", apiKey: "nueva" },
+    ]);
+    expect(secretStore.get(SECRET_PREFIX + "route-1")).toBe("k1");
+    expect(secretStore.get(SECRET_PREFIX + "route-2")).toBe("nueva");
+  });
+
+  it("persiste la config con urls normalizadas", async () => {
+    await saveRoutes(createMockContext() as never, [
+      { id: "route-1", name: "A", baseUrl: "http://a/v1/", apiKey: "x" },
+    ]);
+    const saved = configUpdates.find((u) => u.key === "routes")?.value as unknown[];
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ id: "route-1", baseUrl: "http://a/v1" });
   });
 });

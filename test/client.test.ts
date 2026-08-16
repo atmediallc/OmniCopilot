@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OmniRouteClient } from "../src/client";
+import { OmniRouteClient, OmniRouteError, describeFetchError } from "../src/client";
 import type { StreamEvent } from "../src/types";
 
 function sseResponse(lines: string[]): Response {
@@ -348,5 +348,87 @@ describe("OmniRouteClient.listModels retry", () => {
     }).listModels();
     expect(models).toEqual([{ id: "openai/gpt-4o" }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("OmniRouteClient error diagnosis", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("describeFetchError unwraps the undici cause chain", () => {
+    const cause = new TypeError("fetch failed");
+    cause.cause = new Error("connect ECONNREFUSED 127.0.0.1:8080");
+    expect(describeFetchError(cause)).toBe("fetch failed: connect ECONNREFUSED 127.0.0.1:8080");
+  });
+
+  it("describeFetchError tolerates cyclic causes", () => {
+    const a = new Error("fetch failed");
+    const b = new Error("level1");
+    const c = new Error("level2");
+    a.cause = b;
+    b.cause = c;
+    c.cause = b; // cycle back
+    expect(describeFetchError(a)).toBe("fetch failed: level1: level2");
+  });
+
+  it("wraps the final network error with cause + phase + endpoint + latency", async () => {
+    const cause = new Error("connect ECONNREFUSED 127.0.0.1:8080");
+    const net = new TypeError("fetch failed");
+    net.cause = cause;
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(net));
+    const client = new OmniRouteClient({
+      baseUrl: "http://x/v1",
+      retry: { maxAttempts: 1, baseMs: 1 },
+    });
+    const err = await collect(client).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(OmniRouteError);
+    expect((err as OmniRouteError).message).toMatch(/fetch failed/);
+    expect((err as OmniRouteError).message).toMatch(/ECONNREFUSED/);
+    expect((err as OmniRouteError).phase).toBe("connect");
+    expect((err as OmniRouteError).endpoint).toBe("/v1/chat/completions");
+    expect(typeof (err as OmniRouteError).latencyMs).toBe("number");
+  });
+
+  it("surfaces SSE inline errors carrying their [status] prefix and stream phase", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse(['data: {"error":{"message":"[429]: Rate limit reached for model openai/gpt-4o"}}'])
+      )
+    );
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const err = await collect(client).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(OmniRouteError);
+    expect((err as OmniRouteError).status).toBe(429);
+    expect((err as OmniRouteError).phase).toBe("stream");
+    expect((err as OmniRouteError).endpoint).toBe("/chat/completions");
+  });
+
+  it("falls back to the root /models endpoint on 404", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: "local/llama" }] }), { status: 200 })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const models = await new OmniRouteClient({ baseUrl: "http://x/v1" }).listModels();
+    expect(models).toEqual([{ id: "local/llama" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe("http://x/models");
+  });
+
+  it("does not fall back on 503 (stays inside the retry loop)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      new OmniRouteClient({ baseUrl: "http://x/v1", retry: { maxAttempts: 1, baseMs: 1 } }).listModels()
+    ).rejects.toThrow(/HTTP 503/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
