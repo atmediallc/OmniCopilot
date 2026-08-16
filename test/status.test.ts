@@ -17,11 +17,11 @@ const base: StatusSnapshot = {
 };
 
 describe("statusRenderer", () => {
-  it("renders server tally + average latency", () => {
-    expect(renderStatusText(base)).toBe("$(circle-filled) OmniRoute 1/2 · 456ms");
+  it("renders server tally only", () => {
+    expect(renderStatusText(base)).toBe("$(circle-filled) OmniRoute 1/2");
   });
 
-  it("shows streaming icon + active model while generating", () => {
+  it("shows streaming icon while generating", () => {
     const snap: StatusSnapshot = {
       ...base,
       status: "streaming",
@@ -30,7 +30,7 @@ describe("statusRenderer", () => {
     };
     const text = renderStatusText(snap);
     expect(text).toContain("$(loading~spin)");
-    expect(text).toContain("openai/gpt-4o");
+    expect(text).toContain("OmniRoute 1/2");
   });
 
   it("uses the error icon on failure and the outline icon when offline", () => {

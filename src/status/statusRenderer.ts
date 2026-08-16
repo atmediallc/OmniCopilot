@@ -1,5 +1,3 @@
-import { fmtTokens } from "../metrics";
-
 /** Pure, framework-free description of what the status bar should render.
  * Produced by the adapter (statusBar.ts), rendered here so the presentation
  * logic stays unit-testable without the VS Code API. */
@@ -67,17 +65,6 @@ export function renderStatusText(snap: StatusSnapshot): string {
   const online = snap.servers.filter((s) => s.online).length;
   if (snap.servers.length > 0) {
     text += ` ${online}/${snap.servers.length}`;
-    const latencies = snap.servers.map((s) => s.latencyMs).filter((v): v is number => v !== undefined);
-    if (latencies.length > 0) {
-      const avg = Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length);
-      text += ` · ${avg}ms`;
-    }
-  }
-  if (snap.activeRequestCount > 0 && snap.activeModel) {
-    text += ` · ${snap.activeModel}`;
-  }
-  if (snap.usage) {
-    text += ` · ${fmtTokens(snap.usage.inputTokens + snap.usage.outputTokens)}`;
   }
   return text;
 }

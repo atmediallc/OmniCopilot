@@ -666,8 +666,8 @@ export class OmniStatusPopup {
       const el = (event.target instanceof Element) ? event.target.closest('[data-action]') : null;
       if (!el || !(el instanceof HTMLInputElement) && !(el instanceof HTMLSelectElement)) return;
       const action = el.dataset.action;
-      if (action === 'toggleSetting') toggleSetting(el.dataset.setting, (el as HTMLInputElement).checked);
-      else if (action === 'changeFallbackMode') changeFallbackMode((el as HTMLSelectElement).value);
+       if (action === 'toggleSetting') toggleSetting(el.dataset.setting, el.checked);
+       else if (action === 'changeFallbackMode') changeFallbackMode(el.value);
     }, true);
 
     function sendMessage(command, value) {
