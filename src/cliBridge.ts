@@ -69,7 +69,12 @@ export async function configureCliTool(
   }
 
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
-  const cliPath = cfg.get<string>("cliPath", "omniroute").trim() || "omniroute";
+  const configuredCliPath = cfg.get<string>("cliPath", "omniroute").trim();
+  if (/[&|;$`\r\n<>]/.test(configuredCliPath)) {
+    void vscode.window.showErrorMessage(vscode.l10n.t("Invalid CLI path: shell metacharacters are not allowed."));
+    return;
+  }
+  const cliPath = shellQuote(configuredCliPath || "omniroute");
   const root = serverRootUrl(route.baseUrl);
   const apiKey = route.apiKey;
 

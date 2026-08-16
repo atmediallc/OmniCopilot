@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { OmniRouteChatProvider } from "../src/provider";
-import type { OmniRouteCatalogEntry } from "../src/routes";
 
 function mockContext() {
   const store = new Map<string, unknown>();
@@ -11,7 +10,7 @@ function mockContext() {
         store.set(key, value);
       },
     },
-  } as any;
+  } as unknown as ConstructorParameters<typeof OmniRouteChatProvider>[0]["context"];
 }
 
 describe("OmniRouteChatProvider", () => {
@@ -19,7 +18,7 @@ describe("OmniRouteChatProvider", () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({
       context,
-      outputChannel: { appendLine: () => {} } as any,
+      outputChannel: { appendLine: () => {} } as unknown as ConstructorParameters<typeof OmniRouteChatProvider>[0]["log"],
     });
     expect(provider).toBeDefined();
   });

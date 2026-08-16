@@ -47,6 +47,10 @@ export class OmniRouteChatProvider
   private static sharedCachedModels: CatalogModel[] = [];
   private static sharedLastCatalogFetch = 0;
   private static sharedFetchPromise: Promise<CatalogModel[]> | null = null;
+  private static readonly routeFailures = new Map<string, number>();
+  private static readonly routeCooldowns = new Map<string, number>();
+  private static readonly ROUTE_FAILURE_LIMIT = 2;
+  private static readonly ROUTE_COOLDOWN_MS = 60_000;
   private static readonly CACHE_STATE_KEY = "omnicopilot.cachedCatalog.v1";
   private static readonly CACHE_TIME_KEY = "omnicopilot.cachedCatalogTime.v1";
 
@@ -73,6 +77,31 @@ export class OmniRouteChatProvider
 
   get cachedModels(): CatalogModel[] {
     return OmniRouteChatProvider.sharedCachedModels;
+  }
+
+  private isRouteCoolingDown(routeId: string): boolean {
+    const until = OmniRouteChatProvider.routeCooldowns.get(routeId) ?? 0;
+    if (until <= Date.now()) {
+      OmniRouteChatProvider.routeCooldowns.delete(routeId);
+      return false;
+    }
+    return true;
+  }
+
+  private recordRouteSuccess(routeId: string): void {
+    OmniRouteChatProvider.routeFailures.delete(routeId);
+    OmniRouteChatProvider.routeCooldowns.delete(routeId);
+  }
+
+  private recordRouteFailure(routeId: string): void {
+    const failures = (OmniRouteChatProvider.routeFailures.get(routeId) ?? 0) + 1;
+    OmniRouteChatProvider.routeFailures.set(routeId, failures);
+    if (failures >= OmniRouteChatProvider.ROUTE_FAILURE_LIMIT) {
+      OmniRouteChatProvider.routeCooldowns.set(
+        routeId,
+        Date.now() + OmniRouteChatProvider.ROUTE_COOLDOWN_MS
+      );
+    }
   }
 
   dispose(): void {
@@ -340,7 +369,10 @@ export class OmniRouteChatProvider
       const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
 
       for (const [i, cand] of candidates.entries()) {
-        this.deps.onRequestStart?.(primary.routeId, model.omniModelId);
+        if (this.isRouteCoolingDown(cand.routeId) && i < lastIndex) {
+          log.warn(`Skipping ${cand.routeId}: circuit breaker cooldown active`);
+          continue;
+        }
         const client = clientByRoute.get(cand.routeId);
         if (token.isCancellationRequested) {
           this.deps.onRequestEnd?.(false, undefined, i);
@@ -362,10 +394,14 @@ export class OmniRouteChatProvider
           }
           let streamed = "";
           let reportedAny = false;
+          const startedAt = Date.now();
+          let firstTokenAt: number | undefined;
+          this.deps.onRequestStart?.(cand.routeId, cand.modelId);
           try {
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
+                firstTokenAt ??= Date.now();
                 streamed += event.text;
                 reportedAny = true;
                 progress.report(new vscode.LanguageModelTextPart(event.text));
@@ -381,6 +417,19 @@ export class OmniRouteChatProvider
                 progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
             }
+            if (!reportedAny) {
+              throw new OmniRouteError(
+                `Model ${cand.modelId} returned an empty stream`,
+                undefined,
+                false,
+                "provider",
+                "/chat/completions"
+              );
+            }
+            const finishedAt = Date.now();
+            log.info(
+              `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${estimateTokens(streamed)} tokens)`
+            );
             this.deps.onUsage?.({
               routeId: cand.routeId,
               baseUrl: client?.baseUrl ?? "",
@@ -389,6 +438,7 @@ export class OmniRouteChatProvider
               inputTokens,
               outputTokens: estimateTokens(streamed),
             });
+            this.recordRouteSuccess(cand.routeId);
             this.deps.onActivity?.(true, cand.routeId);
             this.deps.onRequestEnd?.(true, undefined, i);
             return;
@@ -430,6 +480,7 @@ export class OmniRouteChatProvider
         }
 
         lastError = candError;
+        this.recordRouteFailure(cand.routeId);
         log.warn(
           `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${String(candError)}); next server`
         );

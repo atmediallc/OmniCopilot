@@ -9,7 +9,7 @@ export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
-  private autoRefreshTimer: NodeJS.Timeout | undefined;
+  private webviewReady = false;
   private isUpdating = false;
 
   private constructor(
@@ -46,7 +46,12 @@ export class OmniStatusPopup {
       async (msg: { command: string; value?: unknown }) => {
         switch (msg.command) {
           case "ready":
+            this.webviewReady = true;
+            this.lastUpdateMs = 0;
+            await this.updateStateData();
+            break;
           case "refresh":
+            this.lastUpdateMs = 0;
             await this.updateStateData();
             break;
           case "resetMetrics":
@@ -109,6 +114,7 @@ export class OmniStatusPopup {
     );
 
     this.panel.webview.html = this.getHtmlForWebview();
+    void this.updateStateData();
   }
 
   public static show(
@@ -141,10 +147,6 @@ export class OmniStatusPopup {
   }
 
   public dispose(): void {
-    if (this.autoRefreshTimer) {
-      clearInterval(this.autoRefreshTimer);
-      this.autoRefreshTimer = undefined;
-    }
     OmniStatusPopup.currentPanel = undefined;
     this.panel.dispose();
     while (this.disposables.length) {
@@ -191,7 +193,7 @@ export class OmniStatusPopup {
   }
 
   private async renderStatusSnapshot(snapshot: StatusSnapshot): Promise<void> {
-    if (!this.panel.visible) return;
+    if (!this.webviewReady) return;
     const routes = this.lastUsedRoutes ?? await loadRoutes(this.context);
     const byId = new Map(routes.map((route) => [route.id, route]));
     const metrics = this.metricsTracker.getMetrics(routes);
@@ -242,9 +244,6 @@ export class OmniStatusPopup {
 
   private async updateStateData(): Promise<void> {
     const now = Date.now();
-    // Hidden retained webviews must not keep pinging servers: pings here also
-    // trigger recordActivity → persist → onDidChangeMetrics → updateStateData,
-    // which would otherwise re-run this loop every ~1s indefinitely.
     if (!this.panel.visible) return;
     if (this.isUpdating || now - this.lastUpdateMs < 1000) return;
     this.isUpdating = true;
@@ -261,7 +260,7 @@ export class OmniStatusPopup {
         routes,
         new Set(snapshot.servers.filter((server) => server.online).map((server) => server.routeId))
       );
-      await this.renderStatusSnapshot({ ...snapshot });
+      await this.renderStatusSnapshot(snapshot);
       if (this.lastState) {
         this.lastState = {
           ...this.lastState,

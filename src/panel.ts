@@ -126,9 +126,19 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         break;
       }
 
-      case "action":
-        await vscode.commands.executeCommand(String(msg.command));
+      case "action": {
+        const allowedCommands = new Set([
+          "omnicopilot.openDashboard",
+          "omnicopilot.manage",
+          "omnicopilot.refreshModels",
+          "omnicopilot.configureCliTool",
+          "omnicopilot.checkConnection",
+          "omnicopilot.openGitHub",
+        ]);
+        if (typeof msg.command !== "string" || !allowedCommands.has(msg.command)) break;
+        await vscode.commands.executeCommand(msg.command);
         break;
+      }
     }
   }
 

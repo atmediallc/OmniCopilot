@@ -12,7 +12,7 @@ function mockContext() {
         store.set(key, value);
       },
     },
-  } as any;
+  } as unknown as ConstructorParameters<typeof MetricsTracker>[0];
 }
 
 describe("fmtTokens", () => {
@@ -50,7 +50,7 @@ describe("MetricsTracker", () => {
     expect(metrics.totalOutputTokens).toBe(50);
     expect(metrics.totalRequests).toBe(1);
 
-    let server = metrics.servers["route-1"];
+    const server = metrics.servers["route-1"];
     expect(server).toBeDefined();
     expect(server.name).toBe("Primary Server");
     expect(server.inputTokens).toBe(100);
