@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { OmniRouteError, describeFetchError, isTransientHttpError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
-import { buildCatalog, loadRoutes, makeClientForRoute, pickFallbackCandidates } from "./routes";
+import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
@@ -26,6 +26,8 @@ export interface ProviderDeps {
   /** routeIds that passed the most recent liveness probe; chat deprioritizes
    * the rest so unreachable servers aren't tried first. */
   getOnlineRouteIds?: () => ReadonlySet<string> | undefined;
+  /** Called when a stream stalls (no SSE data within timeout). */
+  onStall?: (routeId: string) => void;
 }
 
 function getConfig() {
@@ -122,7 +124,7 @@ export class OmniRouteChatProvider
     options: { silent: boolean },
     _token: vscode.CancellationToken
   ): Promise<OmniModelInfo[]> {
-    const routes = await loadRoutes(this.deps.context);
+    const routes = await cachedLoadRoutes(this.deps.context);
     if (routes.length === 0) return [];
 
     const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
@@ -140,7 +142,7 @@ export class OmniRouteChatProvider
         const segments: RouteCatalog[] = await Promise.all(
           routes.map(async (r) => {
             try {
-              const models = await makeClientForRoute(r, this.deps.log).listModels();
+              const models = await getClientForRoute(r, this.deps.log).listModels();
               this.deps.onActivity?.(true, r.id);
               this.deps.log.info(`Route "${r.name}" (${r.baseUrl}) model discovery succeeded: ${models.length} model(s)`);
               return { routeId: r.id, name: r.name, models };
@@ -195,10 +197,13 @@ export class OmniRouteChatProvider
     let filter: RegExp | undefined;
     if (filterRaw) {
       try {
+        if (filterRaw.length > 200) {
+          throw new Error("Filter too long");
+        }
         filter = new RegExp(filterRaw, "i");
       } catch {
-        // invalid regex → fall back to substring matching
-        const needle = filterRaw.toLowerCase();
+        // invalid or overly complex regex → fall back to safe escaped substring matching
+        const needle = filterRaw.slice(0, 200).toLowerCase();
         filter = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       }
     }
@@ -241,7 +246,7 @@ export class OmniRouteChatProvider
   }
 
   private async offerConnectionHelp(): Promise<void> {
-    const routes = await loadRoutes(this.deps.context);
+    const routes = await cachedLoadRoutes(this.deps.context);
     const baseUrl = routes[0]?.baseUrl ?? "http://localhost:20128/v1";
     const configureLabel = vscode.l10n.t("Configure Connection");
     const installLabel = vscode.l10n.t("Install OmniRoute");
@@ -299,11 +304,11 @@ export class OmniRouteChatProvider
     // Route per candidate; a route disappearing mid-session is skipped, never
     // fatal. Fallback chain (transient 429/5xx only): primary → same model on
     // another route → same family on the same route → any compatible model.
-    const routes = await loadRoutes(this.deps.context);
+    const routes = await cachedLoadRoutes(this.deps.context);
     const firstByteTimeoutMs =
       getConfig().get<number>("firstByteTimeoutSeconds", 120) * 1000;
     const clientByRoute = new Map(
-      routes.map((r) => [r.id, makeClientForRoute(r, this.deps.log, firstByteTimeoutMs)])
+      routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs)])
     );
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
@@ -409,7 +414,10 @@ export class OmniRouteChatProvider
                 reportedAny = true;
                 let input: Record<string, unknown>;
                 try {
-                  input = JSON.parse(event.args) as Record<string, unknown>;
+                  const parsed = JSON.parse(event.args);
+                  input = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                    ? (parsed as Record<string, unknown>)
+                    : {};
                 } catch {
                   log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
                   input = {};
@@ -471,7 +479,10 @@ export class OmniRouteChatProvider
             // same request; re-sending it would burn tokens a second time.
             // Skip remaining attempts on this server and move to the next
             // candidate instead.
-            if (err instanceof OmniRouteError && err.stall) break;
+            if (err instanceof OmniRouteError && err.stall) {
+              this.deps.onStall?.(cand.routeId);
+              break;
+            }
             if (attempted + 1 < retriesPerServer) {
               await delay(Math.min(2000, 250 * Math.pow(2, attempted)));
               continue;
