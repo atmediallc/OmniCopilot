@@ -372,6 +372,10 @@ export class OmniRouteChatProvider
       // attempts so transient 503 ("capacity busy") / 429 get a bounded,
       // backoff-driven retry on the same server before giving up.
       const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
+      // 503/429 are upstream throttling — give them extra retries with longer
+      // backoff. The user's "Try again" should succeed after the brief
+      // admission‑capacity blip resolves (usually 1-5 seconds).
+      const admissionRetries = Math.max(retriesPerServer, 5);
 
       for (const [i, cand] of candidates.entries()) {
         if (this.isRouteCoolingDown(cand.routeId) && i < lastIndex) {
@@ -392,7 +396,10 @@ export class OmniRouteChatProvider
         const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
         let attempted = 0;
         let candError: unknown;
-        for (; attempted < retriesPerServer; attempted++) {
+        // Start with the configured limit; upgraded to admissionRetries if we
+        // see 503/429 (the upstream is healthy, just temporarily full).
+        let effectiveRetries = retriesPerServer;
+        for (; attempted < effectiveRetries; attempted++) {
           if (token.isCancellationRequested) {
             this.deps.onRequestEnd?.(false, undefined, i);
             return;
@@ -473,7 +480,7 @@ export class OmniRouteChatProvider
             }
             candError = err;
             log.warn(
-              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${String(err)})`
+              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${String(err)})`
             );
             // A stall means the upstream is alive and already processing the
             // same request; re-sending it would burn tokens a second time.
@@ -483,15 +490,28 @@ export class OmniRouteChatProvider
               this.deps.onStall?.(cand.routeId);
               break;
             }
-            if (attempted + 1 < retriesPerServer) {
-              await delay(Math.min(2000, 250 * Math.pow(2, attempted)));
+            // 503/429 = upstream is healthy but temporarily full. Upgrade to
+            // more retries with longer backoff — this usually resolves in a
+            // few seconds, just like direct JSON / Copilot does.
+            if (status === 503 || status === 429) {
+              effectiveRetries = admissionRetries;
+            }
+            if (attempted + 1 < effectiveRetries) {
+              const baseDelay = (status === 503 || status === 429) ? 1500 : 250;
+              const maxDelay = (status === 503 || status === 429) ? 8000 : 2000;
+              await delay(Math.min(maxDelay, baseDelay * Math.pow(2, attempted)));
               continue;
             }
           }
         }
 
         lastError = candError;
-        this.recordRouteFailure(cand.routeId);
+        // 503 (admission capacity) and 429 (rate limit) are upstream throttling,
+        // not route failures — don't penalize the route's circuit breaker.
+        const lastStatus = candError instanceof OmniRouteError ? candError.status : undefined;
+        if (lastStatus !== 503 && lastStatus !== 429) {
+          this.recordRouteFailure(cand.routeId);
+        }
         log.warn(
           `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${String(candError)}); next server`
         );
