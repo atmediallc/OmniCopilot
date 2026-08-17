@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
-import { loadRoutes, type Route } from "./routes";
+import { cachedLoadRoutes, type Route } from "./routes";
 import type { ConnectionStatusBar } from "./statusBar";
 import type { StatusSnapshot } from "./status/statusRenderer";
 
@@ -26,7 +26,7 @@ export class OmniStatusPopup {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
     // Listen for real-time metrics changes from MetricsTracker. These fire on
-    // every persist (deboounced ~1s after any activity). Refreshing the full
+    // every persist (debounced ~1s after any activity). Refreshing the full
     // state here would ping servers again → recordActivity → persist → ...,
     // a self-sustaining ~1s ping loop. So metrics changes only re-render the
     // cached state with fresh numbers; explicit pings stay on the 3s timer and
@@ -196,7 +196,7 @@ export class OmniStatusPopup {
 
   private async renderStatusSnapshot(snapshot: StatusSnapshot): Promise<void> {
     if (!this.webviewReady) return;
-    const routes = this.lastUsedRoutes ?? await loadRoutes(this.context);
+    const routes = this.lastUsedRoutes ?? await cachedLoadRoutes(this.context);
     const byId = new Map(routes.map((route) => [route.id, route]));
     const metrics = this.metricsTracker.getMetrics(routes);
     const servers = snapshot.servers.map((server) => ({
@@ -251,7 +251,7 @@ export class OmniStatusPopup {
     this.isUpdating = true;
     this.lastUpdateMs = now;
     try {
-      const routes = await loadRoutes(this.context);
+      const routes = await cachedLoadRoutes(this.context);
       const cfg = vscode.workspace.getConfiguration("omnicopilot");
       const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);

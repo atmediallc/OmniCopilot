@@ -81,6 +81,7 @@ export async function saveRoutes(
       await context.secrets.store(SECRET_PREFIX + r.id, r.apiKey.trim());
     }
   }
+  invalidateRouteCache();
 }
 
 /** Next sequential route id (`route-N`), monotonic over existing ids. */
@@ -93,7 +94,38 @@ export function newRouteId(routes: Route[]): string {
   return `route-${max + 1}`;
 }
 
-/** Fresh client for a single route (stateless; callers may build them cheaply). */
+// ── Route cache ────────────────────────────────────────────────────────
+let _cachedRoutes: Route[] | undefined;
+let _cacheContext: vscode.ExtensionContext | undefined;
+
+/** Invalidate the route cache. Call on config change or after `saveRoutes`. */
+export function invalidateRouteCache(): void {
+  _cachedRoutes = undefined;
+  _clientPool.clear();
+}
+
+/** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */
+export async function cachedLoadRoutes(context: vscode.ExtensionContext): Promise<Route[]> {
+  if (_cachedRoutes && _cacheContext === context) return _cachedRoutes;
+  _cacheContext = context;
+  _cachedRoutes = await loadRoutes(context);
+  return _cachedRoutes;
+}
+
+// ── Client pool ────────────────────────────────────────────────────────
+const _clientPool = new Map<string, OmniRouteClient>();
+
+/** Reusable client for a route. Keyed by `routeId`; invalidated with routes. */
+export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByteTimeoutMs?: number): OmniRouteClient {
+  const existing = _clientPool.get(route.id);
+  if (existing) return existing;
+  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs);
+  _clientPool.set(route.id, client);
+  return client;
+}
+
+/** Fresh client for a single route (stateless; callers may build them cheaply).
+ * Prefer `getClientForRoute` for pooled access (health-checks, model discovery). */
 export function makeClientForRoute(
   route: Route,
   log?: OmniLogger,

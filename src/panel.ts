@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { normalizeBaseUrl } from "./client";
-import { loadRoutes, makeClientForRoute, saveRoutes } from "./routes";
+import { cachedLoadRoutes, getClientForRoute, saveRoutes } from "./routes";
 
 interface RawRouteInput {
   id?: string;
@@ -55,7 +55,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 
     // 1. Instantly render saved routes so input fields load in 0ms
     try {
-      const routes = await loadRoutes(this.context);
+      const routes = await cachedLoadRoutes(this.context);
       const instantStatus: PanelStatus = {
         type: "status",
         routes: routes.map((r) => ({
@@ -70,8 +70,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         total: routes.length,
       };
       void this.view.webview.postMessage(instantStatus);
-    } catch {
-      // Ignore initial render errors
+    } catch (err) {
+      this.log.debug(`Panel initial render error: ${String(err)}`);
     }
 
     // 2. Fast parallel probe for live status
@@ -145,11 +145,11 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private async buildStatus(): Promise<PanelStatus> {
-    const routes = await loadRoutes(this.context);
+    const routes = await cachedLoadRoutes(this.context);
     const routeStatuses = await Promise.all(
       routes.map(async (r) => {
-        const client = makeClientForRoute(r, this.log);
-        const online = await client.ping(3000);
+        const client = getClientForRoute(r, this.log);
+        const online = await client.ping(5000);
         return {
           id: r.id,
           name: r.name,
