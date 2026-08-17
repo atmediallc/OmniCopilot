@@ -50,7 +50,10 @@ function headers(apiKey: string | undefined, json: boolean, isStream = false): R
     "Accept": isStream ? "text/event-stream, application/json" : "application/json",
   };
   if (json) h["Content-Type"] = "application/json";
-  if (apiKey) h["Authorization"] = `Bearer ${apiKey}`;
+  if (apiKey) {
+    const cleanKey = apiKey.replace(/[\r\n]/g, "").trim();
+    if (cleanKey) h["Authorization"] = `Bearer ${cleanKey}`;
+  }
   return h;
 }
 

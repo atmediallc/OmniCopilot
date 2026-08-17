@@ -197,10 +197,13 @@ export class OmniRouteChatProvider
     let filter: RegExp | undefined;
     if (filterRaw) {
       try {
+        if (filterRaw.length > 200) {
+          throw new Error("Filter too long");
+        }
         filter = new RegExp(filterRaw, "i");
       } catch {
-        // invalid regex → fall back to substring matching
-        const needle = filterRaw.toLowerCase();
+        // invalid or overly complex regex → fall back to safe escaped substring matching
+        const needle = filterRaw.slice(0, 200).toLowerCase();
         filter = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       }
     }
@@ -411,7 +414,10 @@ export class OmniRouteChatProvider
                 reportedAny = true;
                 let input: Record<string, unknown>;
                 try {
-                  input = JSON.parse(event.args) as Record<string, unknown>;
+                  const parsed = JSON.parse(event.args);
+                  input = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                    ? (parsed as Record<string, unknown>)
+                    : {};
                 } catch {
                   log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
                   input = {};
