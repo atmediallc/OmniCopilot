@@ -8,11 +8,6 @@ export interface OmniRouteModel {
   object?: string;
   owned_by?: string;
   display_name?: string;
-  type?: string;
-  supported_endpoints?: string[];
-  parent?: string;
-  context_length?: number;
-  max_completion_tokens?: number;
   /** Absent (or "chat") for conversational models; "audio", "image",
    * "embedding", "rerank", "video", "moderation"… for specialty registries
    * that must never reach the Copilot Chat picker. */
@@ -23,6 +18,8 @@ export interface OmniRouteModel {
   /** Set on a duplicate id that mirrors another entry in the same response
    * (OmniRoute `dual` prefix mode). Points at the primary id. */
   parent?: string | null;
+  context_length?: number;
+  max_completion_tokens?: number;
   capabilities?: {
     tool_calling?: boolean;
     vision?: boolean;

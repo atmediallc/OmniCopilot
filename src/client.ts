@@ -1,4 +1,3 @@
-import { dropSpecialtyAndDuplicateModels } from "./catalogFilter";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
@@ -45,10 +44,6 @@ export interface ClientOptions {
 
 const USER_AGENT = "OmniCopilot-VSCode";
 
-/** Server root the user configures — the `/v1` suffix is an implementation
- * detail this client appends, so it never leaks into settings or the UI. */
-export const DEFAULT_BASE_URL = "http://127.0.0.1:20128";
-
 function headers(apiKey: string | undefined, json: boolean, isStream = false): Record<string, string> {
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
@@ -63,9 +58,9 @@ function headers(apiKey: string | undefined, json: boolean, isStream = false): R
   return h;
 }
 
-/** Normalize a user-supplied base URL for API calls: trim, drop trailing
- * slashes, ensure /v1. Accepts either form, so a stored `…:20128/v1` from an
- * older install keeps working without being doubled. */
+export const DEFAULT_BASE_URL = "http://127.0.0.1:20128";
+
+/** Normalize a user-supplied base URL: trim, drop trailing slashes, ensure /v1. */
 export function normalizeBaseUrl(raw: string): string {
   let url = (raw || "").trim().replace(/\/+$/, "");
   if (!url) return `${DEFAULT_BASE_URL}/v1`;

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { DEFAULT_BASE_URL, serverRootUrl } from "./client";
+import { serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
@@ -304,24 +304,6 @@ function registerCommands(
 
 /** Explain once why `dashboardOpen: "editor"` fell back to the browser. The flag
  * is compiled into the OmniRoute build, so this cannot be fixed from the client. */
-let embedWarningShown = false;
-async function warnDashboardNotEmbeddable(): Promise<void> {
-  if (embedWarningShown) return;
-  embedWarningShown = true;
-  const learnMore = vscode.l10n.t("How to enable it");
-  const pick = await vscode.window.showInformationMessage(
-    vscode.l10n.t(
-      "This OmniRoute server does not allow embedding, so the dashboard opened in your browser. It has to be built with DASHBOARD_ALLOW_EMBED=vscode — a build-time option, so setting the variable on an existing install is not enough."
-    ),
-    learnMore
-  );
-  if (pick === learnMore) {
-    void vscode.env.openExternal(
-      vscode.Uri.parse("https://github.com/diegosouzapw/OmniRoute/blob/main/docs/guides/VSCODE-COPILOT.md")
-    );
-  }
-}
-
 /** Menu behind the status-bar item. */
 async function quickActions(context: vscode.ExtensionContext, log?: vscode.LogOutputChannel): Promise<void> {
   const routes = await cachedLoadRoutes(context);
