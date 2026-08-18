@@ -18,14 +18,29 @@
 
 import type { OmniRouteModel } from "./types";
 
-/** Chat rows carry no `type` at all; a typed row is a specialty model. */
+/** Surfaces OmniRoute can serve from a `/v1/chat/completions` request. It
+ * translates Responses-API models transparently, so `responses` counts as
+ * conversational — verified live against 192.168.0.17: `cx/gpt-5.5-low` and
+ * `cx/gpt-5.6-sol-low` are listed as `supported_endpoints: ["responses"]` and
+ * both answer with HTTP 200 through chat/completions. */
+const CONVERSATIONAL_ENDPOINTS = new Set(["chat", "responses"]);
+
+/**
+ * Chat rows carry no `type` at all; a typed row is a specialty model, and the
+ * server rejects those outright ("… is an image-generation model and cannot be
+ * used on /v1/chat/completions", HTTP 400).
+ *
+ * `supported_endpoints` is only consulted as a backstop for an untyped row that
+ * declares no conversational surface at all — filtering on "does not include
+ * chat" alone would wrongly drop every Responses-API model.
+ */
 export function isChatModel(model: OmniRouteModel): boolean {
   const type = (model.type ?? "").trim().toLowerCase();
   if (type && type !== "chat") return false;
 
   const endpoints = model.supported_endpoints;
-  if (Array.isArray(endpoints) && endpoints.length > 0 && !endpoints.includes("chat")) {
-    return false;
+  if (Array.isArray(endpoints) && endpoints.length > 0) {
+    return endpoints.some((e) => CONVERSATIONAL_ENDPOINTS.has(String(e).trim().toLowerCase()));
   }
   return true;
 }

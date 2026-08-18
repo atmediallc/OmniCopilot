@@ -20,14 +20,29 @@ describe("isChatModel", () => {
     }
   });
 
-  it("drops a model whose supported_endpoints excludes chat", () => {
-    expect(isChatModel(model({ id: "openai/whisper-1", supported_endpoints: ["audio"] }))).toBe(
-      false
+  // Regression guard: OmniRoute lists every Codex/GPT-5.x model as
+  // `supported_endpoints: ["responses"]` and translates them for
+  // chat/completions. Verified live on 192.168.0.17 — `cx/gpt-5.5-low` and
+  // `cx/gpt-5.6-sol-low` both answer HTTP 200. Filtering on "does not include
+  // chat" would silently drop 26 usable models from the picker.
+  it("keeps a Responses-API model — OmniRoute translates it for chat", () => {
+    expect(isChatModel(model({ id: "cx/gpt-5.6-sol-low", supported_endpoints: ["responses"] }))).toBe(
+      true
     );
   });
 
-  it("keeps a multi-surface model as long as chat is among its endpoints", () => {
+  it("keeps a multi-surface model as long as one surface is conversational", () => {
     expect(isChatModel(model({ id: "m", supported_endpoints: ["chat", "responses"] }))).toBe(true);
+  });
+
+  it("drops an untyped row that declares only non-conversational surfaces", () => {
+    expect(isChatModel(model({ id: "x/embed", supported_endpoints: ["embeddings"] }))).toBe(false);
+  });
+
+  it("still drops a typed specialty row even if it claims a chat surface", () => {
+    expect(isChatModel(model({ id: "x/img", type: "image", supported_endpoints: ["chat"] }))).toBe(
+      false
+    );
   });
 
   it("keeps a model with an empty endpoint list rather than guessing it is unusable", () => {
