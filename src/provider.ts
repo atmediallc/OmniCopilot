@@ -75,7 +75,28 @@ export class OmniRouteChatProvider
 
   private static async persistCache(context: vscode.ExtensionContext, catalog: CatalogModel[]): Promise<void> {
     if (catalog.length > 0) {
-      await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, catalog);
+      // Persist a slim slice of each entry: full catalogs can hold thousands
+      // of models and globalState is file-backed JSON (slow, storage-heavy).
+      const slim: CatalogModel[] = catalog.map((c) => ({
+        entry: {
+          routeId: c.entry.routeId,
+          routeName: c.entry.routeName,
+          modelId: c.entry.modelId,
+          prefixedId: c.entry.prefixedId,
+        },
+        model: {
+          id: c.model.id,
+          owned_by: c.model.owned_by,
+          display_name: c.model.display_name,
+          context_length: c.model.context_length,
+          max_completion_tokens: c.model.max_completion_tokens,
+          capabilities: {
+            tool_calling: c.model.capabilities?.tool_calling,
+            vision: c.model.capabilities?.vision,
+          },
+        },
+      }));
+      await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, slim);
       await context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, Date.now());
     }
   }
@@ -445,6 +466,12 @@ export class OmniRouteChatProvider
                 "provider",
                 "/chat/completions"
               );
+            }
+            // User cancelled after the first tokens: the request did not
+            // complete — don't count it as success or bill usage.
+            if (token.isCancellationRequested) {
+              this.deps.onRequestEnd?.(false, undefined, i);
+              return;
             }
             const finishedAt = Date.now();
             log.info(

@@ -165,7 +165,14 @@ function registerCommands(
     const routes = await cachedLoadRoutes(context);
     if (activeProviders.length > 0) {
       const cts = new vscode.CancellationTokenSource();
-      const models = await activeProviders[0].provideLanguageModelChatInformation({ silent: true }, cts.token);
+      // Re-list every server: in multi-vendor mode each provider is scoped to
+      // one route, so counting only providers[0] would under-report model(s).
+      const models = (
+        await Promise.all(
+          activeProviders.map((p) => p.provideLanguageModelChatInformation({ silent: true }, cts.token))
+        )
+      ).flat();
+      await cts.dispose();
       void vscode.window.showInformationMessage(
         vscode.l10n.t("Models synced: {0} model(s) found across {1} server(s).", models.length, routes.length)
       );

@@ -150,7 +150,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 function retryDelayMs(res: Response | undefined, attempt: number, policy: Required<RetryPolicy>): number {
   if (res) {
     const retryAfter = Number(res.headers.get("retry-after"));
-    if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+    // Honor the server's hint, but cap it: a pathological/hostile value
+    // (e.g. HTTP-date or huge integer) must not stall the request for minutes.
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) return Math.min(retryAfter * 1000, 30_000);
   }
   const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
   return Math.min(policy.maxMs, base + Math.random() * Math.min(base, 200));

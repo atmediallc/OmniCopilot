@@ -74,7 +74,8 @@ export class MetricsTracker {
     this.persistTimer = setTimeout(async () => {
       this.persistTimer = undefined;
       await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
-      this._onDidChangeMetrics.fire();
+      // No fire here — callers fire _onDidChangeMetrics immediately for
+      // real-time UI updates; persist is just the disk-save debounce.
     }, 1000);
   }
 

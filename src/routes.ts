@@ -65,6 +65,26 @@ export async function saveRoutes(
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
   const prior = cfg.get<RouteConfig[]>("routes", []) ?? [];
 
+  // Defensive id normalization: a blank or duplicate (within this batch) id
+  // would collide in the client pool and SecretStorage (`omnicopilot.apiKey.<id>`).
+  // Kept ids from `prior` are reused as-is; only blank/duplicate ones are
+  // re-keyed to a monotonic `route-N` that avoids kept ids too.
+  const seen = new Set<string>();
+  const numbered: Route[] = [];
+  const normalized: Route[] = routes.map((r) => {
+    const id = (r.id || "").trim();
+    const route = { ...r };
+    if (!id || seen.has(id)) {
+      route.id = newRouteId([...numbered, ...prior]);
+    } else {
+      route.id = id;
+      seen.add(id);
+    }
+    numbered.push(route);
+    return route;
+  });
+  routes = normalized;
+
   const remaining = new Set(routes.map((r) => r.id));
   for (const p of prior) {
     if (!remaining.has(p.id)) await clearSecret(context, SECRET_PREFIX + p.id);
