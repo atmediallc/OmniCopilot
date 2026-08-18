@@ -31,9 +31,11 @@ const TERMINAL_NAME = "OmniRoute Setup";
 function shellQuote(value: string): string {
   const sanitized = value.replace(/[\r\n]/g, "");
   if (process.platform === "win32") {
-    return `"${sanitized.replace(/["^\\]/g, "\\$&")}"`;
+    const escaped = sanitized.replace(/["^\\]/g, "\\$&");
+    return `"${escaped}"`;
   }
-  return `'${sanitized.replace(/'/g, `'\\''`)}'`;
+  const escaped = sanitized.replace(/'/g, "'\\''");
+  return `'${escaped}'`;
 }
 
 /**
