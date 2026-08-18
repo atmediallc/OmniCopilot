@@ -158,12 +158,12 @@ export class OmniRouteChatProvider
         const catalog = buildCatalog(segments);
         if (catalog.length > 0) {
           OmniRouteChatProvider.sharedCachedModels = catalog;
+          OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
           if (allSucceeded) {
-            OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
             void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
           } else {
-            OmniRouteChatProvider.sharedLastCatalogFetch = 0;
-            this.deps.log.warn("Not all configured servers responded successfully during model discovery. Cache TTL will not be set so missing servers will be retried.");
+            // Partial discovery: cache for at least 60s to prevent constant network hammering on every chat request
+            this.deps.log.warn("Not all configured servers responded during model discovery. Will retry missing servers after 60s cooldown.");
           }
         }
         return catalog;
