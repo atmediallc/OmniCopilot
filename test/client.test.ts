@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OmniRouteClient } from "../src/client";
+import { DEFAULT_BASE_URL, OmniRouteClient, normalizeBaseUrl, serverRootUrl } from "../src/client";
 import type { StreamEvent } from "../src/types";
 
 function sseResponse(lines: string[]): Response {
@@ -128,5 +128,53 @@ describe("OmniRouteClient.streamChat", () => {
     await collect(new OmniRouteClient({ baseUrl: "http://x/v1" }));
     headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
+  });
+});
+
+describe("normalizeBaseUrl / serverRootUrl", () => {
+  it("appends /v1 to a bare server root (the new default shape)", () => {
+    expect(normalizeBaseUrl("http://localhost:20128")).toBe("http://localhost:20128/v1");
+  });
+
+  it("does not double /v1 when the user pasted it (older stored settings)", () => {
+    expect(normalizeBaseUrl("http://localhost:20128/v1")).toBe("http://localhost:20128/v1");
+    expect(normalizeBaseUrl("http://localhost:20128/v1/")).toBe("http://localhost:20128/v1");
+  });
+
+  it("adds a scheme and trims trailing slashes", () => {
+    expect(normalizeBaseUrl("192.168.0.17:20128//")).toBe("http://192.168.0.17:20128/v1");
+  });
+
+  it("falls back to the default server root when empty", () => {
+    expect(normalizeBaseUrl("  ")).toBe(`${DEFAULT_BASE_URL}/v1`);
+  });
+
+  it("serverRootUrl strips /v1 back off for the dashboard and CLI bridge", () => {
+    expect(serverRootUrl("http://192.168.0.17:20128/v1")).toBe("http://192.168.0.17:20128");
+    expect(serverRootUrl("http://192.168.0.17:20128")).toBe("http://192.168.0.17:20128");
+  });
+});
+
+describe("OmniRouteClient.listModels", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("asks for one id per model (?prefix=alias) so dual-mode mirrors never reach the picker", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ object: "list", data: [{ id: "a" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await new OmniRouteClient({ baseUrl: "http://x" }).listModels();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://x/v1/models?prefix=alias");
+    expect(models.map((m) => m.id)).toEqual(["a"]);
+  });
+
+  it("throws with the status when the catalog call fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 401 })));
+    await expect(new OmniRouteClient({ baseUrl: "http://x" }).listModels()).rejects.toThrow("401");
   });
 });

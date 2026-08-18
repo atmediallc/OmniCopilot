@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, serverRootUrl } from "./client";
+import { DEFAULT_BASE_URL, OmniRouteClient, serverRootUrl } from "./client";
 
 type Status = "online" | "offline" | "checking";
 
@@ -71,7 +71,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   private render(): void {
     const cfg = vscode.workspace.getConfiguration("omnicopilot");
-    const root = serverRootUrl(cfg.get<string>("baseUrl", "http://localhost:20128/v1"));
+    const root = serverRootUrl(cfg.get<string>("baseUrl", DEFAULT_BASE_URL));
     switch (this.status) {
       case "online":
         this.item.text = "$(circle-filled) OmniRoute";

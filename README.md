@@ -80,7 +80,7 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `omnicopilot.baseUrl` | `http://localhost:20128/v1` | OmniRoute server (local or remote) |
+| `omnicopilot.baseUrl` | `http://localhost:20128` | OmniRoute server root (local or remote) — `/v1` is appended automatically |
 | `omnicopilot.modelFilter` | *(empty)* | Substring/regex to limit which models are listed |
 | `omnicopilot.maxOutputTokens` | `16384` | Output budget reserved per response |
 | `omnicopilot.defaultContextLength` | `128000` | Context assumed when the catalog omits it |

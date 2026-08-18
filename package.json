@@ -136,7 +136,7 @@
       "properties": {
         "omnicopilot.baseUrl": {
           "type": "string",
-          "default": "http://localhost:20128/v1",
+          "default": "http://localhost:20128",
           "order": 1,
           "description": "%cfg.baseUrl%"
         },

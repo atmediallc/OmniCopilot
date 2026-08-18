@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, serverRootUrl } from "./client";
+import { DEFAULT_BASE_URL, OmniRouteClient, serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider, SECRET_API_KEY } from "./provider";
@@ -17,7 +17,7 @@ function getConfig() {
 }
 
 async function makeClient(context: vscode.ExtensionContext): Promise<OmniRouteClient> {
-  const baseUrl = getConfig().get<string>("baseUrl", "http://localhost:20128/v1");
+  const baseUrl = getConfig().get<string>("baseUrl", DEFAULT_BASE_URL);
   const apiKey = await context.secrets.get(SECRET_API_KEY);
   return new OmniRouteClient({ baseUrl, apiKey: apiKey || undefined });
 }
@@ -94,7 +94,7 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   });
 
   register("omnicopilot.openDashboard", async () => {
-    const root = serverRootUrl(getConfig().get<string>("baseUrl", "http://localhost:20128/v1"));
+    const root = serverRootUrl(getConfig().get<string>("baseUrl", DEFAULT_BASE_URL));
     const mode = getConfig().get<string>("dashboardOpen", "external");
     if (mode === "editor") {
       // Simple Browser renders the dashboard in an editor tab. Needs an

@@ -14,6 +14,10 @@ export interface ClientOptions {
 
 const USER_AGENT = "OmniCopilot-VSCode";
 
+/** Server root the user configures — the `/v1` suffix is an implementation
+ * detail this client appends, so it never leaks into settings or the UI. */
+export const DEFAULT_BASE_URL = "http://localhost:20128";
+
 function headers(apiKey: string | undefined, json: boolean): Record<string, string> {
   const h: Record<string, string> = { "User-Agent": USER_AGENT };
   if (json) h["Content-Type"] = "application/json";
@@ -21,10 +25,12 @@ function headers(apiKey: string | undefined, json: boolean): Record<string, stri
   return h;
 }
 
-/** Normalize a user-supplied base URL: trim, drop trailing slashes, ensure /v1. */
+/** Normalize a user-supplied base URL for API calls: trim, drop trailing
+ * slashes, ensure /v1. Accepts either form, so a stored `…:20128/v1` from an
+ * older install keeps working without being doubled. */
 export function normalizeBaseUrl(raw: string): string {
   let url = (raw || "").trim().replace(/\/+$/, "");
-  if (!url) return "http://localhost:20128/v1";
+  if (!url) return `${DEFAULT_BASE_URL}/v1`;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   if (!/\/v1$/i.test(url)) url = `${url}/v1`;
   return url;
@@ -62,7 +68,14 @@ export class OmniRouteClient {
   }
 
   async listModels(token?: { isCancellationRequested?: boolean }): Promise<OmniRouteModel[]> {
-    const res = await fetch(`${this.baseUrl}/models`, {
+    // `?prefix=alias` asks OmniRoute for one id per model instead of its
+    // default `dual` mode, which advertises BOTH the short alias prefix and
+    // the canonical provider prefix (`cc/claude-…` *and* `claude/claude-…`)
+    // for backward compatibility — that shows up as duplicates in the picker.
+    // Alias mode is the safe direction: every model keeps an entry, whereas
+    // `canonical` drops models whose provider has no distinct alias. Unknown
+    // query params are ignored by other OpenAI-compatible servers.
+    const res = await fetch(`${this.baseUrl}/models?prefix=alias`, {
       headers: headers(this.opts.apiKey, false),
     });
     if (!res.ok) {

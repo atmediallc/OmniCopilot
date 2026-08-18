@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteClient, normalizeBaseUrl } from "./client";
+import { DEFAULT_BASE_URL, OmniRouteClient, serverRootUrl } from "./client";
 import { SECRET_API_KEY } from "./provider";
 
 interface PanelStatus {
@@ -64,7 +64,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         break;
 
       case "save": {
-        const url = normalizeBaseUrl(String(msg.url ?? ""));
+        // Store the server root; `/v1` is appended per request by the client.
+        const url = serverRootUrl(String(msg.url ?? ""));
         await vscode.workspace
           .getConfiguration("omnicopilot")
           .update("baseUrl", url, vscode.ConfigurationTarget.Global);
@@ -97,7 +98,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   private async buildStatus(): Promise<PanelStatus> {
     const url = vscode.workspace
       .getConfiguration("omnicopilot")
-      .get<string>("baseUrl", "http://localhost:20128/v1");
+      .get<string>("baseUrl", DEFAULT_BASE_URL);
     const apiKey = await this.context.secrets.get(SECRET_API_KEY);
     const client = new OmniRouteClient({ baseUrl: url, apiKey: apiKey || undefined });
 
@@ -115,7 +116,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     return {
       type: "status",
       online,
-      url: normalizeBaseUrl(url),
+      url: serverRootUrl(url),
       modelCount,
       hasKey: Boolean(apiKey),
       detail,
@@ -181,7 +182,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   <div class="muted" id="urlText"></div>
 
   <label for="url">${S.serverUrl}</label>
-  <input id="url" type="text" placeholder="http://localhost:20128/v1" />
+  <input id="url" type="text" placeholder="${DEFAULT_BASE_URL}" />
 
   <label for="key">${S.apiKey}</label>
   <input id="key" type="password" placeholder="${S.keyPlaceholder}" />

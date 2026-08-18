@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { OmniRouteClient } from "./client";
+import { selectChatModels } from "./catalogFilter";
+import { DEFAULT_BASE_URL, OmniRouteClient } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import type { ChatRequest, OmniRouteModel } from "./types";
 
@@ -42,7 +43,7 @@ export class OmniRouteChatProvider
   }
 
   private async makeClient(): Promise<OmniRouteClient> {
-    const baseUrl = getConfig().get<string>("baseUrl", "http://localhost:20128/v1");
+    const baseUrl = getConfig().get<string>("baseUrl", DEFAULT_BASE_URL);
     const apiKey = await this.deps.context.secrets.get(SECRET_API_KEY);
     return new OmniRouteClient({ baseUrl, apiKey: apiKey || undefined });
   }
@@ -92,8 +93,7 @@ export class OmniRouteChatProvider
     }
 
     const infos: OmniModelInfo[] = [];
-    for (const model of models) {
-      if (!model?.id) continue;
+    for (const model of selectChatModels(models)) {
       if (filter && !filter.test(model.id)) continue;
 
       const contextLength = model.context_length ?? defaultContext;
@@ -124,7 +124,7 @@ export class OmniRouteChatProvider
 
   private async offerConnectionHelp(): Promise<void> {
     const cfg = getConfig();
-    const baseUrl = cfg.get<string>("baseUrl", "http://localhost:20128/v1");
+    const baseUrl = cfg.get<string>("baseUrl", DEFAULT_BASE_URL);
     const configureLabel = vscode.l10n.t("Configure Connection");
     const installLabel = vscode.l10n.t("Install OmniRoute");
     const pick = await vscode.window.showWarningMessage(

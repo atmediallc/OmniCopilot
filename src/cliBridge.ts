@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { serverRootUrl } from "./client";
+import { DEFAULT_BASE_URL, serverRootUrl } from "./client";
 import { SECRET_API_KEY } from "./provider";
 
 interface CliTool {
@@ -53,7 +53,7 @@ export async function configureCliTool(
 
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
   const cliPath = cfg.get<string>("cliPath", "omniroute").trim() || "omniroute";
-  const root = serverRootUrl(cfg.get<string>("baseUrl", "http://localhost:20128/v1"));
+  const root = serverRootUrl(cfg.get<string>("baseUrl", DEFAULT_BASE_URL));
   const apiKey = await context.secrets.get(SECRET_API_KEY);
 
   const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(root);
