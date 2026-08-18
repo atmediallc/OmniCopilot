@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import * as vscode from "vscode";
 import { OmniRouteChatProvider } from "../src/provider";
 import * as routesModule from "../src/routes";
 
@@ -14,12 +15,31 @@ function mockContext() {
   } as unknown as ConstructorParameters<typeof OmniRouteChatProvider>[0]["context"];
 }
 
+const mockLog = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  name: "mockLog",
+  loglevel: 0,
+  onDidChangeLogLevel: () => ({ dispose: () => {} }),
+  append: () => {},
+  appendLine: () => {},
+  clear: () => {},
+  show: () => {},
+  hide: () => {},
+  dispose: () => {},
+  debug: () => {},
+  trace: () => {},
+} as unknown as vscode.LogOutputChannel;
+
+const dummyToken = {} as unknown as vscode.CancellationToken;
+
 describe("OmniRouteChatProvider", () => {
   it("can be instantiated with dependencies", () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({
       context,
-      log: { info: () => {}, warn: () => {}, error: () => {} } as any,
+      log: mockLog,
     });
     expect(provider).toBeDefined();
   });
@@ -28,7 +48,7 @@ describe("OmniRouteChatProvider", () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({
       context,
-      log: { info: () => {}, warn: () => {}, error: () => {} } as any,
+      log: mockLog,
     });
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -38,10 +58,10 @@ describe("OmniRouteChatProvider", () => {
     const mockClient = {
       listModels: vi.fn().mockResolvedValue([]),
     };
-    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as any);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
 
     await provider.refresh();
-    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos).toEqual([]);
     expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
   });
@@ -50,7 +70,7 @@ describe("OmniRouteChatProvider", () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({
       context,
-      log: { info: () => {}, warn: () => {}, error: () => {} } as any,
+      log: mockLog,
     });
 
     // Populate cache with a route that will be deleted
@@ -68,7 +88,7 @@ describe("OmniRouteChatProvider", () => {
       { id: "active-route", name: "Active Server", baseUrl: "http://localhost:8080" },
     ]);
 
-    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, {} as any);
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos.some((i) => i.routeId === "deleted-route")).toBe(false);
   });
 });
