@@ -457,6 +457,14 @@ export class OmniRouteChatProvider
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
+                // Filter out OmniRoute encrypted/private reasoning placeholder messages
+                const isEncryptedReasoningNotice =
+                  typeof event.text === "string" &&
+                  event.text.includes("encrypted private reasoning") &&
+                  event.text.includes("OmniRoute cannot recover plaintext");
+                if (isEncryptedReasoningNotice) {
+                  continue;
+                }
                 firstTokenAt ??= Date.now();
                 streamed += event.text;
                 reportedAny = true;
