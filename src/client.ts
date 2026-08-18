@@ -1,3 +1,4 @@
+import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
   ModelsResponse,
@@ -60,6 +61,26 @@ export class OmniRouteClient {
         signal: ctrl.signal,
       });
       return res.ok || res.status === 401 || res.status === 403;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Whether the dashboard may be framed by the VS Code Simple Browser.
+   * Fails closed: an unreachable server is not embeddable either. */
+  async canEmbedDashboard(timeoutMs = 4000): Promise<boolean> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(serverRootUrl(this.baseUrl), {
+        method: "HEAD",
+        redirect: "manual",
+        headers: headers(this.opts.apiKey, false),
+        signal: ctrl.signal,
+      });
+      return isFramingAllowed(res.headers);
     } catch {
       return false;
     } finally {

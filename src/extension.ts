@@ -97,13 +97,23 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
     const root = serverRootUrl(getConfig().get<string>("baseUrl", DEFAULT_BASE_URL));
     const mode = getConfig().get<string>("dashboardOpen", "external");
     if (mode === "editor") {
-      // Simple Browser renders the dashboard in an editor tab. Needs an
-      // OmniRoute build whose CSP allows embedding (frame-ancestors).
-      try {
-        await vscode.commands.executeCommand("simpleBrowser.show", root);
-        return;
-      } catch (err) {
-        log.warn(`Simple Browser unavailable, falling back to external: ${String(err)}`);
+      // The Simple Browser is an iframe, so the server must allow framing.
+      // Probing first matters: simpleBrowser.show SUCCEEDS against a server that
+      // sends X-Frame-Options: DENY, leaving a "refused to connect" tab that the
+      // catch below would never see.
+      const client = await makeClient(context);
+      if (await client.canEmbedDashboard()) {
+        try {
+          await vscode.commands.executeCommand("simpleBrowser.show", root);
+          return;
+        } catch (err) {
+          log.warn(`Simple Browser unavailable, falling back to external: ${String(err)}`);
+        }
+      } else {
+        log.info(
+          `${root} does not allow framing — opening externally. Rebuild OmniRoute with DASHBOARD_ALLOW_EMBED=vscode to enable the editor tab.`
+        );
+        void warnDashboardNotEmbeddable();
       }
     }
     void vscode.env.openExternal(vscode.Uri.parse(root));
@@ -138,6 +148,27 @@ function registerCommands(context: vscode.ExtensionContext, log: vscode.LogOutpu
   );
 
   register("omnicopilot.quickActions", () => quickActions(context));
+}
+
+
+/** Explain once why `dashboardOpen: "editor"` fell back to the browser. The flag
+ * is compiled into the OmniRoute build, so this cannot be fixed from the client. */
+let embedWarningShown = false;
+async function warnDashboardNotEmbeddable(): Promise<void> {
+  if (embedWarningShown) return;
+  embedWarningShown = true;
+  const learnMore = vscode.l10n.t("How to enable it");
+  const pick = await vscode.window.showInformationMessage(
+    vscode.l10n.t(
+      "This OmniRoute server does not allow embedding, so the dashboard opened in your browser. It has to be built with DASHBOARD_ALLOW_EMBED=vscode — a build-time option, so setting the variable on an existing install is not enough."
+    ),
+    learnMore
+  );
+  if (pick === learnMore) {
+    void vscode.env.openExternal(
+      vscode.Uri.parse("https://github.com/diegosouzapw/OmniRoute/blob/main/docs/guides/VSCODE-COPILOT.md")
+    );
+  }
 }
 
 /** Menu behind the status-bar item. */
