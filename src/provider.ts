@@ -139,8 +139,11 @@ export class OmniRouteChatProvider
     if (!OmniRouteChatProvider.sharedFetchPromise) {
       OmniRouteChatProvider.sharedFetchPromise = (async () => {
         let allSucceeded = true;
+        const targetRoutes = this.filterRouteId
+          ? routes.filter((r) => r.id === this.filterRouteId)
+          : routes;
         const segments: RouteCatalog[] = await Promise.all(
-          routes.map(async (r) => {
+          targetRoutes.map(async (r) => {
             try {
               const models = await getClientForRoute(r, this.deps.log).listModels();
               this.deps.onActivity?.(true, r.id);
@@ -339,14 +342,12 @@ export class OmniRouteChatProvider
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map(c => c.entry.prefixedId).join(", ")})`
     );
 
-    // Reorder fallbacks to prioritize online servers, but keep primary first.
+    // Filter out offline servers from fallbacks so an unreachable secondary server
+    // never blocks or delays requests on a healthy primary server.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
     const fallbacksByHealth =
       knownOnline.size > 0
-        ? [...fallbacks].sort(
-            (a, b) =>
-              (knownOnline.has(a.routeId) ? 0 : 1) - (knownOnline.has(b.routeId) ? 0 : 1)
-          )
+        ? fallbacks.filter((f) => knownOnline.has(f.routeId))
         : fallbacks;
 
     const candidates = [primary, ...fallbacksByHealth];
@@ -372,10 +373,9 @@ export class OmniRouteChatProvider
       // attempts so transient 503 ("capacity busy") / 429 get a bounded,
       // backoff-driven retry on the same server before giving up.
       const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
-      // 503/429 are upstream throttling — give them extra retries with longer
-      // backoff. The user's "Try again" should succeed after the brief
-      // admission‑capacity blip resolves (usually 1-5 seconds).
-      const admissionRetries = Math.max(retriesPerServer, 5);
+      // 503/429 are upstream throttling — give them up to 12 retries with jittered
+      // backoff so capacity blips resolve transparently without failing.
+      const admissionRetries = Math.max(retriesPerServer, 12);
 
       for (const [i, cand] of candidates.entries()) {
         if (this.isRouteCoolingDown(cand.routeId) && i < lastIndex) {
@@ -497,9 +497,11 @@ export class OmniRouteChatProvider
               effectiveRetries = admissionRetries;
             }
             if (attempted + 1 < effectiveRetries) {
-              const baseDelay = (status === 503 || status === 429) ? 1500 : 250;
-              const maxDelay = (status === 503 || status === 429) ? 8000 : 2000;
-              await delay(Math.min(maxDelay, baseDelay * Math.pow(2, attempted)));
+              const isThrottle = status === 503 || status === 429;
+              const baseDelay = isThrottle ? 1000 + Math.random() * 500 : 250;
+              const maxDelay = isThrottle ? 5000 : 2000;
+              const multiplier = isThrottle ? 1.4 : 2;
+              await delay(Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted)));
               continue;
             }
           }
