@@ -314,6 +314,34 @@ describe("OmniRouteClient retry behavior", () => {
     ]);
   });
 
+  it("handles Gemini thought deltas in SSE stream without throwing empty stream", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (line: string) => controller.enqueue(encoder.encode(`${line}\n`));
+        send('data: {"choices":[{"delta":{"thought":"Thinking about answer..."}}]}');
+        send('data: {"choices":[{"delta":{"content":"Here is the answer"}}]}');
+        send("data: [DONE]");
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const ctrl = new AbortController();
+    const events: StreamEvent[] = [];
+    for await (const ev of client.streamChat(
+      { model: "agy/gemini-3.7-flash-tiered", messages: [{ role: "user", content: "hi" }], stream: true },
+      ctrl.signal
+    )) {
+      events.push(ev);
+    }
+    expect(events).toEqual([
+      { kind: "text", text: "Thinking about answer..." },
+      { kind: "text", text: "Here is the answer" },
+    ]);
+  });
+
   it("stops before the first request when already aborted", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);

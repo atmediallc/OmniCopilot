@@ -546,14 +546,23 @@ export class OmniRouteClient {
     const choice = chunk.choices?.[0];
     if (choice) {
       const delta = choice.delta;
+      const dAny = delta as Record<string, unknown> | undefined;
+      const reasoning =
+        delta?.reasoning_content ??
+        delta?.reasoning ??
+        delta?.thinking ??
+        (typeof dAny?.thought === "string" ? dAny.thought : undefined) ??
+        (typeof dAny?.reasoning_text === "string" ? dAny.reasoning_text : undefined) ??
+        (typeof dAny?.reasoning_delta === "string" ? dAny.reasoning_delta : undefined) ??
+        (typeof dAny?.thoughts === "string" ? dAny.thoughts : undefined);
+
       // Only real progress keeps the idle watchdog alive. Empty-delta
       // keep-alives (e.g. OmniRoute's {delta:{}}) must NOT reset it, or a
       // model that stalls forever while the server keeps the stream open is
       // never killed → the chat hangs indefinitely.
       const progressed =
-        delta?.content ?? delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking ?? delta?.tool_calls ?? choice.finish_reason;
+        delta?.content ?? reasoning ?? delta?.tool_calls ?? choice.finish_reason;
       alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
-      const reasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
       if (reasoning) {
         events.push({ kind: "text", text: reasoning });
       }
