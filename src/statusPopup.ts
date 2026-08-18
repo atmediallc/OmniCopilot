@@ -252,7 +252,7 @@ export class OmniStatusPopup {
     const state = {
       ...(this.lastState ?? {
         suggestions: [],
-        fallbackMode: "sameModel",
+        fallbackMode: "none",
         statusBarEnabled: true,
         retriesPerServer: 1,
       }),
@@ -287,9 +287,9 @@ export class OmniStatusPopup {
     try {
       const routes = await cachedLoadRoutes(this.context);
       const cfg = vscode.workspace.getConfiguration("omnicopilot");
-      const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
+      const fallbackMode = cfg.get<string>("fallbackMode", "none");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
-      const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
+      const retriesPerServer = cfg.get<number>("retriesPerServer", 3);
       const snapshot = this.statusBar.getSnapshot();
       const metrics = this.metricsTracker.getMetrics(routes);
       const suggestions = this.metricsTracker.generateSuggestions(

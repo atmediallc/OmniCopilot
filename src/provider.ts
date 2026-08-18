@@ -330,7 +330,7 @@ export class OmniRouteChatProvider
           primaryEntry,
           this.cachedModels,
           Boolean(options.tools?.length),
-          getConfig().get<FallbackMode>("fallbackMode", "sameModel")
+          getConfig().get<FallbackMode>("fallbackMode", "none")
         )
       : [];
     if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
