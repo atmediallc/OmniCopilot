@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
+import { selectChatModels } from "./catalogFilter";
 import type { OmniLogger } from "./client";
 import type { OmniRouteModel, RouteConfig } from "./types";
 
@@ -226,7 +227,8 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
   const taken = new Set<string>();
   const out: CatalogModel[] = [];
   for (const r of perRoute) {
-    for (const model of r.models) {
+    const chatModels = selectChatModels(r.models);
+    for (const model of chatModels) {
       if (!model?.id) continue;
       const prefixed = prefixedId(r.name, r.routeId, model.id, taken);
       taken.add(prefixed);

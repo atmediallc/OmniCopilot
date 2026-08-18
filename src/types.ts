@@ -8,6 +8,9 @@ export interface OmniRouteModel {
   object?: string;
   owned_by?: string;
   display_name?: string;
+  type?: string;
+  supported_endpoints?: string[];
+  parent?: string;
   context_length?: number;
   max_completion_tokens?: number;
   capabilities?: {
