@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OmniRouteClient, OmniRouteError, describeFetchError } from "../src/client";
+import { OmniRouteClient, OmniRouteError, describeFetchError, isThrottleError } from "../src/client";
 import type { StreamEvent } from "../src/types";
 
 function sseResponse(lines: string[]): Response {
@@ -412,6 +412,23 @@ describe("OmniRouteClient error diagnosis", () => {
     expect((err as OmniRouteError).status).toBe(429);
     expect((err as OmniRouteError).phase).toBe("stream");
     expect((err as OmniRouteError).endpoint).toBe("/chat/completions");
+  });
+
+  it("infers rate limit and concurrency throttle status for un-prefixed SSE stream errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse(['data: {"error":{"message":"Resource has been exhausted (e.g. check quota / concurrent requests)"}}'])
+      )
+    );
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const err = await collect(client).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(OmniRouteError);
+    expect((err as OmniRouteError).status).toBe(429);
+    expect(isThrottleError(err)).toBe(true);
   });
 
   it("falls back to the root /models endpoint on 404", async () => {

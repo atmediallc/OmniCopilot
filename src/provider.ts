@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteError, describeFetchError, isTransientHttpError } from "./client";
+import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
@@ -518,17 +518,17 @@ export class OmniRouteChatProvider
               this.deps.onStall?.(cand.routeId);
               break;
             }
-            // 503/429 = upstream is healthy but temporarily full. Upgrade to
+            // 503/429/concurrency/saturation = upstream is healthy but temporarily full. Upgrade to
             // more retries with longer backoff — this usually resolves in a
             // few seconds, just like direct JSON / Copilot does.
-            if (status === 503 || status === 429) {
-              effectiveRetries = admissionRetries;
+            const isThrottle = status === 503 || status === 429 || isThrottleError(err);
+            if (isThrottle) {
+              effectiveRetries = Math.max(effectiveRetries, admissionRetries);
             }
             if (attempted + 1 < effectiveRetries) {
-              const isThrottle = status === 503 || status === 429;
-              const baseDelay = isThrottle ? 1000 + Math.random() * 500 : 250;
-              const maxDelay = isThrottle ? 5000 : 2000;
-              const multiplier = isThrottle ? 1.4 : 2;
+              const baseDelay = isThrottle ? 1500 + Math.random() * 1000 : 250;
+              const maxDelay = isThrottle ? 8000 : 2000;
+              const multiplier = isThrottle ? 1.5 : 2;
               await delay(Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted)));
               continue;
             }
@@ -536,10 +536,10 @@ export class OmniRouteChatProvider
         }
 
         lastError = candError;
-        // 503 (admission capacity) and 429 (rate limit) are upstream throttling,
+        // 503 (admission capacity) and 429 (rate limit) / saturation errors are upstream throttling,
         // not route failures — don't penalize the route's circuit breaker.
         const lastStatus = candError instanceof OmniRouteError ? candError.status : undefined;
-        if (lastStatus !== 503 && lastStatus !== 429) {
+        if (lastStatus !== 503 && lastStatus !== 429 && !isThrottleError(candError)) {
           this.recordRouteFailure(cand.routeId);
         }
         log.warn(

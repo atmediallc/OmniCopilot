@@ -123,6 +123,46 @@ export function isTransientHttpError(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 504);
 }
 
+/** Detects upstream rate limits, capacity constraints, quota issues, or concurrency limits. */
+export function isThrottleError(err: unknown): boolean {
+  if (err instanceof OmniRouteError) {
+    if (err.status === 429 || err.status === 503) return true;
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes("rate limit") ||
+      msg.includes("ratelimit") ||
+      msg.includes("concurrency") ||
+      msg.includes("concurrent") ||
+      msg.includes("overloaded") ||
+      msg.includes("busy") ||
+      msg.includes("resource_exhausted") ||
+      msg.includes("resource has been exhausted") ||
+      msg.includes("quota") ||
+      msg.includes("too many requests") ||
+      msg.includes("throttled") ||
+      msg.includes("try again") ||
+      msg.includes("capacity")
+    );
+  }
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes("429") ||
+      msg.includes("503") ||
+      msg.includes("rate limit") ||
+      msg.includes("ratelimit") ||
+      msg.includes("concurrency") ||
+      msg.includes("concurrent") ||
+      msg.includes("overloaded") ||
+      msg.includes("busy") ||
+      msg.includes("resource_exhausted") ||
+      msg.includes("quota") ||
+      msg.includes("throttled")
+    );
+  }
+  return false;
+}
+
 const RETRY_DEFAULTS: Required<RetryPolicy> = { maxAttempts: 3, baseMs: 400, maxMs: 4000 };
 
 function abortReason(signal: AbortSignal): Error {
@@ -550,5 +590,25 @@ async function safeErrorDetail(res: Response): Promise<string> {
 function sseError(message: string): OmniRouteError {
   const m = /^\[(\d{3})\]:\s*/.exec(message);
   if (m) return new OmniRouteError(message, Number(m[1]), false, "stream", "/chat/completions");
-  return new OmniRouteError(message, undefined, false, "stream", "/chat/completions");
+  const lower = message.toLowerCase();
+  let status: number | undefined = undefined;
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("ratelimit") ||
+    lower.includes("too many requests") ||
+    lower.includes("quota") ||
+    lower.includes("concurrency") ||
+    lower.includes("resource_exhausted")
+  ) {
+    status = 429;
+  } else if (
+    lower.includes("overloaded") ||
+    lower.includes("busy") ||
+    lower.includes("temporarily unavailable") ||
+    lower.includes("capacity") ||
+    lower.includes("service unavailable")
+  ) {
+    status = 503;
+  }
+  return new OmniRouteError(message, status, false, "stream", "/chat/completions");
 }
