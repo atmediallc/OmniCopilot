@@ -306,7 +306,12 @@ describe("OmniRouteClient retry behavior", () => {
     )) {
       events.push(ev);
     }
-    expect(events).toEqual([{ kind: "text", text: "hola" }]);
+    expect(events).toEqual([
+      { kind: "text", text: "pi" },
+      { kind: "text", text: "ng" },
+      { kind: "text", text: "po" },
+      { kind: "text", text: "hola" },
+    ]);
   });
 
   it("stops before the first request when already aborted", async () => {

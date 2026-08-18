@@ -85,6 +85,8 @@ export interface StreamToolCallDelta {
 export interface StreamDelta {
   content?: string | null;
   reasoning_content?: string | null;
+  reasoning?: string | null;
+  thinking?: string | null;
   tool_calls?: StreamToolCallDelta[];
 }
 

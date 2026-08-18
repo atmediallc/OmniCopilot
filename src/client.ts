@@ -490,8 +490,12 @@ export class OmniRouteClient {
       // model that stalls forever while the server keeps the stream open is
       // never killed → the chat hangs indefinitely.
       const progressed =
-        delta?.content ?? delta?.reasoning_content ?? delta?.tool_calls ?? choice.finish_reason;
+        delta?.content ?? delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking ?? delta?.tool_calls ?? choice.finish_reason;
       alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
+      const reasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
+      if (reasoning) {
+        events.push({ kind: "text", text: reasoning });
+      }
       if (delta?.content) {
         events.push({ kind: "text", text: delta.content });
       }

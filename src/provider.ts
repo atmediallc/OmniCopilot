@@ -459,13 +459,9 @@ export class OmniRouteChatProvider
               }
             }
             if (!reportedAny) {
-              throw new OmniRouteError(
-                `Model ${cand.modelId} returned an empty stream`,
-                undefined,
-                false,
-                "provider",
-                "/chat/completions"
-              );
+              log.warn(`Model ${cand.modelId} @${cand.routeId} returned an empty stream; emitting empty text part`);
+              progress.report(new vscode.LanguageModelTextPart(""));
+              reportedAny = true;
             }
             // User cancelled after the first tokens: the request did not
             // complete — don't count it as success or bill usage.
