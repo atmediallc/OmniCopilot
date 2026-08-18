@@ -78,6 +78,7 @@ export const l10n = {
 };
 
 export const secretStore = new Map<string, string>();
+
 export const configValues: Record<string, Record<string, unknown>> = {};
 export const configUpdates: Array<{ section: string; key: string; value: unknown }> = [];
 
