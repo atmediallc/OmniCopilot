@@ -35,6 +35,20 @@ function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
 }
 
+/** Compiles the user's model filter regex. A malformed or overly long pattern
+ * falls back to a safe literal substring match so the picker still works. */
+function compileModelFilter(filterRaw: string): RegExp | undefined {
+  if (!filterRaw) return undefined;
+  try {
+    if (filterRaw.length > 200) throw new Error("Filter too long");
+    return new RegExp(filterRaw, "i");
+  } catch {
+    // invalid or overly complex regex → fall back to safe escaped substring matching
+    const needle = filterRaw.slice(0, 200).toLowerCase();
+    return new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  }
+}
+
 /** Small non-abortable pause between fallback attempts to avoid hammering a
  * busy server. Kept short; cancellation is re-checked on the next iteration. */
 function delay(ms: number, token?: vscode.CancellationToken): Promise<void> {
@@ -268,61 +282,62 @@ export class OmniRouteChatProvider
     const cfg = getConfig();
     const maxOutput = cfg.get<number>("maxOutputTokens", 16384);
     const defaultContext = cfg.get<number>("defaultContextLength", 128000);
-    const filterRaw = cfg.get<string>("modelFilter", "").trim();
-
-    let filter: RegExp | undefined;
-    if (filterRaw) {
-      try {
-        if (filterRaw.length > 200) {
-          throw new Error("Filter too long");
-        }
-        filter = new RegExp(filterRaw, "i");
-      } catch {
-        // invalid or overly complex regex → fall back to safe escaped substring matching
-        const needle = filterRaw.slice(0, 200).toLowerCase();
-        filter = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      }
-    }
+    const filter = compileModelFilter(cfg.get<string>("modelFilter", "").trim());
 
     const infos: OmniModelInfo[] = [];
     for (const c of catalog) {
-      if (validRouteIds && !validRouteIds.has(c.entry.routeId)) {
-        continue;
-      }
-      if (this.filterRouteId && c.entry.routeId !== this.filterRouteId) {
-        continue;
-      }
-      const model = c.model;
-      if (!model?.id) continue;
-
-      if (filter && !filter.test(model.id)) continue;
-
-      const contextLength = model.context_length ?? defaultContext;
-      const maxOutputTokens = Math.min(model.max_completion_tokens ?? maxOutput, maxOutput);
-      const caps = model.capabilities ?? {};
-      const isCombo = model.owned_by === "combo";
-
-      const displayName = model.display_name?.trim() || model.id;
-      const name = `${displayName} (${c.entry.routeName})`;
-
-      infos.push({
-        id: c.entry.prefixedId,
-        name,
-        family: model.owned_by || "omniroute",
-        version: "1.0.0",
-        detail: isCombo ? "combo" : model.owned_by,
-        tooltip: `OmniRoute · ${c.entry.routeName} · ${model.id}`,
-        maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
-        maxOutputTokens,
-        capabilities: {
-          toolCalling: caps.tool_calling !== false,
-          imageInput: caps.vision === true,
-        },
-        omniModelId: c.entry.modelId,
-        routeId: c.entry.routeId,
-      });
+      if (!this.isModelEligible(c, filter, validRouteIds)) continue;
+      infos.push(this.toModelInfo(c, maxOutput, defaultContext));
     }
     return infos;
+  }
+
+  /** Route/filter gating for one catalog entry: must belong to a valid route
+   * (when given), match this provider's route (when scoped), carry an id, and
+   * pass the user's model filter. */
+  private isModelEligible(
+    c: CatalogModel,
+    filter: RegExp | undefined,
+    validRouteIds?: Set<string>
+  ): boolean {
+    if (validRouteIds && !validRouteIds.has(c.entry.routeId)) return false;
+    if (this.filterRouteId && c.entry.routeId !== this.filterRouteId) return false;
+    const model = c.model;
+    if (!model?.id) return false;
+    if (filter && !filter.test(model.id)) return false;
+    return true;
+  }
+
+  /** Builds the VS Code model descriptor for one catalog entry. */
+  private toModelInfo(
+    c: CatalogModel,
+    maxOutput: number,
+    defaultContext: number
+  ): OmniModelInfo {
+    const model = c.model;
+    const contextLength = model.context_length ?? defaultContext;
+    const maxOutputTokens = Math.min(model.max_completion_tokens ?? maxOutput, maxOutput);
+    const caps = model.capabilities ?? {};
+    const isCombo = model.owned_by === "combo";
+
+    const displayName = model.display_name?.trim() || model.id;
+
+    return {
+      id: c.entry.prefixedId,
+      name: `${displayName} (${c.entry.routeName})`,
+      family: model.owned_by || "omniroute",
+      version: "1.0.0",
+      detail: isCombo ? "combo" : model.owned_by,
+      tooltip: `OmniRoute · ${c.entry.routeName} · ${model.id}`,
+      maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
+      maxOutputTokens,
+      capabilities: {
+        toolCalling: caps.tool_calling !== false,
+        imageInput: caps.vision === true,
+      },
+      omniModelId: c.entry.modelId,
+      routeId: c.entry.routeId,
+    };
   }
 
   private async offerConnectionHelp(): Promise<void> {
