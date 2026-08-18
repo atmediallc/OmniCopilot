@@ -46,15 +46,23 @@ export class OmniRouteChatProvider
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
+  private static readonly sharedRouteCatalogs = new Map<string, RouteCatalog>();
+  private static readonly sharedRouteFetchPromises = new Map<string, Promise<RouteCatalog>>();
   private static sharedCachedModels: CatalogModel[] = [];
   private static sharedLastCatalogFetch = 0;
-  private static sharedFetchPromise: Promise<CatalogModel[]> | null = null;
   private static readonly routeFailures = new Map<string, number>();
   private static readonly routeCooldowns = new Map<string, number>();
   private static readonly ROUTE_FAILURE_LIMIT = 2;
   private static readonly ROUTE_COOLDOWN_MS = 60_000;
   private static readonly CACHE_STATE_KEY = "omnicopilot.cachedCatalog.v1";
   private static readonly CACHE_TIME_KEY = "omnicopilot.cachedCatalogTime.v1";
+
+  private static rebuildSharedCatalog(): CatalogModel[] {
+    const segments = Array.from(OmniRouteChatProvider.sharedRouteCatalogs.values());
+    const catalog = buildCatalog(segments);
+    OmniRouteChatProvider.sharedCachedModels = catalog;
+    return catalog;
+  }
 
   static loadPersistentCache(context: vscode.ExtensionContext): void {
     const savedCatalog = context.globalState.get<CatalogModel[]>(OmniRouteChatProvider.CACHE_STATE_KEY);
@@ -112,6 +120,8 @@ export class OmniRouteChatProvider
 
   /** Re-query the catalog and tell VS Code the model list changed. */
   async refresh(): Promise<void> {
+    OmniRouteChatProvider.sharedRouteCatalogs.clear();
+    OmniRouteChatProvider.sharedRouteFetchPromises.clear();
     OmniRouteChatProvider.sharedCachedModels = [];
     OmniRouteChatProvider.sharedLastCatalogFetch = 0;
     await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, 0);
@@ -136,46 +146,41 @@ export class OmniRouteChatProvider
       return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels);
     }
 
-    if (!OmniRouteChatProvider.sharedFetchPromise) {
-      OmniRouteChatProvider.sharedFetchPromise = (async () => {
-        let allSucceeded = true;
-        const targetRoutes = this.filterRouteId
-          ? routes.filter((r) => r.id === this.filterRouteId)
-          : routes;
-        const segments: RouteCatalog[] = await Promise.all(
-          targetRoutes.map(async (r) => {
+    const targetRoutes = this.filterRouteId
+      ? routes.filter((r) => r.id === this.filterRouteId)
+      : routes;
+
+    const segments: RouteCatalog[] = await Promise.all(
+      targetRoutes.map(async (r) => {
+        let fetchP = OmniRouteChatProvider.sharedRouteFetchPromises.get(r.id);
+        if (!fetchP) {
+          fetchP = (async () => {
             try {
               const models = await getClientForRoute(r, this.deps.log).listModels();
               this.deps.onActivity?.(true, r.id);
               this.deps.log.info(`Route "${r.name}" (${r.baseUrl}) model discovery succeeded: ${models.length} model(s)`);
               return { routeId: r.id, name: r.name, models };
             } catch (err) {
-              allSucceeded = false;
               this.deps.onActivity?.(false, r.id);
               this.deps.log.warn(`Route "${r.name}" (${r.baseUrl}) model discovery failed: ${String(err)}`);
               return { routeId: r.id, name: r.name, models: [] };
             }
-          })
-        );
-
-        const catalog = buildCatalog(segments);
-        if (catalog.length > 0) {
-          OmniRouteChatProvider.sharedCachedModels = catalog;
-          OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
-          if (allSucceeded) {
-            void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
-          } else {
-            // Partial discovery: cache for at least 60s to prevent constant network hammering on every chat request
-            this.deps.log.warn("Not all configured servers responded during model discovery. Will retry missing servers after 60s cooldown.");
-          }
+          })().finally(() => {
+            OmniRouteChatProvider.sharedRouteFetchPromises.delete(r.id);
+          });
+          OmniRouteChatProvider.sharedRouteFetchPromises.set(r.id, fetchP);
         }
-        return catalog;
-      })().finally(() => {
-        OmniRouteChatProvider.sharedFetchPromise = null;
-      });
-    }
+        return fetchP;
+      })
+    );
 
-    const catalog = await OmniRouteChatProvider.sharedFetchPromise;
+    for (const seg of segments) {
+      OmniRouteChatProvider.sharedRouteCatalogs.set(seg.routeId, seg);
+    }
+    const catalog = OmniRouteChatProvider.rebuildSharedCatalog();
+    OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+    void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
+
     const anyModel = catalog.length > 0;
     if (!anyModel) {
       // No route answered with a model list. Only prompt when the caller

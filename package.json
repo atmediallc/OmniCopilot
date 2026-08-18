@@ -226,7 +226,7 @@
             "%cfg.fallbackMode.sameFamily%",
             "%cfg.fallbackMode.full%"
           ],
-          "default": "sameModel",
+          "default": "none",
           "order": 8,
           "description": "%cfg.fallbackMode%"
         },
