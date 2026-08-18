@@ -636,21 +636,19 @@ export class OmniStatusPopup {
 
       <div class="metric-group">
         <div class="metric-label-row">
-          <span>Input Tokens (Prompts)</span>
-          <strong id="input-tokens-text">0 tokens (0% of total)</strong>
+          <span>Input vs Output (traffic mix)</span>
+          <strong id="io-ratio-text">In 0% · Out 0%</strong>
         </div>
-        <div class="progress-bar-bg">
-          <div id="input-tokens-bar" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, #3fb950, #58a6ff);"></div>
+        <div class="progress-bar-bg" style="height:14px; display:flex;">
+          <div id="input-share-bar" class="progress-bar-fill" style="width:50%; background: linear-gradient(90deg, #3fb950, #58a6ff); border-radius:0;"></div>
+          <div id="output-share-bar" class="progress-bar-fill" style="width:50%; background: linear-gradient(90deg, #a371f7, #58a6ff); border-radius:0;"></div>
         </div>
-      </div>
-
-      <div class="metric-group">
-        <div class="metric-label-row">
-          <span>Output Tokens (Completions)</span>
-          <strong id="output-tokens-text">0 tokens (0% of total)</strong>
+        <div class="metric-label-row" style="margin-top:6px;">
+          <span id="input-tokens-text" style="color:#58a6ff;">Input: 0 tokens</span>
+          <span id="output-tokens-text" style="color:#a371f7;">Output: 0 tokens</span>
         </div>
-        <div class="progress-bar-bg">
-          <div id="output-tokens-bar" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, #a371f7, #58a6ff);"></div>
+        <div class="metric-label-row" style="margin-top:4px;">
+          <span id="io-avg-text" style="opacity:0.75; font-size:11px;">No requests yet</span>
         </div>
       </div>
 
@@ -805,33 +803,43 @@ export class OmniStatusPopup {
       const totalTokensText = document.getElementById('total-tokens-text');
       const totalTokensBar = document.getElementById('total-tokens-bar');
       const inputTokensText = document.getElementById('input-tokens-text');
-      const inputTokensBar = document.getElementById('input-tokens-bar');
       const outputTokensText = document.getElementById('output-tokens-text');
-      const outputTokensBar = document.getElementById('output-tokens-bar');
+      const ioRatioText = document.getElementById('io-ratio-text');
+      const inputShareBar = document.getElementById('input-share-bar');
+      const outputShareBar = document.getElementById('output-share-bar');
+      const ioAvgText = document.getElementById('io-avg-text');
 
       const maxReferenceTokens = 500000;
-      const totalTok = Math.max(metrics.totalTokens || 0, 1);
       const totalPct = Math.min(Math.round(((metrics.totalTokens || 0) / maxReferenceTokens) * 100), 100);
-      const inputPct = Math.min(Math.round(((metrics.totalInputTokens || 0) / totalTok) * 100), 100);
-      const outputPct = Math.min(Math.round(((metrics.totalOutputTokens || 0) / totalTok) * 100), 100);
+      // Traffic mix as a single composition: input and output shares of total
+      // (both use the same chars/4 estimate, so the ratio is a fair readout).
+      const inVal = metrics.totalInputTokens || 0;
+      const outVal = metrics.totalOutputTokens || 0;
+      const inShare = inVal + outVal > 0 ? Math.min(100, Math.round((inVal / (inVal + outVal)) * 100)) : 50;
+      const outShare = 100 - inShare;
+      const reqs = metrics.totalRequests || 0;
 
       if (totalTokensText) {
-        totalTokensText.textContent = (metrics.formattedTotalTokens || '0') + ' tokens (' + (metrics.totalRequests || 0) + ' reqs)';
+        totalTokensText.textContent = (metrics.formattedTotalTokens || '0') + ' tokens (' + reqs + ' reqs)';
       }
       if (totalTokensBar) {
         totalTokensBar.style.width = totalPct + '%';
       }
       if (inputTokensText) {
-        inputTokensText.textContent = (metrics.formattedInputTokens || fmtTokens(metrics.totalInputTokens || 0)) + ' tokens (' + inputPct + '% of total)';
-      }
-      if (inputTokensBar) {
-        inputTokensBar.style.width = inputPct + '%';
+        inputTokensText.textContent = (metrics.formattedInputTokens || fmtTokens(inVal)) + ' tokens (' + inShare + '%)';
       }
       if (outputTokensText) {
-        outputTokensText.textContent = (metrics.formattedOutputTokens || fmtTokens(metrics.totalOutputTokens || 0)) + ' tokens (' + outputPct + '% of total)';
+        outputTokensText.textContent = (metrics.formattedOutputTokens || fmtTokens(outVal)) + ' tokens (' + outShare + '%)';
       }
-      if (outputTokensBar) {
-        outputTokensBar.style.width = outputPct + '%';
+      if (ioRatioText) {
+        ioRatioText.textContent = 'In ' + inShare + '% · Out ' + outShare + '%';
+      }
+      if (inputShareBar) inputShareBar.style.width = inShare + '%';
+      if (outputShareBar) outputShareBar.style.width = outShare + '%';
+      if (ioAvgText) {
+        ioAvgText.textContent = reqs > 0
+          ? 'avg per request: In ' + fmtTokens(Math.round(inVal / reqs)) + ' · Out ' + fmtTokens(Math.round(outVal / reqs))
+          : 'No requests yet';
       }
 
       // Update Server List
