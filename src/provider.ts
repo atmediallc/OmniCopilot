@@ -74,31 +74,29 @@ export class OmniRouteChatProvider
   }
 
   private static async persistCache(context: vscode.ExtensionContext, catalog: CatalogModel[]): Promise<void> {
-    if (catalog.length > 0) {
-      // Persist a slim slice of each entry: full catalogs can hold thousands
-      // of models and globalState is file-backed JSON (slow, storage-heavy).
-      const slim: CatalogModel[] = catalog.map((c) => ({
-        entry: {
-          routeId: c.entry.routeId,
-          routeName: c.entry.routeName,
-          modelId: c.entry.modelId,
-          prefixedId: c.entry.prefixedId,
+    // Persist a slim slice of each entry: full catalogs can hold thousands
+    // of models and globalState is file-backed JSON (slow, storage-heavy).
+    const slim: CatalogModel[] = catalog.map((c) => ({
+      entry: {
+        routeId: c.entry.routeId,
+        routeName: c.entry.routeName,
+        modelId: c.entry.modelId,
+        prefixedId: c.entry.prefixedId,
+      },
+      model: {
+        id: c.model.id,
+        owned_by: c.model.owned_by,
+        display_name: c.model.display_name,
+        context_length: c.model.context_length,
+        max_completion_tokens: c.model.max_completion_tokens,
+        capabilities: {
+          tool_calling: c.model.capabilities?.tool_calling,
+          vision: c.model.capabilities?.vision,
         },
-        model: {
-          id: c.model.id,
-          owned_by: c.model.owned_by,
-          display_name: c.model.display_name,
-          context_length: c.model.context_length,
-          max_completion_tokens: c.model.max_completion_tokens,
-          capabilities: {
-            tool_calling: c.model.capabilities?.tool_calling,
-            vision: c.model.capabilities?.vision,
-          },
-        },
-      }));
-      await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, slim);
-      await context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, Date.now());
-    }
+      },
+    }));
+    await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, slim);
+    await context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, Date.now());
   }
 
   constructor(
@@ -145,6 +143,7 @@ export class OmniRouteChatProvider
     OmniRouteChatProvider.sharedRouteFetchPromises.clear();
     OmniRouteChatProvider.sharedCachedModels = [];
     OmniRouteChatProvider.sharedLastCatalogFetch = 0;
+    await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, []);
     await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, 0);
     this._onDidChange.fire();
   }
@@ -156,7 +155,22 @@ export class OmniRouteChatProvider
     _token: vscode.CancellationToken
   ): Promise<OmniModelInfo[]> {
     const routes = await cachedLoadRoutes(this.deps.context);
-    if (routes.length === 0) return [];
+    if (routes.length === 0) {
+      OmniRouteChatProvider.sharedRouteCatalogs.clear();
+      OmniRouteChatProvider.sharedCachedModels = [];
+      OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
+      void OmniRouteChatProvider.persistCache(this.deps.context, []);
+      return [];
+    }
+
+    const validRouteIds = new Set(routes.map((r) => r.id));
+
+    // Prune entries from sharedRouteCatalogs that belong to routes no longer configured
+    for (const key of Array.from(OmniRouteChatProvider.sharedRouteCatalogs.keys())) {
+      if (!validRouteIds.has(key)) {
+        OmniRouteChatProvider.sharedRouteCatalogs.delete(key);
+      }
+    }
 
     const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
     const isManualOnly = ttlMinutes <= 0;
@@ -164,15 +178,13 @@ export class OmniRouteChatProvider
     const isFresh = Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < ttlMs;
 
     if (OmniRouteChatProvider.sharedCachedModels.length > 0 && isFresh) {
-      return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels);
+      return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels, validRouteIds);
     }
 
-    const targetRoutes = this.filterRouteId
-      ? routes.filter((r) => r.id === this.filterRouteId)
-      : routes;
+    const activeRoutes = routes.slice(0, 10);
 
     const segments: RouteCatalog[] = await Promise.all(
-      targetRoutes.map(async (r) => {
+      activeRoutes.map(async (r) => {
         let fetchP = OmniRouteChatProvider.sharedRouteFetchPromises.get(r.id);
         if (!fetchP) {
           fetchP = (async () => {
@@ -202,22 +214,21 @@ export class OmniRouteChatProvider
     OmniRouteChatProvider.sharedLastCatalogFetch = Date.now();
     void OmniRouteChatProvider.persistCache(this.deps.context, catalog);
 
-    const anyModel = catalog.length > 0;
-    if (!anyModel) {
-      // No route answered with a model list. Only prompt when the caller
+    const infos = this.toModelInfos(catalog, validRouteIds);
+    if (infos.length === 0) {
+      // No route answered with a model list matching this provider. Only prompt when the caller
       // wants it (model picker opened by the user); otherwise contribute none.
-      if (!options.silent) void this.offerConnectionHelp();
+      if (!options.silent && !this.filterRouteId) void this.offerConnectionHelp();
       return [];
     }
 
-    const infos = this.toModelInfos(catalog);
     this.deps.log.info(
       `Listed ${infos.length} models for vendor (filterRouteId: ${this.filterRouteId ?? "all"}, total cached: ${catalog.length})`
     );
     return infos;
   }
 
-  private toModelInfos(catalog: CatalogModel[]): OmniModelInfo[] {
+  private toModelInfos(catalog: CatalogModel[], validRouteIds?: Set<string>): OmniModelInfo[] {
     const cfg = getConfig();
     const maxOutput = cfg.get<number>("maxOutputTokens", 16384);
     const defaultContext = cfg.get<number>("defaultContextLength", 128000);
@@ -239,6 +250,9 @@ export class OmniRouteChatProvider
 
     const infos: OmniModelInfo[] = [];
     for (const c of catalog) {
+      if (validRouteIds && !validRouteIds.has(c.entry.routeId)) {
+        continue;
+      }
       if (this.filterRouteId && c.entry.routeId !== this.filterRouteId) {
         continue;
       }
