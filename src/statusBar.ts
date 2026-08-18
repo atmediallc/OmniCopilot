@@ -10,6 +10,7 @@ import {
 } from "./status/statusRenderer";
 import { buildStatusTooltip } from "./status/statusTooltip";
 
+
 type Status = StatusKind;
 
 interface ServerHealth {
@@ -380,6 +381,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
 
   private mainLabel(status: Status): string {
     switch (status) {
+
       case "online":
         return vscode.l10n.t("All OmniRoute servers online.");
       case "partial":

@@ -39,7 +39,7 @@ export function isFramingAllowed(headers: {
   const csp = headers.get("content-security-policy") ?? "";
   const ancestors = csp ? frameAncestorsOf(csp) : null;
   if (ancestors === null) return true; // no directive → not blocked by CSP
-  if (ancestors === "'none'") return false;
 
+  if (ancestors === "'none'") return false;
   return ancestors.split(/\s+/).some((src) => src === "*" || src.startsWith(VSCODE_FRAME_ORIGIN));
 }

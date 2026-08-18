@@ -24,6 +24,7 @@ interface PanelRoute {
   modelCount: number | null;
 }
 
+
 interface PanelStatus {
   type: "status";
   routes: PanelRoute[];
@@ -118,6 +119,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
             baseUrl: normalizeBaseUrl(String(o.url ?? "")),
             ...(key ? { apiKey: key } : {}),
           });
+
         }
         if (routes.length === 0) break; // guard: never save an empty route list
         await saveRoutes(this.context, routes);
@@ -165,6 +167,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       routes: routeStatuses,
       onlineCount: routeStatuses.filter((s) => s.online).length,
       total: routeStatuses.length,
+
     };
   }
 
@@ -233,6 +236,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   <div class="link" data-cmd="omnicopilot.installOmniRoute"><span class="codicon codicon-cloud-download"></span> ${S.linkInstall}</div>
   <div class="link" data-cmd="omnicopilot.openGitHub"><span class="codicon codicon-github"></span> ${S.linkGitHub}</div>
 </div>
+
 
 <script nonce="${nonce}">
   const vscodeApi = acquireVsCodeApi();

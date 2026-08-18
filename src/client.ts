@@ -1,3 +1,4 @@
+import { dropSpecialtyAndDuplicateModels } from "./catalogFilter";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
@@ -44,6 +45,10 @@ export interface ClientOptions {
 
 const USER_AGENT = "OmniCopilot-VSCode";
 
+/** Server root the user configures — the `/v1` suffix is an implementation
+ * detail this client appends, so it never leaks into settings or the UI. */
+export const DEFAULT_BASE_URL = "http://127.0.0.1:20128";
+
 function headers(apiKey: string | undefined, json: boolean, isStream = false): Record<string, string> {
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
@@ -58,10 +63,12 @@ function headers(apiKey: string | undefined, json: boolean, isStream = false): R
   return h;
 }
 
-/** Normalize a user-supplied base URL: trim, drop trailing slashes, ensure /v1. */
+/** Normalize a user-supplied base URL for API calls: trim, drop trailing
+ * slashes, ensure /v1. Accepts either form, so a stored `…:20128/v1` from an
+ * older install keeps working without being doubled. */
 export function normalizeBaseUrl(raw: string): string {
   let url = (raw || "").trim().replace(/\/+$/, "");
-  if (!url) return "http://127.0.0.1:20128/v1";
+  if (!url) return `${DEFAULT_BASE_URL}/v1`;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   if (!/\/v1$/i.test(url)) url = `${url}/v1`;
   url = url.replace(/:\/\/(localhost|0\.0\.0\.0|\[::1\])/i, "://127.0.0.1");
@@ -349,7 +356,7 @@ export class OmniRouteClient {
     }
     const t0 = Date.now();
     try {
-      let res = await this.fetchWithRetry(`${this.baseUrl}/models`, {
+      let res = await this.fetchWithRetry(`${this.baseUrl}/models?prefix=alias`, {
         method: "GET",
         headers: headers(this.opts.apiKey, false),
         signal: ctrl.signal,
@@ -357,7 +364,7 @@ export class OmniRouteClient {
       // Some OpenAI-compatible servers expose /models off the root instead of
       // under /v1. Fall back so model discovery still succeeds there.
       if (!res.ok && (res.status === 404 || res.status === 405 || res.status === 501)) {
-        res = await this.fetchWithRetry(`${serverRootUrl(this.baseUrl)}/models`, {
+        res = await this.fetchWithRetry(`${serverRootUrl(this.baseUrl)}/models?prefix=alias`, {
           method: "GET",
           headers: headers(this.opts.apiKey, false),
           signal: ctrl.signal,

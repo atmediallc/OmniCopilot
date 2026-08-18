@@ -1,7 +1,7 @@
 {
   "name": "omnicopilot",
   "displayName": "OmniRoute for GitHub Copilot Chat",
-  "description": "1200+ AI models in your Copilot Chat — free & forever free. Powered by OmniRoute: 330+ providers (90+ free) — Kimi, Claude, GPT, Gemini, GLM, DeepSeek, Qwen — with agent mode, tool calling, vision and auto-fallback. MIT open source.",
+  "description": "1200+ AI models in your Copilot Chat — free & forever free. Powered by OmniRoute: 340+ providers (90+ free) — Kimi, Claude, GPT, Gemini, GLM, DeepSeek, Qwen — with agent mode, tool calling, vision and auto-fallback. MIT open source.",
   "version": "1.0.1",
   "publisher": "diegosouzapw",
   "license": "MIT",

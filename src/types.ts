@@ -13,6 +13,16 @@ export interface OmniRouteModel {
   parent?: string;
   context_length?: number;
   max_completion_tokens?: number;
+  /** Absent (or "chat") for conversational models; "audio", "image",
+   * "embedding", "rerank", "video", "moderation"… for specialty registries
+   * that must never reach the Copilot Chat picker. */
+  type?: string;
+  /** Endpoints the model answers on. When present and missing "chat", the
+   * model is not usable from a chat request. */
+  supported_endpoints?: string[];
+  /** Set on a duplicate id that mirrors another entry in the same response
+   * (OmniRoute `dual` prefix mode). Points at the primary id. */
+  parent?: string | null;
   capabilities?: {
     tool_calling?: boolean;
     vision?: boolean;

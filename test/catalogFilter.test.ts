@@ -2,28 +2,33 @@ import { describe, expect, it } from "vitest";
 import { isChatModel, selectChatModels } from "../src/catalogFilter";
 import type { OmniRouteModel } from "../src/types";
 
-function model(patch: Partial<OmniRouteModel> & { id: string }): OmniRouteModel {
-  return { id: patch.id, ...patch };
-}
+const model = (over: Partial<OmniRouteModel> & { id: string }): OmniRouteModel => over;
 
 describe("isChatModel", () => {
-  it("keeps an untyped model with no supported_endpoints declared", () => {
-    expect(isChatModel(model({ id: "claude-3-5-sonnet" }))).toBe(true);
+  it("keeps rows with no type — that is how OmniRoute marks chat models", () => {
+    expect(isChatModel(model({ id: "cc/claude-sonnet-4-6" }))).toBe(true);
   });
 
-  it("keeps an explicit chat model", () => {
-    expect(isChatModel(model({ id: "gpt-4o", type: "chat" }))).toBe(true);
+  it('keeps an explicit type "chat" (and ignores case/padding)', () => {
+    expect(isChatModel(model({ id: "a", type: "chat" }))).toBe(true);
+    expect(isChatModel(model({ id: "b", type: " Chat " }))).toBe(true);
   });
 
-  it("drops a specialty non-chat model (image, audio, embedding, rerank, video, moderation)", () => {
-    expect(isChatModel(model({ id: "dall-e-3", type: "image" }))).toBe(false);
-    expect(isChatModel(model({ id: "text-embedding-3-small", type: "embeddings" }))).toBe(false);
-    expect(isChatModel(model({ id: "whisper-1", type: "audio" }))).toBe(false);
-    expect(isChatModel(model({ id: "bge-reranker-large", type: "rerank" }))).toBe(false);
+  it("drops specialty registries that cannot answer a chat request", () => {
+    for (const type of ["audio", "image", "embedding", "rerank", "video", "moderation"]) {
+      expect(isChatModel(model({ id: `x/${type}`, type }))).toBe(false);
+    }
   });
 
+  // Regression guard: OmniRoute lists every Codex/GPT-5.x model as
+  // `supported_endpoints: ["responses"]` and translates them for
+  // chat/completions. Verified live on 192.168.0.17 — `cx/gpt-5.5-low` and
+  // `cx/gpt-5.6-sol-low` both answer HTTP 200. Filtering on "does not include
+  // chat" would silently drop 26 usable models from the picker.
   it("keeps a Responses-API model — OmniRoute translates it for chat", () => {
-    expect(isChatModel(model({ id: "cx/gpt-5.6-sol-low", supported_endpoints: ["responses"] }))).toBe(true);
+    expect(isChatModel(model({ id: "cx/gpt-5.6-sol-low", supported_endpoints: ["responses"] }))).toBe(
+      true
+    );
   });
 
   it("keeps a multi-surface model as long as one surface is conversational", () => {
@@ -35,7 +40,9 @@ describe("isChatModel", () => {
   });
 
   it("still drops a typed specialty row even if it claims a chat surface", () => {
-    expect(isChatModel(model({ id: "x/img", type: "image", supported_endpoints: ["chat"] }))).toBe(false);
+    expect(isChatModel(model({ id: "x/img", type: "image", supported_endpoints: ["chat"] }))).toBe(
+      false
+    );
   });
 
   it("keeps a model with an empty endpoint list rather than guessing it is unusable", () => {
@@ -44,14 +51,44 @@ describe("isChatModel", () => {
 });
 
 describe("selectChatModels", () => {
-  it("filters out non-chat models and duplicate prefix mirrors", () => {
-    const raw: OmniRouteModel[] = [
+  it("drops the canonical mirror emitted by dual prefix mode", () => {
+    const models = [
+      model({ id: "cc/claude-sonnet-4-6", parent: null }),
+      model({ id: "claude/claude-sonnet-4-6", parent: "cc/claude-sonnet-4-6" }),
+    ];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual(["cc/claude-sonnet-4-6"]);
+  });
+
+  it("keeps a row whose parent is not itself listed — never lose a model", () => {
+    const models = [model({ id: "solo/model", parent: "absent/model" })];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual(["solo/model"]);
+  });
+
+  it("keeps a row that points at itself", () => {
+    const models = [model({ id: "self/model", parent: "self/model" })];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual(["self/model"]);
+  });
+
+  it("preserves catalog order and skips entries without an id", () => {
+    const models = [
+      model({ id: "a" }),
+      { } as OmniRouteModel,
+      model({ id: "b" }),
+      model({ id: "c" }),
+    ];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("combines both rules: specialty rows and mirrors go, chat models stay", () => {
+    const models = [
       model({ id: "cc/claude-sonnet-4-6" }),
       model({ id: "claude/claude-sonnet-4-6", parent: "cc/claude-sonnet-4-6" }),
-      model({ id: "dall-e-3", type: "image" }),
-      model({ id: "gpt-4o" }),
+      model({ id: "openai/whisper-1", type: "audio" }),
+      model({ id: "auto/best-free" }),
     ];
-    const filtered = selectChatModels(raw);
-    expect(filtered.map((m) => m.id)).toEqual(["cc/claude-sonnet-4-6", "gpt-4o"]);
+    expect(selectChatModels(models).map((m) => m.id)).toEqual([
+      "cc/claude-sonnet-4-6",
+      "auto/best-free",
+    ]);
   });
 });

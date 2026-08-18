@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
+
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
@@ -148,6 +149,7 @@ export class OmniRouteChatProvider
     this._onDidChange.fire();
   }
 
+
   // ── Model discovery ─────────────────────────────────────────────────────
 
   async provideLanguageModelChatInformation(
@@ -258,6 +260,7 @@ export class OmniRouteChatProvider
       }
       const model = c.model;
       if (!model?.id) continue;
+
       if (filter && !filter.test(model.id)) continue;
 
       const contextLength = model.context_length ?? defaultContext;
@@ -291,6 +294,7 @@ export class OmniRouteChatProvider
   private async offerConnectionHelp(): Promise<void> {
     const routes = await cachedLoadRoutes(this.deps.context);
     const baseUrl = routes[0]?.baseUrl ?? "http://localhost:20128/v1";
+
     const configureLabel = vscode.l10n.t("Configure Connection");
     const installLabel = vscode.l10n.t("Install OmniRoute");
     const pick = await vscode.window.showWarningMessage(

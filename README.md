@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=diegosouzapw.omnicopilot"><strong>🧩 Install from the VS Code Marketplace</strong></a><br>
+  <a href="https://open-vsx.org/extension/diegosouzapw/omnicopilot"><strong>🔓 Install from Open VSX</strong></a> <em>(Cursor, Windsurf, VSCodium, Theia, code-server…)</em>
+</p>
+
+<p align="center">
   <a href="https://github.com/diegosouzapw/OmniRoute">🌐 OmniRoute on GitHub</a> •
   <a href="https://github.com/diegosouzapw/OmniCopilot">🔌 Extension source</a> •
   <a href="https://github.com/diegosouzapw/OmniRoute/issues">🐛 Issues</a>
@@ -47,7 +52,10 @@ Already running OmniRoute somewhere else (home server, VPS, tunnel)? Point the e
 
 ### 2. Install this extension
 
-Search for **"OmniRoute"** in the VS Code Extensions view, or grab the `.vsix` from the [releases](https://github.com/diegosouzapw/OmniCopilot/releases).
+Search for **"OmniRoute"** in the VS Code Extensions view — it resolves from the
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=diegosouzapw.omnicopilot) on VS Code
+and from [Open VSX](https://open-vsx.org/extension/diegosouzapw/omnicopilot) on forks like Cursor,
+Windsurf and VSCodium. Or grab the `.vsix` from the [releases](https://github.com/diegosouzapw/OmniCopilot/releases).
 
 ### 3. Pick a model
 
@@ -80,14 +88,29 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `omnicopilot.baseUrl` | `http://localhost:20128/v1` | OmniRoute server (local or remote) |
+| `omnicopilot.baseUrl` | `http://localhost:20128` | OmniRoute server root (local or remote) — `/v1` is appended automatically |
 | `omnicopilot.modelFilter` | *(empty)* | Substring/regex to limit which models are listed |
 | `omnicopilot.maxOutputTokens` | `16384` | Output budget reserved per response |
 | `omnicopilot.defaultContextLength` | `128000` | Context assumed when the catalog omits it |
 | `omnicopilot.statusBar` | `true` | Show the connection dot |
 | `omnicopilot.healthCheckIntervalSeconds` | `30` | Probe frequency |
-| `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser or in a VS Code tab (`editor`) |
+| `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser, or in a VS Code tab (`editor`) — see below |
 | `omnicopilot.cliPath` | `omniroute` | Path to the OmniRoute CLI |
+
+### Dashboard inside VS Code
+
+Set `omnicopilot.dashboardOpen` to `editor` to open the OmniRoute dashboard in a VS Code tab
+instead of your browser. This needs the server to allow embedding, which is opt-in — start
+OmniRoute with **`DASHBOARD_ALLOW_EMBED=vscode`** (available since the CSP opt-in landed in
+[OmniRoute #10273](https://github.com/diegosouzapw/OmniRoute/issues/10273)). Without it the
+page refuses to frame and the extension falls back to the external browser, so nothing breaks
+either way.
+
+## How the model list is built
+
+Curious why the picker shows the number of models it shows, or why a provider you never
+configured is in there? → **[`docs/CATALOG.md`](docs/CATALOG.md)** explains the duplicate-prefix
+mode, the non-chat filter and the free/keyless providers, with measured numbers.
 
 ## Good to know
 
