@@ -1,4 +1,4 @@
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,

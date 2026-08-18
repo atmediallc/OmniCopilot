@@ -1,4 +1,4 @@
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { normalizeBaseUrl } from "./client";
 import { cachedLoadRoutes, getClientForRoute, saveRoutes } from "./routes";
