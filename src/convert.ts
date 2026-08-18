@@ -12,77 +12,121 @@ export function toOpenAiMessages(
   messages: readonly vscode.LanguageModelChatRequestMessage[]
 ): ChatMessage[] {
   const out: ChatMessage[] = [];
-
   for (const msg of messages) {
-    const parts = Array.isArray(msg.content) ? msg.content : [];
+    appendMessage(out, msg);
+  }
+  return reorderSystemMessages(out);
+}
 
-    const toolResults: vscode.LanguageModelToolResultPart[] = [];
-    const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+type ChatRequestParts = vscode.LanguageModelChatRequestMessage["content"];
 
-    for (const p of parts) {
-      if (p instanceof vscode.LanguageModelToolResultPart) {
-        toolResults.push(p);
-      } else if (p instanceof vscode.LanguageModelToolCallPart) {
-        toolCalls.push(p);
-      }
-    }
+/** Convert one VS Code request message into its OpenAI messages. */
+function appendMessage(
+  out: ChatMessage[],
+  msg: vscode.LanguageModelChatRequestMessage
+): void {
+  const parts = Array.isArray(msg.content) ? msg.content : [];
+  const { toolResults, toolCalls } = splitToolParts(parts);
 
-    if (toolResults.length > 0) {
-      for (const result of toolResults) {
-        out.push({
-          role: "tool",
-          content: extractToolResultText(result.content),
-          tool_call_id: result.callId,
-        });
-      }
-      const rest = toContent(parts);
-      if (!isEmptyContent(rest)) out.push({ role: "user", content: rest });
-      continue;
-    }
-
-    if (msg.role === vscode.LanguageModelChatMessageRole.Assistant && toolCalls.length > 0) {
-      const text = parts
-        .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
-        .map((p) => p.value)
-        .join("");
-      out.push({
-        role: "assistant",
-        // OpenAI expects null content when tool_calls are present and no text
-        content: text || null,
-        tool_calls: toolCalls.map((tc) => ({
-          id: tc.callId,
-          type: "function" as const,
-          function: {
-            name: tc.name,
-            arguments: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {}),
-          },
-        })),
-      });
-      continue;
-    }
-
-    const content = toContent(msg.content);
-    if (!isEmptyContent(content)) {
-      out.push({ role: mapRole(msg.role), content });
-    }
+  if (toolResults.length > 0) {
+    appendToolResults(out, parts, toolResults);
+    return;
   }
 
-  // Some VS Code request histories place system instructions after the
-  // conversation. Some upstream adapters also require one leading system
-  // message, not several system entries interleaved with tool messages.
+  if (msg.role === vscode.LanguageModelChatMessageRole.Assistant && toolCalls.length > 0) {
+    out.push(buildAssistantMessage(parts, toolCalls));
+    return;
+  }
+
+  const content = toContent(msg.content);
+  if (!isEmptyContent(content)) {
+    out.push({ role: mapRole(msg.role), content });
+  }
+}
+
+/** Split message parts into tool result parts vs. tool call parts. */
+function splitToolParts(parts: ChatRequestParts): {
+  toolResults: vscode.LanguageModelToolResultPart[];
+  toolCalls: vscode.LanguageModelToolCallPart[];
+} {
+  const toolResults: vscode.LanguageModelToolResultPart[] = [];
+  const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+  for (const p of parts) {
+    if (p instanceof vscode.LanguageModelToolResultPart) {
+      toolResults.push(p);
+    } else if (p instanceof vscode.LanguageModelToolCallPart) {
+      toolCalls.push(p);
+    }
+  }
+  return { toolResults, toolCalls };
+}
+
+/** One OpenAI `tool` message per result, plus a `user` message for the rest. */
+function appendToolResults(
+  out: ChatMessage[],
+  parts: ChatRequestParts,
+  toolResults: vscode.LanguageModelToolResultPart[]
+): void {
+  for (const result of toolResults) {
+    out.push({
+      role: "tool",
+      content: extractToolResultText(result.content),
+      tool_call_id: result.callId,
+    });
+  }
+  const rest = toContent(parts);
+  if (!isEmptyContent(rest)) out.push({ role: "user", content: rest });
+}
+
+/** Assistant message carrying tool calls, as OpenAI expects. */
+function buildAssistantMessage(
+  parts: ChatRequestParts,
+  toolCalls: vscode.LanguageModelToolCallPart[]
+): ChatMessage {
+  const text = parts
+    .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
+    .map((p) => p.value)
+    .join("");
+  return {
+    role: "assistant",
+    // OpenAI expects null content when tool_calls are present and no text
+    content: text || null,
+    tool_calls: toolCalls.map((tc) => ({
+      id: tc.callId,
+      type: "function" as const,
+      function: {
+        name: tc.name,
+        arguments: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {}),
+      },
+    })),
+  };
+}
+
+/**
+ * Some VS Code request histories place system instructions after the
+ * conversation. Some upstream adapters also require one leading system
+ * message, not several system entries interleaved with tool messages.
+ */
+function reorderSystemMessages(out: ChatMessage[]): ChatMessage[] {
   const system = out.filter((message) => message.role === "system");
   if (system.length === 0) return out;
+  return [mergeSystemMessages(system), ...out.filter((message) => message.role !== "system")];
+}
+
+function mergeSystemMessages(system: ChatMessage[]): ChatMessage {
   const systemText: string[] = [];
   const systemParts: ChatContentPart[] = [];
   for (const message of system) {
-    if (typeof message.content === "string") systemText.push(message.content);
-    else if (Array.isArray(message.content)) systemParts.push(...message.content);
+    if (typeof message.content === "string") {
+      systemText.push(message.content);
+    } else if (Array.isArray(message.content)) {
+      systemParts.push(...message.content);
+    }
   }
-  const leadingSystem: ChatMessage = {
+  return {
     role: "system",
     content: systemParts.length > 0 ? systemParts : systemText.join("\n\n"),
   };
-  return [leadingSystem, ...out.filter((message) => message.role !== "system")];
 }
 
 function mapRole(role: vscode.LanguageModelChatMessageRole): "system" | "user" | "assistant" {
