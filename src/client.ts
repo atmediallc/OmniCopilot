@@ -566,7 +566,14 @@ export class OmniRouteClient {
         delta?.content ?? reasoning ?? delta?.tool_calls ?? choice.finish_reason;
       alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
       if (reasoning) {
-        events.push({ kind: "text", text: reasoning });
+        // Filter out OmniRoute encrypted/private reasoning placeholder messages
+        const isEncryptedReasoningNotice =
+          typeof reasoning === "string" &&
+          reasoning.includes("encrypted private reasoning") &&
+          reasoning.includes("OmniRoute cannot recover plaintext");
+        if (!isEncryptedReasoningNotice) {
+          events.push({ kind: "text", text: reasoning });
+        }
       }
       if (delta?.content) {
         events.push({ kind: "text", text: delta.content });
