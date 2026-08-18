@@ -12,6 +12,7 @@ export interface ServerMetric {
   requestCount: number;
   successCount: number;
   errorCount: number;
+  stallCount: number;
   lastUsedModel?: string;
   lastActiveTimestamp?: number;
 }
@@ -22,6 +23,7 @@ export interface SessionMetrics {
   totalOutputTokens: number;
   totalTokens: number;
   totalRequests: number;
+  totalStalls: number;
   servers: Record<string, ServerMetric>;
 }
 
@@ -59,6 +61,7 @@ export class MetricsTracker {
       totalOutputTokens: 0,
       totalTokens: 0,
       totalRequests: 0,
+      totalStalls: 0,
       servers: {},
     };
   }
@@ -71,7 +74,8 @@ export class MetricsTracker {
     this.persistTimer = setTimeout(async () => {
       this.persistTimer = undefined;
       await this.context.globalState.update(GLOBAL_STATE_KEY, this.metrics);
-      this._onDidChangeMetrics.fire();
+      // No fire here — callers fire _onDidChangeMetrics immediately for
+      // real-time UI updates; persist is just the disk-save debounce.
     }, 1000);
   }
 
@@ -114,6 +118,7 @@ export class MetricsTracker {
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
+        stallCount: 0,
       };
       this.metrics.servers[routeId] = server;
     }
@@ -129,6 +134,7 @@ export class MetricsTracker {
     server.lastActiveTimestamp = Date.now();
     server.online = true;
 
+    this._onDidChangeMetrics.fire();
     await this.persist();
   }
 
@@ -147,6 +153,7 @@ export class MetricsTracker {
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
+        stallCount: 0,
       };
       this.metrics.servers[routeId] = server;
     }
@@ -161,6 +168,30 @@ export class MetricsTracker {
     if (!success) {
       server.errorCount += 1;
     }
+    await this.persist();
+  }
+
+  /** Record a stream stall (timeout waiting for SSE data). */
+  async recordStall(routeId: string, routeName: string, baseUrl: string): Promise<void> {
+    this.metrics.totalStalls += 1;
+    let server = this.metrics.servers[routeId];
+    if (!server) {
+      server = {
+        routeId,
+        name: routeName,
+        baseUrl,
+        online: true,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        requestCount: 0,
+        successCount: 0,
+        errorCount: 0,
+        stallCount: 0,
+      };
+      this.metrics.servers[routeId] = server;
+    }
+    server.stallCount += 1;
     await this.persist();
   }
 
@@ -180,6 +211,7 @@ export class MetricsTracker {
           requestCount: 0,
           successCount: 0,
           errorCount: 0,
+          stallCount: 0,
         };
       } else {
         this.metrics.servers[r.id].name = r.name;
@@ -193,7 +225,7 @@ export class MetricsTracker {
   generateSuggestions(routes: Route[], onlineRouteIds: Set<string>): ImprovementSuggestion[] {
     const suggestions: ImprovementSuggestion[] = [];
     const cfg = vscode.workspace.getConfiguration("omnicopilot");
-    const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
+    const fallbackMode = cfg.get<string>("fallbackMode", "none");
 
     // 1. Redundancy / Failover check
     if (routes.length === 0) {
@@ -257,7 +289,22 @@ export class MetricsTracker {
       });
     }
 
-    // 4. CLI Tool integration suggestion
+    // 4. Stall detection warning
+    const stallServers = Object.values(this.metrics.servers).filter((s) => s.stallCount > 0);
+    if (stallServers.length > 0) {
+      const names = stallServers.map((s) => `${s.name} (${s.stallCount})`).join(", ");
+      suggestions.push({
+        id: "stream_stalls",
+        type: "health",
+        title: "Stream Stalls Detected",
+        description: `Servers with stalled streams: ${names}. Consider increasing streamFirstByteTimeoutMs or checking server load.`,
+        impact: "High",
+        actionLabel: "Check Server Health",
+        actionCommand: "omnicopilot.showDashboard",
+      });
+    }
+
+    // 5. CLI Tool integration suggestion
     suggestions.push({
       id: "cli_integration",
       type: "capability",

@@ -29,10 +29,11 @@ export const CLI_TOOLS: CliTool[] = [
 const TERMINAL_NAME = "OmniRoute Setup";
 
 function shellQuote(value: string): string {
+  const sanitized = value.replace(/[\r\n]/g, "");
   if (process.platform === "win32") {
-    return `"${value.replace(/"/g, '\\"')}"`;
+    return `"${sanitized.replace(/["^\\]/g, "\\$&")}"`;
   }
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+  return `'${sanitized.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -70,7 +71,7 @@ export async function configureCliTool(
 
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
   const configuredCliPath = cfg.get<string>("cliPath", "omniroute").trim();
-  if (/[&|;$`\r\n<>]/.test(configuredCliPath)) {
+  if (/[&|;$`\r\n<>"'()^%!\\]/.test(configuredCliPath)) {
     void vscode.window.showErrorMessage(vscode.l10n.t("Invalid CLI path: shell metacharacters are not allowed."));
     return;
   }
@@ -84,7 +85,9 @@ export async function configureCliTool(
     args.push("--remote", shellQuote(root));
   }
 
-  const command = `${cliPath} ${args.join(" ")}`;
+  const command = process.platform === "win32" && cliPath.startsWith('"')
+    ? `& ${cliPath} ${args.join(" ")}`
+    : `${cliPath} ${args.join(" ")}`;
   log.info(`Running in terminal: ${command}${apiKey ? " (API key via env)" : ""}`);
 
   const existing = vscode.window.terminals.find((t) => t.name === TERMINAL_NAME);

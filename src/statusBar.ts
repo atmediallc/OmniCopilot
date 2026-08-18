@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { makeClientForRoute } from "./routes";
+import { getClientForRoute } from "./routes";
 import type { Route } from "./routes";
 import type { MetricsTracker } from "./metrics";
 import {
@@ -90,10 +90,15 @@ export class ConnectionStatusBar implements vscode.Disposable {
         this.lastActive.set(routeId, Date.now());
       }
       const existing = this.health.find((h) => h.routeId === routeId);
+      // Grace period: don't flip a route to offline if it was active
+      // within the last 15s — transient 503/429 under load shouldn't
+      // cause the status dot to flicker.
+      const recentlyOk = !ok && this.lastActive.has(routeId) &&
+        Date.now() - (this.lastActive.get(routeId) ?? 0) < 15_000;
       if (existing) {
-        existing.online = ok;
+        existing.online = recentlyOk ? existing.online : ok;
       } else {
-        this.health.push({ routeId, name: routeId, online: ok });
+        this.health.push({ routeId, name: routeId, online: recentlyOk || ok });
       }
       const onlineCount = this.health.filter((h) => h.online).length;
       this.setStatus(
@@ -197,14 +202,19 @@ export class ConnectionStatusBar implements vscode.Disposable {
   private scheduleRecheck(): void {
     if (this.disposed) return;
     if (this.recheckTimer) clearTimeout(this.recheckTimer);
+    // Wait 2s after the last activity before probing — avoids pinging
+    // while the server is still processing the next request.
     this.recheckTimer = setTimeout(() => {
       this.recheckTimer = undefined;
       void this.checkNow();
-    }, 400);
+    }, 2000);
   }
 
   async checkNow(): Promise<boolean> {
     if (this.checking) return this.lastCheckOk;
+    // Skip health probes while a chat response is streaming — the server
+    // is alive (we're receiving data) and the ping competes for resources.
+    if (this.activeRequestCount > 0) return this.lastCheckOk;
     this.checking = true;
     try {
       const routes = await this.getRoutes();
@@ -218,10 +228,18 @@ export class ConnectionStatusBar implements vscode.Disposable {
       }
       const health = await Promise.all(
         routes.map(async (r) => {
-          const client = makeClientForRoute(r, this.log);
+          const client = getClientForRoute(r, this.log);
           const t0 = Date.now();
-          const online = await client.ping(3000);
+          let online = await client.ping(5000);
           const latencyMs = Date.now() - t0;
+          // Grace: if the ping failed but we got a successful chat response
+          // from this route within the last 15s, keep it marked online —
+          // the server is alive but busy.
+          if (!online && this.lastActive.has(r.id) &&
+              Date.now() - (this.lastActive.get(r.id) ?? 0) < 15_000) {
+            this.log.info(`[PING] ${r.name}: failed but recently active — keeping online`);
+            online = true;
+          }
           void this.metricsTracker?.recordActivity(r.id, r.name, r.baseUrl, online);
           return { routeId: r.id, name: r.name, online, latencyMs };
         })
@@ -258,8 +276,8 @@ export class ConnectionStatusBar implements vscode.Disposable {
   }
 
   /** Self-rescheduling probe loop. While every server is offline the interval
-   * backs off (up to 4×, capped at 60s) so an unreachable fleet isn't
-   * hammered with HEADs; it recovers instantly once a probe succeeds. */
+   * backs off exponentially (10→20→40→80→120s cap) so an unreachable fleet
+   * isn't hammered with HEADs; it recovers instantly once a probe succeeds. */
   private scheduleNext(): void {
     if (this.disposed) return;
     if (this.loopTimer) clearTimeout(this.loopTimer);
@@ -267,14 +285,41 @@ export class ConnectionStatusBar implements vscode.Disposable {
       .getConfiguration("omnicopilot")
       .get<number>("healthCheckIntervalSeconds", 10);
     const base = Math.max(seconds, 5) * 1000;
-    const delay = this.consecutiveFailures >= 2 ? Math.min(base * 4, 60_000) : base;
+    const multiplier = this.consecutiveFailures >= 2
+      ? Math.pow(2, Math.min(this.consecutiveFailures - 1, 4))
+      : 1;
+    const delay = Math.min(base * multiplier, 120_000);
     this.loopTimer = setTimeout(() => void this.checkNow(), delay);
   }
+
+  /** Debounce timer for negative status transitions. */
+  private offlineDebounce: ReturnType<typeof setTimeout> | undefined;
 
   private setStatus(status: Status): void {
     if (this.disposed || status === this.status) {
       if (!this.disposed) this.render();
       return;
+    }
+    // Positive transitions (→ online/streaming) apply instantly.
+    // Negative transitions (online → offline/partial/error) are debounced
+    // so transient ping failures don't cause the dot to flicker.
+    const isNegative = (status === "offline" || status === "partial" || status === "error") &&
+      (this.status === "online" || this.status === "streaming");
+    if (isNegative) {
+      if (!this.offlineDebounce) {
+        this.offlineDebounce = setTimeout(() => {
+          this.offlineDebounce = undefined;
+          this.status = status;
+          this.log.info(`OmniRoute connection: ${status}`);
+          this.render();
+        }, 3000);
+      }
+      return;
+    }
+    // Positive status clears any pending negative transition.
+    if (this.offlineDebounce) {
+      clearTimeout(this.offlineDebounce);
+      this.offlineDebounce = undefined;
     }
     this.status = status;
     this.log.info(`OmniRoute connection: ${status}`);
@@ -365,6 +410,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.loopTimer) clearTimeout(this.loopTimer);
     if (this.usageTimer) clearTimeout(this.usageTimer);
     if (this.recheckTimer) clearTimeout(this.recheckTimer);
+    if (this.offlineDebounce) clearTimeout(this.offlineDebounce);
     this.item.dispose();
     this.snapshotChanged.dispose();
   }

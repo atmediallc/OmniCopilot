@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
+import { selectChatModels } from "./catalogFilter";
 import type { OmniLogger } from "./client";
 import type { OmniRouteModel, RouteConfig } from "./types";
 
@@ -65,6 +66,26 @@ export async function saveRoutes(
   const cfg = vscode.workspace.getConfiguration("omnicopilot");
   const prior = cfg.get<RouteConfig[]>("routes", []) ?? [];
 
+  // Defensive id normalization: a blank or duplicate (within this batch) id
+  // would collide in the client pool and SecretStorage (`omnicopilot.apiKey.<id>`).
+  // Kept ids from `prior` are reused as-is; only blank/duplicate ones are
+  // re-keyed to a monotonic `route-N` that avoids kept ids too.
+  const seen = new Set<string>();
+  const numbered: Route[] = [];
+  const normalized: Route[] = routes.map((r) => {
+    const id = (r.id || "").trim();
+    const route = { ...r };
+    if (!id || seen.has(id)) {
+      route.id = newRouteId([...numbered, ...prior]);
+    } else {
+      route.id = id;
+      seen.add(id);
+    }
+    numbered.push(route);
+    return route;
+  });
+  routes = normalized;
+
   const remaining = new Set(routes.map((r) => r.id));
   for (const p of prior) {
     if (!remaining.has(p.id)) await clearSecret(context, SECRET_PREFIX + p.id);
@@ -81,6 +102,7 @@ export async function saveRoutes(
       await context.secrets.store(SECRET_PREFIX + r.id, r.apiKey.trim());
     }
   }
+  invalidateRouteCache();
 }
 
 /** Next sequential route id (`route-N`), monotonic over existing ids. */
@@ -93,7 +115,38 @@ export function newRouteId(routes: Route[]): string {
   return `route-${max + 1}`;
 }
 
-/** Fresh client for a single route (stateless; callers may build them cheaply). */
+// ── Route cache ────────────────────────────────────────────────────────
+let _cachedRoutes: Route[] | undefined;
+let _cacheContext: vscode.ExtensionContext | undefined;
+
+/** Invalidate the route cache. Call on config change or after `saveRoutes`. */
+export function invalidateRouteCache(): void {
+  _cachedRoutes = undefined;
+  _clientPool.clear();
+}
+
+/** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */
+export async function cachedLoadRoutes(context: vscode.ExtensionContext): Promise<Route[]> {
+  if (_cachedRoutes && _cacheContext === context) return _cachedRoutes;
+  _cacheContext = context;
+  _cachedRoutes = await loadRoutes(context);
+  return _cachedRoutes;
+}
+
+// ── Client pool ────────────────────────────────────────────────────────
+const _clientPool = new Map<string, OmniRouteClient>();
+
+/** Reusable client for a route. Keyed by `routeId`; invalidated with routes. */
+export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByteTimeoutMs?: number): OmniRouteClient {
+  const existing = _clientPool.get(route.id);
+  if (existing) return existing;
+  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs);
+  _clientPool.set(route.id, client);
+  return client;
+}
+
+/** Fresh client for a single route (stateless; callers may build them cheaply).
+ * Prefer `getClientForRoute` for pooled access (health-checks, model discovery). */
 export function makeClientForRoute(
   route: Route,
   log?: OmniLogger,
@@ -174,7 +227,8 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
   const taken = new Set<string>();
   const out: CatalogModel[] = [];
   for (const r of perRoute) {
-    for (const model of r.models) {
+    const chatModels = selectChatModels(r.models);
+    for (const model of chatModels) {
       if (!model?.id) continue;
       const prefixed = prefixedId(r.name, r.routeId, model.id, taken);
       taken.add(prefixed);

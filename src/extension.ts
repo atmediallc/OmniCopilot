@@ -3,7 +3,7 @@ import { serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
-import { SECRET_PREFIX, loadRoutes, makeClientForRoute } from "./routes";
+import { SECRET_PREFIX, cachedLoadRoutes, invalidateRouteCache, getClientForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
 import { MetricsTracker } from "./metrics";
 import { OmniStatusPopup } from "./statusPopup";
@@ -48,7 +48,7 @@ async function doSyncProviders(
   providerDisposables = [];
   activeProviders = [];
 
-  const routes = await loadRoutes(context);
+  const routes = await cachedLoadRoutes(context);
   const activeRoutes = routes.slice(0, 10);
   if (routes.length > 10) {
     log.warn(
@@ -67,6 +67,12 @@ async function doSyncProviders(
     onRequestEnd: (ok: boolean, error: string | undefined, fallbacksUsed: number) =>
       statusBar?.reportRequestEnd(ok, error, fallbacksUsed),
     getOnlineRouteIds: () => statusBar?.onlineRouteIds(),
+    onStall: (routeId: string) => {
+      const route = activeRoutes.find((r) => r.id === routeId);
+      if (route && metricsTracker) {
+        void metricsTracker.recordStall(routeId, route.name, route.baseUrl);
+      }
+    },
   };
 
   if (activeRoutes.length <= 1) {
@@ -106,7 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   statusBar = new ConnectionStatusBar(
     async () => {
-      return loadRoutes(context);
+      return cachedLoadRoutes(context);
     },
     log,
     metricsTracker
@@ -130,6 +136,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration("omnicopilot")) return;
       log.info("Configuration changed — refreshing models and status");
+      invalidateRouteCache();
       statusBar?.restart();
       void syncProviders(context, log).then(() => refreshAll());
       void panel?.refreshStatus();
@@ -155,10 +162,17 @@ function registerCommands(
 
   register("omnicopilot.refreshModels", async () => {
     await onRefresh();
-    const routes = await loadRoutes(context);
+    const routes = await cachedLoadRoutes(context);
     if (activeProviders.length > 0) {
       const cts = new vscode.CancellationTokenSource();
-      const models = await activeProviders[0].provideLanguageModelChatInformation({ silent: true }, cts.token);
+      // Re-list every server: in multi-vendor mode each provider is scoped to
+      // one route, so counting only providers[0] would under-report model(s).
+      const models = (
+        await Promise.all(
+          activeProviders.map((p) => p.provideLanguageModelChatInformation({ silent: true }, cts.token))
+        )
+      ).flat();
+      await cts.dispose();
       void vscode.window.showInformationMessage(
         vscode.l10n.t("Models synced: {0} model(s) found across {1} server(s).", models.length, routes.length)
       );
@@ -170,7 +184,7 @@ function registerCommands(
   register("omnicopilot.checkConnection", async () => {
     const ok = await statusBar?.checkNow();
     if (ok) {
-      const routes = await loadRoutes(context);
+      const routes = await cachedLoadRoutes(context);
       void vscode.window.showInformationMessage(
         vscode.l10n.t("Connected to OmniRoute at {0}.", routes[0]?.baseUrl ?? "")
       );
@@ -184,7 +198,7 @@ function registerCommands(
   });
 
   register("omnicopilot.openDashboard", async () => {
-    const routes = await loadRoutes(context);
+    const routes = await cachedLoadRoutes(context);
     if (routes.length === 0) return;
     let root: string;
     if (routes.length === 1) {
@@ -224,7 +238,7 @@ function registerCommands(
     const githubLabel = vscode.l10n.t("Open GitHub");
     const pick = await vscode.window.showInformationMessage(
       vscode.l10n.t(
-        "OmniRoute is a free, open-source AI router: one endpoint, 330+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically."
+        "OmniRoute is a free, open-source AI router: one endpoint, 340+ providers (90+ free), auto-fallback. Install it with npm and this extension lights up automatically."
       ),
       copyLabel,
       githubLabel
@@ -260,8 +274,8 @@ function registerCommands(
 
 /** Menu behind the status-bar item. */
 async function quickActions(context: vscode.ExtensionContext, log?: vscode.LogOutputChannel): Promise<void> {
-  const routes = await loadRoutes(context);
-  const results = await Promise.all(routes.map((r) => makeClientForRoute(r, log).ping(4000)));
+  const routes = await cachedLoadRoutes(context);
+  const results = await Promise.all(routes.map((r) => getClientForRoute(r, log).ping(4000)));
   const onlineCount = results.filter(Boolean).length;
   const online = onlineCount > 0;
 
@@ -311,7 +325,7 @@ async function setApiKey(
   log: vscode.LogOutputChannel,
   optionalFlow = false
 ): Promise<void> {
-  const routes = await loadRoutes(context);
+  const routes = await cachedLoadRoutes(context);
   if (routes.length === 0) {
     void vscode.window.showWarningMessage(
       vscode.l10n.t("Add a route in the OmniRoute panel first, then set its API key.")
@@ -361,8 +375,8 @@ async function checkFirstRun(
   if (context.globalState.get<boolean>(FLAG)) return;
   await context.globalState.update(FLAG, true);
 
-  const routes = await loadRoutes(context);
-  const results = await Promise.all(routes.map((r) => makeClientForRoute(r).ping()));
+  const routes = await cachedLoadRoutes(context);
+  const results = await Promise.all(routes.map((r) => getClientForRoute(r).ping()));
   const online = results.some(Boolean);
   log.info(`First run — OmniRoute ${online ? "detected" : "not detected"} (${routes.length} route(s))`);
 

@@ -50,7 +50,10 @@ function headers(apiKey: string | undefined, json: boolean, isStream = false): R
     "Accept": isStream ? "text/event-stream, application/json" : "application/json",
   };
   if (json) h["Content-Type"] = "application/json";
-  if (apiKey) h["Authorization"] = `Bearer ${apiKey}`;
+  if (apiKey) {
+    const cleanKey = apiKey.replace(/[\r\n]/g, "").trim();
+    if (cleanKey) h["Authorization"] = `Bearer ${cleanKey}`;
+  }
   return h;
 }
 
@@ -147,15 +150,16 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 function retryDelayMs(res: Response | undefined, attempt: number, policy: Required<RetryPolicy>): number {
   if (res) {
     const retryAfter = Number(res.headers.get("retry-after"));
-    if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000;
+    // Honor the server's hint, but cap it: a pathological/hostile value
+    // (e.g. HTTP-date or huge integer) must not stall the request for minutes.
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) return Math.min(retryAfter * 1000, 30_000);
   }
   const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
   return Math.min(policy.maxMs, base + Math.random() * Math.min(base, 200));
 }
 
-/** Ordered fallback candidates for a chat request that keeps failing with
- * transient server errors: same provider family first, then any compatible
- * model. The primary id is always excluded. */
+/** @deprecated Superseded by `pickFallbackCandidates` in routes.ts for multi-route fallback.
+ * Kept for backward-compatible test coverage. */
 export function pickFallbackModels(
   primaryId: string,
   models: OmniRouteModel[],
@@ -188,12 +192,14 @@ export class OmniRouteClient {
         method: "HEAD",
         headers: headers(this.opts.apiKey, false),
         signal: ctrl.signal,
+        keepalive: true,
       });
       if (res.status === 405 || res.status === 404 || res.status === 501) {
         res = await fetch(`${this.baseUrl}/models`, {
           method: "GET",
           headers: headers(this.opts.apiKey, false),
           signal: ctrl.signal,
+          keepalive: true,
         });
       }
       const ok = res.ok || (res.status >= 400 && res.status < 500);
@@ -357,6 +363,7 @@ export class OmniRouteClient {
           headers: headers(this.opts.apiKey, true, true),
           body: JSON.stringify(request),
           signal: ctrl.signal,
+          keepalive: true,
         },
         this.opts.chatMaxAttempts
       );
@@ -411,7 +418,7 @@ export class OmniRouteClient {
           try {
             void reader.cancel(ctrl.signal.reason);
           } catch {
-            // ignore
+            // reader.cancel after abort — safe to ignore
           }
         },
         { once: true }
