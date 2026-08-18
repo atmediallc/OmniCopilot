@@ -218,6 +218,7 @@ export class OmniStatusPopup {
         totalTokens: metrics.totalTokens,
         totalRequests: metrics.totalRequests,
         formattedTotalTokens: fmtTokens(metrics.totalTokens),
+        formattedInputTokens: fmtTokens(metrics.totalInputTokens),
         formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
       },
     };
@@ -262,6 +263,7 @@ export class OmniStatusPopup {
         totalTokens: metrics.totalTokens,
         totalRequests: metrics.totalRequests,
         formattedTotalTokens: fmtTokens(metrics.totalTokens),
+        formattedInputTokens: fmtTokens(metrics.totalInputTokens),
         formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
       },
       servers,
@@ -310,6 +312,7 @@ export class OmniStatusPopup {
             totalTokens: metrics.totalTokens,
             totalRequests: metrics.totalRequests,
             formattedTotalTokens: fmtTokens(metrics.totalTokens),
+            formattedInputTokens: fmtTokens(metrics.totalInputTokens),
             formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
           },
         };
@@ -615,7 +618,17 @@ export class OmniStatusPopup {
 
       <div class="metric-group">
         <div class="metric-label-row">
-          <span>Output Tokens</span>
+          <span>Input Tokens (Prompts)</span>
+          <strong id="input-tokens-text">0 tokens (0% of total)</strong>
+        </div>
+        <div class="progress-bar-bg">
+          <div id="input-tokens-bar" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, #3fb950, #58a6ff);"></div>
+        </div>
+      </div>
+
+      <div class="metric-group">
+        <div class="metric-label-row">
+          <span>Output Tokens (Completions)</span>
           <strong id="output-tokens-text">0 tokens (0% of total)</strong>
         </div>
         <div class="progress-bar-bg">
@@ -773,12 +786,16 @@ export class OmniStatusPopup {
       const metrics = state.metrics || {};
       const totalTokensText = document.getElementById('total-tokens-text');
       const totalTokensBar = document.getElementById('total-tokens-bar');
+      const inputTokensText = document.getElementById('input-tokens-text');
+      const inputTokensBar = document.getElementById('input-tokens-bar');
       const outputTokensText = document.getElementById('output-tokens-text');
       const outputTokensBar = document.getElementById('output-tokens-bar');
 
       const maxReferenceTokens = 500000;
+      const totalTok = Math.max(metrics.totalTokens || 0, 1);
       const totalPct = Math.min(Math.round(((metrics.totalTokens || 0) / maxReferenceTokens) * 100), 100);
-      const outputPct = Math.min(Math.round(((metrics.totalOutputTokens || 0) / Math.max(metrics.totalTokens || 1, 1)) * 100), 100);
+      const inputPct = Math.min(Math.round(((metrics.totalInputTokens || 0) / totalTok) * 100), 100);
+      const outputPct = Math.min(Math.round(((metrics.totalOutputTokens || 0) / totalTok) * 100), 100);
 
       if (totalTokensText) {
         totalTokensText.textContent = (metrics.formattedTotalTokens || '0') + ' tokens (' + (metrics.totalRequests || 0) + ' reqs)';
@@ -786,8 +803,14 @@ export class OmniStatusPopup {
       if (totalTokensBar) {
         totalTokensBar.style.width = totalPct + '%';
       }
+      if (inputTokensText) {
+        inputTokensText.textContent = (metrics.formattedInputTokens || fmtTokens(metrics.totalInputTokens || 0)) + ' tokens (' + inputPct + '% of total)';
+      }
+      if (inputTokensBar) {
+        inputTokensBar.style.width = inputPct + '%';
+      }
       if (outputTokensText) {
-        outputTokensText.textContent = (metrics.formattedOutputTokens || '0') + ' tokens (' + outputPct + '% of total)';
+        outputTokensText.textContent = (metrics.formattedOutputTokens || fmtTokens(metrics.totalOutputTokens || 0)) + ' tokens (' + outputPct + '% of total)';
       }
       if (outputTokensBar) {
         outputTokensBar.style.width = outputPct + '%';
