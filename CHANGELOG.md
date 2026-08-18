@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.1
+
+Catalog and configuration fixes, validated against a live OmniRoute instance
+serving 2345 catalog entries.
+
+- **No more duplicate models in the picker.** OmniRoute defaults to
+  `MODELS_CATALOG_PREFIX_MODE=dual`, which advertises every model twice — once
+  under the short alias prefix and once under the canonical provider prefix
+  (`cc/claude-sonnet-4-6` *and* `claude/claude-sonnet-4-6`). The extension now
+  requests `?prefix=alias`, and independently drops mirror rows via their
+  `parent` back-reference so servers too old for that parameter are covered as
+  well. On the validation instance this removed **949 duplicates** with **zero
+  models lost**.
+- **Only conversational models reach the picker.** The catalog also lists
+  image, video, audio and rerank registries, which the server rejects outright
+  on `/v1/chat/completions`. Responses-API models (every Codex/GPT-5.x entry)
+  are kept — OmniRoute translates those transparently.
+- **`/v1` no longer leaks into your settings.** Configure the server root
+  (`http://localhost:20128`); the extension appends `/v1` per request. Values
+  already stored with `/v1` keep working and are never doubled.
+
 ## 1.0.0
 
 First public release. 🎉
