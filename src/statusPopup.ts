@@ -178,19 +178,53 @@ export class OmniStatusPopup {
     if (!this.panel.visible || !this.lastState) return;
     const routes = this.lastUsedRoutes;
     const metrics = this.metricsTracker.getMetrics(routes ?? []);
+    const updatedServers = (
+      (this.lastState.servers as Array<{
+        id: string;
+        name: string;
+        baseUrl: string;
+        online: boolean;
+        latencyMs?: number;
+        metric: {
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+          requestCount: number;
+          successCount: number;
+          errorCount: number;
+          lastUsedModel?: string;
+        };
+      }>) || []
+    ).map((s) => ({
+      ...s,
+      metric: {
+        ...s.metric,
+        inputTokens: metrics.servers[s.id]?.inputTokens ?? s.metric.inputTokens,
+        outputTokens: metrics.servers[s.id]?.outputTokens ?? s.metric.outputTokens,
+        totalTokens: metrics.servers[s.id]?.totalTokens ?? s.metric.totalTokens,
+        requestCount: metrics.servers[s.id]?.requestCount ?? s.metric.requestCount,
+        successCount: metrics.servers[s.id]?.successCount ?? s.metric.successCount,
+        errorCount: metrics.servers[s.id]?.errorCount ?? s.metric.errorCount,
+        lastUsedModel: metrics.servers[s.id]?.lastUsedModel ?? s.metric.lastUsedModel,
+      },
+    }));
+
+    const newState = {
+      ...this.lastState,
+      servers: updatedServers,
+      metrics: {
+        totalInputTokens: metrics.totalInputTokens,
+        totalOutputTokens: metrics.totalOutputTokens,
+        totalTokens: metrics.totalTokens,
+        totalRequests: metrics.totalRequests,
+        formattedTotalTokens: fmtTokens(metrics.totalTokens),
+        formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
+      },
+    };
+    this.lastState = newState;
     void this.panel.webview.postMessage({
       command: "updateState",
-      state: {
-        ...this.lastState,
-        metrics: {
-          totalInputTokens: metrics.totalInputTokens,
-          totalOutputTokens: metrics.totalOutputTokens,
-          totalTokens: metrics.totalTokens,
-          totalRequests: metrics.totalRequests,
-          formattedTotalTokens: fmtTokens(metrics.totalTokens),
-          formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
-        },
-      },
+      state: newState,
     });
   }
 
@@ -767,39 +801,54 @@ export class OmniStatusPopup {
         if (servers.length === 0) {
           serverListEl.innerHTML = '<div style="opacity:0.6; font-style:italic">No servers configured.</div>';
         } else {
-          serverListEl.innerHTML = servers.map(s => \`
-            <div class="server-card">
-              <div class="server-header">
-                <div class="server-title">
-                  <span class="dot \${s.online ? "dot-online" : "dot-offline"}"></span>
-                  <strong>\${escapeHtml(s.name)}</strong>
-                  <span class="badge \${s.online ? "badge-success" : "badge-danger"}">
-                    \${s.online ? s.latencyMs + "ms" : "Offline"}
-                  </span>
+          const totalSessionTokens = state.metrics?.totalTokens || 0;
+          serverListEl.innerHTML = servers.map(s => {
+            const serverTokens = s.metric?.totalTokens || 0;
+            const serverSharePct = totalSessionTokens > 0
+              ? Math.min(100, Math.round((serverTokens / totalSessionTokens) * 100))
+              : 0;
+            const reqCount = s.metric?.requestCount || 0;
+            const succCount = s.metric?.successCount || 0;
+            const successRate = reqCount > 0 ? Math.round((succCount / reqCount) * 100) : 100;
+            return \`
+              <div class="server-card">
+                <div class="server-header">
+                  <div class="server-title">
+                    <span class="dot \${s.online ? "dot-online" : "dot-offline"}"></span>
+                    <strong>\${escapeHtml(s.name)}</strong>
+                    <span class="badge \${s.online ? "badge-success" : "badge-danger"}">
+                      \${s.online ? s.latencyMs + "ms" : "Offline"}
+                    </span>
+                    \${serverSharePct > 0 ? \`<span class="badge" style="background:rgba(88,166,255,0.15);color:#58a6ff;">\${serverSharePct}% share</span>\` : ""}
+                  </div>
+                  <span class="server-url">\${escapeHtml(s.baseUrl)}</span>
                 </div>
-                <span class="server-url">\${escapeHtml(s.baseUrl)}</span>
+                <div class="server-stats">
+                  <div class="stat-item">
+                    <span class="stat-label">Input Tokens</span>
+                    <span class="stat-value">\${fmtTokens(s.metric.inputTokens)}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">Output Tokens</span>
+                    <span class="stat-value">\${fmtTokens(s.metric.outputTokens)}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">Total Tokens</span>
+                    <span class="stat-value highlight">\${fmtTokens(s.metric.totalTokens)}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">Requests / Success</span>
+                    <span class="stat-value">\${reqCount} <span style="font-size:10px;opacity:0.75;">(\${successRate}%)</span></span>
+                  </div>
+                </div>
+                \${serverTokens > 0 ? \`
+                <div class="progress-bar-bg" style="height:4px; margin-top:8px;">
+                  <div class="progress-bar-fill" style="width:\${serverSharePct}%;"></div>
+                </div>\` : ""}
+                \${s.metric.lastUsedModel ? \`<div class="server-footer" style="margin-top:6px;">Last model: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
               </div>
-              <div class="server-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Input Tokens</span>
-                  <span class="stat-value">\${fmtTokens(s.metric.inputTokens)}</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Output Tokens</span>
-                  <span class="stat-value">\${fmtTokens(s.metric.outputTokens)}</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Total Tokens</span>
-                  <span class="stat-value highlight">\${fmtTokens(s.metric.totalTokens)}</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Requests</span>
-                  <span class="stat-value">\${s.metric.requestCount}</span>
-                </div>
-              </div>
-              \${s.metric.lastUsedModel ? \`<div class="server-footer">Last model: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
-            </div>
-          \`).join("");
+            \`;
+          }).join("");
         }
       }
 

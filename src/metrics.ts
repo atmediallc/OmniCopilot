@@ -133,6 +133,7 @@ export class MetricsTracker {
     server.lastActiveTimestamp = Date.now();
     server.online = true;
 
+    this._onDidChangeMetrics.fire();
     await this.persist();
   }
 
