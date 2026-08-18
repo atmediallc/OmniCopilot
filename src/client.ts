@@ -446,6 +446,7 @@ export class OmniRouteClient {
     }
 
     const assembler = new ToolCallAssembler();
+    const reasoningFilter = new EncryptedReasoningFilter();
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -501,12 +502,26 @@ export class OmniRouteClient {
             if (!hasRealEvent) hasRealEvent = true;
             resetWatchdog();
           }
-          yield* events;
+          for (const event of events) {
+            if (event.kind === "text") {
+              for (const safeText of reasoningFilter.push(event.text)) {
+                yield { kind: "text", text: safeText };
+              }
+            } else {
+              for (const safeText of reasoningFilter.flush()) {
+                yield { kind: "text", text: safeText };
+              }
+              yield event;
+            }
+          }
         }
       }
       if (ctrl.signal.aborted) {
         if (ctrl.signal.reason instanceof OmniRouteError) throw ctrl.signal.reason;
         throw abortReason(ctrl.signal);
+      }
+      for (const safeText of reasoningFilter.flush()) {
+        yield { kind: "text", text: safeText };
       }
       // Flush any tool calls still being assembled when the stream ends
       // without an explicit finish_reason line.
@@ -610,6 +625,59 @@ class ToolCallAssembler {
       yield { kind: "toolCall", id: call.id, name: call.name, args: call.args || "{}" };
     }
     this.pending.clear();
+  }
+}
+
+/** Filters out OmniRoute encrypted/private reasoning notice messages,
+ * even when streamed across multiple incremental SSE text chunks. */
+export class EncryptedReasoningFilter {
+  private buffer = "";
+
+  private static readonly KNOWN_PATTERNS = [
+    "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.",
+    "upstream responses api exposed this reasoning block only as encrypted private reasoning",
+    "encrypted private reasoning. omniroute cannot recover plaintext",
+    "omniroute cannot recover plaintext",
+    "encrypted private reasoning",
+  ];
+
+  public push(chunk: string): string[] {
+    if (!chunk) return [];
+    this.buffer += chunk;
+    const normalized = this.buffer.trim().toLowerCase().replace(/\s+/g, " ");
+
+    for (const pattern of EncryptedReasoningFilter.KNOWN_PATTERNS) {
+      if (normalized.includes(pattern)) {
+        this.buffer = "";
+        return [];
+      }
+    }
+
+    const isNoticePrefix = EncryptedReasoningFilter.KNOWN_PATTERNS.some((pattern) =>
+      pattern.startsWith(normalized) || normalized.startsWith(pattern.slice(0, Math.min(pattern.length, normalized.length)))
+    );
+
+    if (isNoticePrefix && this.buffer.length < 250) {
+      return [];
+    }
+
+    const out = this.buffer;
+    this.buffer = "";
+    return [out];
+  }
+
+  public flush(): string[] {
+    if (!this.buffer) return [];
+    const normalized = this.buffer.trim().toLowerCase().replace(/\s+/g, " ");
+    for (const pattern of EncryptedReasoningFilter.KNOWN_PATTERNS) {
+      if (normalized.includes(pattern) || pattern.startsWith(normalized)) {
+        this.buffer = "";
+        return [];
+      }
+    }
+    const out = this.buffer;
+    this.buffer = "";
+    return [out];
   }
 }
 

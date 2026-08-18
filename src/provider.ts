@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
+import { EncryptedReasoningFilter, OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
 
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
@@ -453,23 +453,24 @@ export class OmniRouteChatProvider
           const startedAt = Date.now();
           let firstTokenAt: number | undefined;
           this.deps.onRequestStart?.(cand.routeId, cand.modelId);
+          const reasoningFilter = new EncryptedReasoningFilter();
           try {
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
-                // Filter out OmniRoute encrypted/private reasoning placeholder messages
-                const isEncryptedReasoningNotice =
-                  typeof event.text === "string" &&
-                  event.text.includes("encrypted private reasoning") &&
-                  event.text.includes("OmniRoute cannot recover plaintext");
-                if (isEncryptedReasoningNotice) {
-                  continue;
+                for (const safeText of reasoningFilter.push(event.text)) {
+                  firstTokenAt ??= Date.now();
+                  streamed += safeText;
+                  reportedAny = true;
+                  progress.report(new vscode.LanguageModelTextPart(safeText));
                 }
-                firstTokenAt ??= Date.now();
-                streamed += event.text;
-                reportedAny = true;
-                progress.report(new vscode.LanguageModelTextPart(event.text));
               } else {
+                for (const safeText of reasoningFilter.flush()) {
+                  firstTokenAt ??= Date.now();
+                  streamed += safeText;
+                  reportedAny = true;
+                  progress.report(new vscode.LanguageModelTextPart(safeText));
+                }
                 reportedAny = true;
                 let input: Record<string, unknown>;
                 try {
@@ -483,6 +484,12 @@ export class OmniRouteChatProvider
                 }
                 progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
+            }
+            for (const safeText of reasoningFilter.flush()) {
+              firstTokenAt ??= Date.now();
+              streamed += safeText;
+              reportedAny = true;
+              progress.report(new vscode.LanguageModelTextPart(safeText));
             }
             if (!reportedAny) {
               log.warn(`Model ${cand.modelId} @${cand.routeId} returned an empty stream; emitting empty text part`);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_BASE_URL,
+  EncryptedReasoningFilter,
   OmniRouteClient,
   OmniRouteError,
   describeFetchError,
@@ -52,6 +53,45 @@ describe("OmniRouteClient.streamChat", () => {
       { kind: "text", text: "Hel" },
       { kind: "text", text: "lo" },
     ]);
+  });
+
+  it("filters out multi-chunk encrypted reasoning notices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"choices":[{"delta":{"reasoning":"Codex is reasoning, but upstream "}}]}',
+          'data: {"choices":[{"delta":{"reasoning":"Responses API exposed this reasoning block only as encrypted private reasoning. "}}]}',
+          'data: {"choices":[{"delta":{"reasoning":"OmniRoute cannot recover plaintext."}}]}',
+          'data: {"choices":[{"delta":{"content":"Here is your answer"}}]}',
+          "data: [DONE]",
+        ])
+      )
+    );
+    const events = await collect(new OmniRouteClient({ baseUrl: "http://x/v1" }));
+    expect(events).toEqual([{ kind: "text", text: "Here is your answer" }]);
+  });
+
+  describe("EncryptedReasoningFilter", () => {
+    it("buffers prefix and drops complete notice when matched", () => {
+      const filter = new EncryptedReasoningFilter();
+      const p1 = filter.push("Codex is reasoning, ");
+      const p2 = filter.push("but upstream Responses API exposed this reasoning block only as encrypted private reasoning. ");
+      const p3 = filter.push("OmniRoute cannot recover plaintext.");
+      const flush = filter.flush();
+      expect(p1).toEqual([]);
+      expect(p2).toEqual([]);
+      expect(p3).toEqual([]);
+      expect(flush).toEqual([]);
+    });
+
+    it("flushes non-notice text immediately when divergence occurs", () => {
+      const filter = new EncryptedReasoningFilter();
+      const p1 = filter.push("Codex is ");
+      const p2 = filter.push("writing code for you.");
+      expect(p1).toEqual([]);
+      expect(p2).toEqual(["Codex is writing code for you."]);
+    });
   });
 
   it("reassembles fragmented tool calls and flushes on finish_reason", async () => {
