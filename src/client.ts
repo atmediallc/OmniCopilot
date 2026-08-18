@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
@@ -202,7 +203,10 @@ function retryDelayMs(res: Response | undefined, attempt: number, policy: Requir
     if (Number.isFinite(retryAfter) && retryAfter >= 0) return Math.min(retryAfter * 1000, 30_000);
   }
   const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
-  return Math.min(policy.maxMs, base + Math.random() * Math.min(base, 200));
+  // crypto.randomInt (CSPRNG) rather than Math.random: the jitter is not
+  // security-relevant, but this keeps implementations of jitter consistent.
+  const jitter = crypto.randomInt(Math.min(base, 200) + 1);
+  return Math.min(policy.maxMs, base + jitter);
 }
 
 /** @deprecated Superseded by `pickFallbackCandidates` in routes.ts for multi-route fallback.
@@ -399,106 +403,52 @@ export class OmniRouteClient {
 
     // Derived signal so a stall can abort this attempt without cancelling the
     // caller's own signal (which would kill the fallback chain).
-    const ctrl = new AbortController();
-    const relay = () => ctrl.abort(signal.reason);
-    if (signal.aborted) ctrl.abort(signal.reason);
-    else signal.addEventListener("abort", relay, { once: true });
-
-    // The first-byte cap must also bound the connect/headers phase: an
-    // upstream (proxy/OmniRoute) that accepts the connection and then hangs
-    // would otherwise block the whole request for as long as fetch allows.
-    const firstByteTimer = setTimeout(
-      () =>
-        ctrl.abort(
-          new OmniRouteError(
-            `OmniRoute did not start responding within ${firstByteMs / 1000}s`,
-            408,
-            true,
-            "connect",
-            "/chat/completions"
-          )
-        ),
-      firstByteMs
-    );
-
-    let res: Response;
+    const session = new StreamSession(signal, firstByteMs, idleMs);
     try {
-      res = await this.fetchWithRetry(
+      const res = await this.fetchChatStream(request, session);
+      if (!res.ok || !res.body) {
+        throw await chatStreamError(res);
+      }
+      yield* this.consumeStream(res.body, session);
+    } finally {
+      session.dispose();
+    }
+  }
+
+  /** POSTs the chat request under the session's signal; throws the upstream
+   * error when the response is missing or not OK. */
+  private async fetchChatStream(request: ChatRequest, session: StreamSession): Promise<Response> {
+    try {
+      return await this.fetchWithRetry(
         `${this.baseUrl}/chat/completions`,
         {
           method: "POST",
           headers: headers(this.opts.apiKey, true, true),
           body: JSON.stringify(request),
-          signal: ctrl.signal,
+          signal: session.ctrl.signal,
           keepalive: true,
         },
         this.opts.chatMaxAttempts
       );
     } finally {
-      clearTimeout(firstByteTimer);
+      session.clearFirstByteTimer();
     }
+  }
 
-    if (!res.ok || !res.body) {
-      const detail = await safeErrorDetail(res);
-      // 503/429 responses often carry a Retry-After hint; surface it so the
-      // provider's backoff can honor it instead of guessing.
-      const retryAfter = res.headers.get("retry-after");
-      const retryAfterMs =
-        retryAfter !== null && Number(retryAfter) > 0 ? Number(retryAfter) * 1000 : undefined;
-      throw new OmniRouteError(
-        `OmniRoute request failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`,
-        res.status,
-        false,
-        "headers",
-        "/chat/completions",
-        undefined,
-        retryAfterMs
-      );
-    }
-
+  /** Reads the SSE body, feeding lines to {@link handleSseLine} and yielding
+   * normalized events (with the encrypted-reasoning filter applied). */
+  private async *consumeStream(
+    stream: ReadableStream<Uint8Array>,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
     const assembler = new ToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    const reader = res.body.getReader();
+    const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-
-    const timeoutErr = (ms: number) =>
-      new OmniRouteError(
-        !hasRealEvent
-          ? `OmniRoute did not start responding within ${ms / 1000}s`
-          : `OmniRoute went silent for ${ms / 1000}s`,
-        408,
-        true,
-        "stream",
-        "/chat/completions"
-      );
-
-    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
-    let hasRealEvent = false;
-
-    const resetWatchdog = () => {
-      if (watchdogTimer) clearTimeout(watchdogTimer);
-      const ms = !hasRealEvent ? firstByteMs : idleMs;
-      watchdogTimer = setTimeout(() => {
-        ctrl.abort(timeoutErr(ms));
-      }, ms);
-    };
-
-    resetWatchdog();
-
+    session.setReader(reader);
+    session.armWatchdog();
     try {
-      ctrl.signal.addEventListener(
-        "abort",
-        () => {
-          try {
-            void reader.cancel(ctrl.signal.reason);
-          } catch {
-            // reader.cancel after abort — safe to ignore
-          }
-        },
-        { once: true }
-      );
-
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -508,43 +458,36 @@ export class OmniRouteClient {
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
           buffer = buffer.slice(newlineIdx + 1);
-          const { events, alive } = this.handleSseLine(line, assembler);
-          if (alive) {
-            if (!hasRealEvent) hasRealEvent = true;
-            resetWatchdog();
-          }
-          for (const event of events) {
-            if (event.kind === "text") {
-              for (const safeText of reasoningFilter.push(event.text)) {
-                yield { kind: "text", text: safeText };
-              }
-            } else {
-              for (const safeText of reasoningFilter.flush()) {
-                yield { kind: "text", text: safeText };
-              }
-              yield event;
-            }
-          }
+          yield* this.emitSseLine(line, assembler, reasoningFilter, session);
         }
       }
-      if (ctrl.signal.aborted) {
-        if (ctrl.signal.reason instanceof OmniRouteError) throw ctrl.signal.reason;
-        throw abortReason(ctrl.signal);
-      }
-      for (const safeText of reasoningFilter.flush()) {
-        yield { kind: "text", text: safeText };
-      }
+      session.throwIfAborted();
+      yield* flushFilteredText(reasoningFilter);
       // Flush any tool calls still being assembled when the stream ends
       // without an explicit finish_reason line.
       yield* assembler.flush();
     } catch (err) {
-      if (ctrl.signal.aborted && ctrl.signal.reason instanceof OmniRouteError) {
-        throw ctrl.signal.reason;
+      throw session.unwrapError(err);
+    }
+  }
+
+  /** Handles one SSE line: normalizes events and keeps the stall watchdog
+   * alive whenever the line carried real progress. */
+  private async *emitSseLine(
+    line: string,
+    assembler: ToolCallAssembler,
+    reasoningFilter: EncryptedReasoningFilter,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
+    const { events, alive } = this.handleSseLine(line, assembler);
+    if (alive) session.poke();
+    for (const event of events) {
+      if (event.kind === "text") {
+        yield* emitFilteredText(reasoningFilter, event.text);
+      } else {
+        yield* flushFilteredText(reasoningFilter);
+        yield event;
       }
-      throw err;
-    } finally {
-      if (watchdogTimer) clearTimeout(watchdogTimer);
-      signal.removeEventListener("abort", relay);
     }
   }
 
@@ -615,10 +558,138 @@ export class OmniRouteClient {
   }
 }
 
+/** Tracks one streaming attempt: a derived AbortController plus the
+ * first-byte and idle watchdog timers. The derived signal lets a stall abort
+ * this attempt without cancelling the caller's own signal (which would kill
+ * the fallback chain). */
+class StreamSession {
+  readonly ctrl = new AbortController();
+  private readonly relay: () => void;
+  private firstByteTimer: ReturnType<typeof setTimeout> | undefined;
+  private watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+  private hasRealEvent = false;
+
+  constructor(
+    private readonly signal: AbortSignal,
+    private readonly firstByteMs: number,
+    private readonly idleMs: number
+  ) {
+    this.relay = () => this.ctrl.abort(this.signal.reason);
+    if (this.signal.aborted) {
+      this.ctrl.abort(this.signal.reason);
+    } else {
+      this.signal.addEventListener("abort", this.relay, { once: true });
+    }
+    this.scheduleFirstByteTimer();
+  }
+
+  private scheduleFirstByteTimer(): void {
+    this.clearFirstByteTimer();
+    this.firstByteTimer = setTimeout(() => {
+      this.ctrl.abort(
+        new OmniRouteError(
+          `OmniRoute did not start responding within ${this.firstByteMs / 1000}s`,
+          408,
+          true,
+          "connect",
+          "/chat/completions"
+        )
+      );
+    }, this.firstByteMs);
+  }
+
+  clearFirstByteTimer(): void {
+    if (this.firstByteTimer) {
+      clearTimeout(this.firstByteTimer);
+      this.firstByteTimer = undefined;
+    }
+  }
+
+  /** Real progress (a valid SSE line) — notify the idle watchdog. */
+  poke(): void {
+    this.hasRealEvent = true;
+    this.resetWatchdog();
+  }
+
+  /** Arm the idle watchdog once reading begins (headers already received, so
+   * the pre-first-event window starts counting from here, not from connect). */
+  armWatchdog(): void {
+    this.resetWatchdog();
+  }
+
+  /** Abort the body reader when the session is cancelled, so the underlying
+   * socket is released promptly. Listens on the derived controller — a stall
+   * abort must cancel our own read, not the caller's signal. */
+  setReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+    const cancel = () => {
+      try {
+        void reader.cancel(this.ctrl.signal.reason);
+      } catch {
+        // reader.cancel after abort — safe to ignore
+      }
+    };
+    if (this.ctrl.signal.aborted) {
+      cancel();
+    } else {
+      this.ctrl.signal.addEventListener("abort", cancel, { once: true });
+    }
+  }
+
+  throwIfAborted(): void {
+    if (this.ctrl.signal.aborted) {
+      const reason = this.ctrl.signal.reason;
+      if (reason instanceof OmniRouteError) throw reason;
+      throw new OmniRouteError(String(reason), undefined, true, "stream", "/chat/completions");
+    }
+  }
+
+  /** Errors raised while consuming may be the abort we triggered ourselves;
+   * normalize them so callers see a consistent stall error. */
+  unwrapError(err: unknown): unknown {
+    if (this.ctrl.signal.aborted) {
+      const reason = this.ctrl.signal.reason;
+      if (reason instanceof OmniRouteError) return reason;
+      return new OmniRouteError(String(reason), undefined, true, "stream", "/chat/completions");
+    }
+    return err;
+  }
+
+  dispose(): void {
+    this.clearFirstByteTimer();
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
+    if (!this.signal.aborted) {
+      this.signal.removeEventListener("abort", this.relay);
+    }
+  }
+
+  /** Idle watchdog: abort once no real progress arrives within the window.
+   * Before the first byte the cap is firstByteMs; afterwards idleMs. */
+  private resetWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
+    const ms = !this.hasRealEvent ? this.firstByteMs : this.idleMs;
+    this.watchdogTimer = setTimeout(() => {
+      this.ctrl.abort(this.timeoutError(ms));
+    }, ms);
+  }
+
+  private timeoutError(ms: number): OmniRouteError {
+    const message = !this.hasRealEvent
+      ? `OmniRoute did not start responding within ${ms / 1000}s`
+      : `OmniRoute went silent for ${ms / 1000}s`;
+    return new OmniRouteError(message, 408, true, "stream", "/chat/completions");
+  }
+}
+
 /** Reassembles incremental tool_calls deltas (indexed fragments) into
  * complete calls, emitted once their JSON arguments are whole. */
 class ToolCallAssembler {
-  private pending = new Map<number, { id: string; name: string; args: string }>();
+  private readonly pending = new Map<number, { id: string; name: string; args: string }>();
 
   accept(deltas: StreamToolCallDelta[]): void {
     for (const d of deltas) {
@@ -729,4 +800,40 @@ function sseError(message: string): OmniRouteError {
     status = 503;
   }
   return new OmniRouteError(message, status, false, "stream", "/chat/completions");
+}
+
+/** Non-OK / bodyless chat response: surface the upstream detail plus any
+ * Retry-After hint so the caller's backoff can honor it instead of guessing. */
+async function chatStreamError(res: Response): Promise<OmniRouteError> {
+  const detail = await safeErrorDetail(res);
+  const retryAfter = res.headers.get("retry-after");
+  const retryAfterMs =
+    retryAfter !== null && Number(retryAfter) > 0 ? Number(retryAfter) * 1000 : undefined;
+  const detailSuffix = detail ? `: ${detail}` : "";
+  return new OmniRouteError(
+    `OmniRoute request failed (HTTP ${res.status})${detailSuffix}`,
+    res.status,
+    false,
+    "headers",
+    "/chat/completions",
+    undefined,
+    retryAfterMs
+  );
+}
+
+/** Yields any text the reasoning filter lets through, as TextStreamEvents. */
+async function* emitFilteredText(
+  filter: EncryptedReasoningFilter,
+  text: string
+): AsyncGenerator<StreamEvent> {
+  for (const piece of filter.push(text)) {
+    yield { kind: "text", text: piece };
+  }
+}
+
+/** Yields whatever the reasoning filter still holds at end-of-stream. */
+async function* flushFilteredText(filter: EncryptedReasoningFilter): AsyncGenerator<StreamEvent> {
+  for (const piece of filter.flush()) {
+    yield { kind: "text", text: piece };
+  }
 }
