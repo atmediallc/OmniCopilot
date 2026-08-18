@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2
+
+- **The in-editor dashboard no longer opens a broken tab.** `dashboardOpen: "editor"`
+  only guarded against the Simple Browser command being missing, which is the wrong
+  failure mode: against a server that sends `X-Frame-Options: DENY` the command
+  *succeeds* and the iframe renders a "refused to connect" page. The extension now
+  checks the framing headers first and falls back to the external browser, explaining
+  once that the server has to be **built** with `DASHBOARD_ALLOW_EMBED=vscode` — it is
+  a build-time option, so setting the variable on an existing install is not enough.
+
 ## 1.0.1
 
 Catalog and configuration fixes, validated against a live OmniRoute instance
