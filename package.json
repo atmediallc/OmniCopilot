@@ -80,53 +80,43 @@
     "languageModelChatProviders": [
       {
         "vendor": "omniroute",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-2",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-3",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-4",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-5",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-6",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-7",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-8",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-9",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       },
       {
         "vendor": "omniroute-10",
-        "displayName": "OmniRoute",
-        "managementCommand": "omnicopilot.manage"
+        "displayName": "OmniRoute"
       }
     ],
     "commands": [
@@ -226,7 +216,7 @@
             "%cfg.fallbackMode.sameFamily%",
             "%cfg.fallbackMode.full%"
           ],
-          "default": "none",
+          "default": "sameModel",
           "order": 8,
           "description": "%cfg.fallbackMode%"
         },

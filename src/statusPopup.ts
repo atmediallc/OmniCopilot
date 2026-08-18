@@ -71,6 +71,13 @@ export class OmniStatusPopup {
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
+            // Reflect the toggle immediately so a metrics-only render can't
+            // flip it back before the throttled refresh runs.
+            if (this.lastState) {
+              this.lastState = { ...this.lastState, statusBarEnabled: payload.enabled };
+              void this.panel.webview.postMessage({ command: "updateState", state: this.lastState });
+            }
+            this.lastUpdateMs = 0;
             await this.updateStateData();
             break;
           }
@@ -81,6 +88,16 @@ export class OmniStatusPopup {
             await vscode.workspace
               .getConfiguration("omnicopilot")
               .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
+            // Reflect the choice immediately (even if updateStateData is
+            // throttled/in-flight) so a metrics-only render can't revert it.
+            if (this.lastState) {
+              this.lastState = { ...this.lastState, fallbackMode: mode };
+              void this.panel.webview.postMessage({
+                command: "updateState",
+                state: { ...this.lastState, fallbackMode: mode },
+              });
+            }
+            this.lastUpdateMs = 0;
             await this.updateStateData();
             break;
           }
@@ -229,9 +246,17 @@ export class OmniStatusPopup {
     });
   }
 
-  private async renderStatusSnapshot(snapshot: StatusSnapshot): Promise<void> {
+  private async renderStatusSnapshot(
+    snapshot: StatusSnapshot,
+    settings?: {
+      suggestions?: unknown[];
+      fallbackMode?: string;
+      statusBarEnabled?: boolean;
+      retriesPerServer?: number;
+    }
+  ): Promise<void> {
     if (!this.webviewReady) return;
-    const routes = this.lastUsedRoutes ?? await cachedLoadRoutes(this.context);
+    const routes = this.lastUsedRoutes ?? (await cachedLoadRoutes(this.context));
     const byId = new Map(routes.map((route) => [route.id, route]));
     const metrics = this.metricsTracker.getMetrics(routes);
     const servers = snapshot.servers.map((server) => ({
@@ -250,13 +275,18 @@ export class OmniStatusPopup {
         lastUsedModel: metrics.servers[server.routeId]?.lastUsedModel,
       },
     }));
+    const prev = this.lastState ?? {
+      suggestions: [],
+      fallbackMode: "sameModel",
+      statusBarEnabled: true,
+      retriesPerServer: 3,
+    };
     const state = {
-      ...(this.lastState ?? {
-        suggestions: [],
-        fallbackMode: "none",
-        statusBarEnabled: true,
-        retriesPerServer: 1,
-      }),
+      ...prev,
+      suggestions: settings?.suggestions ?? prev.suggestions,
+      fallbackMode: settings?.fallbackMode ?? prev.fallbackMode,
+      statusBarEnabled: settings?.statusBarEnabled ?? prev.statusBarEnabled,
+      retriesPerServer: settings?.retriesPerServer ?? prev.retriesPerServer,
       metrics: {
         totalInputTokens: metrics.totalInputTokens,
         totalOutputTokens: metrics.totalOutputTokens,
@@ -289,34 +319,22 @@ export class OmniStatusPopup {
     try {
       const routes = await cachedLoadRoutes(this.context);
       const cfg = vscode.workspace.getConfiguration("omnicopilot");
-      const fallbackMode = cfg.get<string>("fallbackMode", "none");
+      const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
       const retriesPerServer = cfg.get<number>("retriesPerServer", 3);
       const snapshot = this.statusBar.getSnapshot();
-      const metrics = this.metricsTracker.getMetrics(routes);
       const suggestions = this.metricsTracker.generateSuggestions(
         routes,
         new Set(snapshot.servers.filter((server) => server.online).map((server) => server.routeId))
       );
-      await this.renderStatusSnapshot(snapshot);
-      if (this.lastState) {
-        this.lastState = {
-          ...this.lastState,
-          suggestions,
-          fallbackMode,
-          statusBarEnabled,
-          retriesPerServer,
-          metrics: {
-            totalInputTokens: metrics.totalInputTokens,
-            totalOutputTokens: metrics.totalOutputTokens,
-            totalTokens: metrics.totalTokens,
-            totalRequests: metrics.totalRequests,
-            formattedTotalTokens: fmtTokens(metrics.totalTokens),
-            formattedInputTokens: fmtTokens(metrics.totalInputTokens),
-            formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
-          },
-        };
-      }
+      // renderStatusSnapshot merges `settings` into the posted state, so the
+      // webview always reflects the real configuration — not stale defaults.
+      await this.renderStatusSnapshot(snapshot, {
+        suggestions,
+        fallbackMode,
+        statusBarEnabled,
+        retriesPerServer,
+      });
       this.lastUsedRoutes = routes;
     } catch (err) {
       this.log.error(`Error updating status popup state: ${String(err)}`);

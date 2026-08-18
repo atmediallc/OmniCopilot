@@ -45,7 +45,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     private readonly onSettingsSaved: () => Promise<void>
   ) {}
 
-  /** Reveal the panel (used by the managementCommand / status bar). */
+  /** Reveal the panel (used by the status bar / manage command). */
   async focus(): Promise<void> {
     await vscode.commands.executeCommand(`${OmniPanelProvider.viewId}.focus`);
   }

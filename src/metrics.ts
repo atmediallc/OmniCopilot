@@ -225,7 +225,7 @@ export class MetricsTracker {
   generateSuggestions(routes: Route[], onlineRouteIds: Set<string>): ImprovementSuggestion[] {
     const suggestions: ImprovementSuggestion[] = [];
     const cfg = vscode.workspace.getConfiguration("omnicopilot");
-    const fallbackMode = cfg.get<string>("fallbackMode", "none");
+    const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
 
     // 1. Redundancy / Failover check
     if (routes.length === 0) {

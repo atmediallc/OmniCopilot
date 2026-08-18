@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { EncryptedReasoningFilter, OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
+import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
 
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
@@ -37,8 +37,42 @@ function getConfig() {
 
 /** Small non-abortable pause between fallback attempts to avoid hammering a
  * busy server. Kept short; cancellation is re-checked on the next iteration. */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, token?: vscode.CancellationToken): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    if (token) {
+      token.onCancellationRequested(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    }
+  });
+}
+
+/** Builds a user-facing failure message, separating upstream capacity/rate-limit
+ * (503/429 — retry shortly) from connection/config problems (check your server). */
+function describeFinalFailure(modelId: string, serverCount: number, err: unknown): string {
+  const isThrottle =
+    err instanceof OmniRouteError && (err.status === 503 || err.status === 429 || isThrottleError(err));
+  if (isThrottle) {
+    return vscode.l10n.t(
+      "OmniRoute: model {0} is temporarily unavailable on all {1} server(s). The upstream is at capacity or rate-limited (HTTP {2}); retry in a moment or pick another model.",
+      modelId,
+      String(serverCount),
+      String(err instanceof OmniRouteError && err.status ? err.status : "503/429")
+    );
+  }
+  const reason = err instanceof OmniRouteError ? err.message : String(err);
+  return vscode.l10n.t(
+    "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
+    modelId,
+    String(serverCount),
+    reason
+  );
 }
 
 export class OmniRouteChatProvider
@@ -369,7 +403,7 @@ export class OmniRouteChatProvider
           primaryEntry,
           this.cachedModels,
           Boolean(options.tools?.length),
-          getConfig().get<FallbackMode>("fallbackMode", "none")
+          getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
     if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
@@ -453,24 +487,15 @@ export class OmniRouteChatProvider
           const startedAt = Date.now();
           let firstTokenAt: number | undefined;
           this.deps.onRequestStart?.(cand.routeId, cand.modelId);
-          const reasoningFilter = new EncryptedReasoningFilter();
           try {
             for await (const event of client.streamChat(attemptRequest, abort.signal)) {
               if (token.isCancellationRequested) break;
               if (event.kind === "text") {
-                for (const safeText of reasoningFilter.push(event.text)) {
-                  firstTokenAt ??= Date.now();
-                  streamed += safeText;
-                  reportedAny = true;
-                  progress.report(new vscode.LanguageModelTextPart(safeText));
-                }
+                firstTokenAt ??= Date.now();
+                streamed += event.text;
+                reportedAny = true;
+                progress.report(new vscode.LanguageModelTextPart(event.text));
               } else {
-                for (const safeText of reasoningFilter.flush()) {
-                  firstTokenAt ??= Date.now();
-                  streamed += safeText;
-                  reportedAny = true;
-                  progress.report(new vscode.LanguageModelTextPart(safeText));
-                }
                 reportedAny = true;
                 let input: Record<string, unknown>;
                 try {
@@ -484,12 +509,6 @@ export class OmniRouteChatProvider
                 }
                 progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
               }
-            }
-            for (const safeText of reasoningFilter.flush()) {
-              firstTokenAt ??= Date.now();
-              streamed += safeText;
-              reportedAny = true;
-              progress.report(new vscode.LanguageModelTextPart(safeText));
             }
             if (!reportedAny) {
               log.warn(`Model ${cand.modelId} @${cand.routeId} returned an empty stream; emitting empty text part`);
@@ -562,7 +581,12 @@ export class OmniRouteChatProvider
               const baseDelay = isThrottle ? 1500 + Math.random() * 1000 : 250;
               const maxDelay = isThrottle ? 8000 : 2000;
               const multiplier = isThrottle ? 1.5 : 2;
-              await delay(Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted)));
+              const backoff = Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted));
+              // If the upstream told us when to retry (Retry-After header),
+              // honor it instead of guessing — capped so a misbehaving server
+              // can't stall the request forever.
+              const retryAfterMs = err instanceof OmniRouteError ? err.retryAfterMs : undefined;
+              await delay(retryAfterMs !== undefined ? Math.min(retryAfterMs, 30_000) : backoff, token);
               continue;
             }
           }
@@ -580,32 +604,20 @@ export class OmniRouteChatProvider
         );
         if (last) {
           this.deps.onActivity?.(false, cand.routeId);
-          const reason = candError instanceof OmniRouteError ? candError.message : String(candError);
-          log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+          log.error(`Chat request failed after ${candidates.length} model(s): ${String(candError)}`);
           this.deps.onRequestEnd?.(false, describeFetchError(candError), i);
           void vscode.window.showErrorMessage(
-            vscode.l10n.t(
-              "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
-              model.omniModelId,
-              String(serverCount),
-              reason
-            )
+            describeFinalFailure(model.omniModelId, serverCount, candError)
           );
           throw candError;
         }
       }
       if (lastError !== undefined) {
-        const reason = lastError instanceof OmniRouteError ? lastError.message : String(lastError);
         this.deps.onActivity?.(false, candidates[0]?.routeId);
-        log.error(`Chat request failed after ${candidates.length} model(s): ${reason}`);
+        log.error(`Chat request failed after ${candidates.length} model(s): ${String(lastError)}`);
         this.deps.onRequestEnd?.(false, describeFetchError(lastError), candidates.length - 1);
         void vscode.window.showErrorMessage(
-          vscode.l10n.t(
-            "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
-            model.omniModelId,
-            String(serverCount),
-            reason
-          )
+          describeFinalFailure(model.omniModelId, serverCount, lastError)
         );
         throw lastError;
       }

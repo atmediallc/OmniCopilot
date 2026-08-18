@@ -92,7 +92,10 @@ export class OmniRouteError extends Error {
     /** Upstream endpoint that failed, e.g. /models or /chat/completions. */
     public readonly endpoint?: string,
     /** Milliseconds the failed attempt took (status-bar diagnosis). */
-    public readonly latencyMs?: number
+    public readonly latencyMs?: number,
+    /** Suggested wait from the upstream's `Retry-After` header (503/429),
+     * in milliseconds — lets the caller's backoff honor it. */
+    public readonly retryAfterMs?: number
   ) {
     super(message);
     this.name = "OmniRouteError";
@@ -436,12 +439,19 @@ export class OmniRouteClient {
 
     if (!res.ok || !res.body) {
       const detail = await safeErrorDetail(res);
+      // 503/429 responses often carry a Retry-After hint; surface it so the
+      // provider's backoff can honor it instead of guessing.
+      const retryAfter = res.headers.get("retry-after");
+      const retryAfterMs =
+        retryAfter !== null && Number(retryAfter) > 0 ? Number(retryAfter) * 1000 : undefined;
       throw new OmniRouteError(
         `OmniRoute request failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`,
         res.status,
         false,
         "headers",
-        "/chat/completions"
+        "/chat/completions",
+        undefined,
+        retryAfterMs
       );
     }
 
