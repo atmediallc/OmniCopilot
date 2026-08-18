@@ -100,11 +100,18 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 ### Dashboard inside VS Code
 
 Set `omnicopilot.dashboardOpen` to `editor` to open the OmniRoute dashboard in a VS Code tab
-instead of your browser. This needs the server to allow embedding, which is opt-in — start
-OmniRoute with **`DASHBOARD_ALLOW_EMBED=vscode`** (available since the CSP opt-in landed in
-[OmniRoute #10273](https://github.com/diegosouzapw/OmniRoute/issues/10273)). Without it the
-page refuses to frame and the extension falls back to the external browser, so nothing breaks
-either way.
+instead of your browser. This needs the server to allow embedding, which is opt-in via
+**`DASHBOARD_ALLOW_EMBED=vscode`** (landed in
+[OmniRoute #10273](https://github.com/diegosouzapw/OmniRoute/issues/10273)).
+
+⚠️ That flag is read at **build time** — Next.js bakes the response headers into the route
+manifest — so exporting it in front of an already-installed server does nothing. It works on a
+build from source (`DASHBOARD_ALLOW_EMBED=vscode npm run build`), not on the prebuilt
+`npm install -g omniroute` package or the official Docker image. Full matrix in the
+[OmniRoute guide](https://github.com/diegosouzapw/OmniRoute/blob/main/docs/guides/VSCODE-COPILOT.md#dashboard-inside-a-vs-code-tab).
+
+Without an embed-enabled build the page refuses to frame; the extension detects that from the
+response headers and falls back to the external browser, so nothing breaks either way.
 
 ## How the model list is built
 
