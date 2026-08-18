@@ -61,8 +61,25 @@ curl -s -X POST "https://marketplace.visualstudio.com/_apis/public/gallery/exten
   -d '{"filters":[{"criteria":[{"filterType":7,"value":"diegosouzapw.omnicopilot"}],"pageSize":1,"pageNumber":1}],"flags":914}'
 ```
 
-`filterType: 7` means "look up by extension id". A populated `results[0].extensions[0]` with the
-expected `version` confirms the publish, independent of the HTML page's cache state.
+`filterType: 7` means "look up by extension id".
+
+**Careful: that endpoint caches too.** After the 1.0.1 publish it kept answering `1.0.0`
+for well over ten minutes while the release was already live. The authoritative check is
+
+```bash
+npx vsce show diegosouzapw.omnicopilot     # lists every published version
+```
+
+and the definitive one is fetching the artifact itself — a `200` here means the version
+exists on the CDN, whatever any page or query says:
+
+```bash
+curl -sIL -o /dev/null -w '%{http_code}\n' \
+  https://marketplace.visualstudio.com/_apis/public/gallery/publishers/diegosouzapw/vsextensions/omnicopilot/<version>/vspackage
+```
+
+Do not re-publish because a page still shows the old version — you will only get
+"already exists". Open VSX, by contrast, reflected the new version in about a minute.
 
 ---
 
@@ -75,6 +92,11 @@ expected `version` confirms the publish, independent of the HTML page's cache st
 3. Claim the namespace once: `npx ovsx create-namespace diegosouzapw -p <token>`.
 
 ### ⚠️ Publisher Agreement — required before ANY version becomes visible
+
+> **Status: signed** (2026-08-17). Signing it retroactively activated the 1.0.0
+> that had been published-but-invisible, so this is a one-time step — later
+> releases publish normally. Kept here because the failure mode is silent and
+> the error message does not mention the agreement.
 
 `ovsx publish` can report `🚀 Published diegosouzapw.omnicopilot v1.0.0` and still leave the
 extension **invisible** on the registry. Re-running the publish then fails with:
