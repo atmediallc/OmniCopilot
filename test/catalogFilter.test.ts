@@ -48,6 +48,32 @@ describe("isChatModel", () => {
   it("keeps a model with an empty endpoint list rather than guessing it is unusable", () => {
     expect(isChatModel(model({ id: "m", supported_endpoints: [] }))).toBe(true);
   });
+
+  // Regression guards for server-version skew (the Ashburn failure): a server
+  // running an older/newer OmniRoute build can send `type: "llm"` and
+  // `supported_endpoints: ["chat/completions"]`. The filter must treat both as
+  // conversational — an unknown type or a `chat`-containing surface must never
+  // empty the whole route's picker.
+  it('keeps a model typed "llm" — only known specialty types are dropped', () => {
+    expect(isChatModel(model({ id: "ash/llama-3.3-70b", type: "llm" }))).toBe(true);
+    expect(isChatModel(model({ id: "m", type: "llm", supported_endpoints: ["chat/completions"] }))).toBe(
+      true
+    );
+  });
+
+  it('keeps a model served on "chat/completions"', () => {
+    expect(
+      isChatModel(model({ id: "ash/gpt-4o-mini", supported_endpoints: ["chat/completions"] }))
+    ).toBe(true);
+  });
+
+  it('keeps a model served on "completions" — not a known specialty surface', () => {
+    expect(isChatModel(model({ id: "m", supported_endpoints: ["completions"] }))).toBe(true);
+  });
+
+  it("keeps a model with a wholly unknown endpoint value (future surface)", () => {
+    expect(isChatModel(model({ id: "m", supported_endpoints: ["foo/bar.baz"] }))).toBe(true);
+  });
 });
 
 describe("selectChatModels", () => {
@@ -67,6 +93,28 @@ describe("selectChatModels", () => {
   it("keeps a row that points at itself", () => {
     const models = [model({ id: "self/model", parent: "self/model" })];
     expect(selectChatModels(models).map((m) => m.id)).toEqual(["self/model"]);
+  });
+
+  // Regression guard (Ashburn failure): a broken server that advertises a
+  // cyclic dual-prefix pair (A.parent = B AND B.parent = A) must not wipe the
+  // catalog. The old dedup dropped both rows because each looked like a mirror.
+  it("keeps both rows of a cyclic dual-prefix pair instead of dropping the catalog", () => {
+    const models = [
+      model({ id: "ash/prefix/model", parent: "canonical/prefix/model" }),
+      model({ id: "canonical/prefix/model", parent: "ash/prefix/model" }),
+    ];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual([
+      "ash/prefix/model",
+      "canonical/prefix/model",
+    ]);
+  });
+
+  it("still drops a true mirror when the parent does not point back", () => {
+    const models = [
+      model({ id: "cc/claude-sonnet-4-6", parent: null }),
+      model({ id: "claude/claude-sonnet-4-6", parent: "cc/claude-sonnet-4-6" }),
+    ];
+    expect(selectChatModels(models).map((m) => m.id)).toEqual(["cc/claude-sonnet-4-6"]);
   });
 
   it("preserves catalog order and skips entries without an id", () => {

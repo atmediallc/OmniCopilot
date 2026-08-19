@@ -91,4 +91,48 @@ describe("OmniRouteChatProvider", () => {
     const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos.some((i) => i.routeId === "deleted-route")).toBe(false);
   });
+
+  it("persists reasoning/thinking capabilities in the slim cache", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080" },
+    ]);
+    const mockClient = {
+      listModels: vi.fn().mockResolvedValue([
+        {
+          id: "o3-mini",
+          owned_by: "openai",
+          display_name: "o3-mini",
+          capabilities: { reasoning: true, thinking: true, tool_calling: true },
+        },
+      ]),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    // persistCache is fire-and-forget; wait until it lands in globalState.
+    await vi.waitFor(() => {
+      const saved = context.globalState.get("omnicopilot.cachedCatalog.v1") as unknown as Array<{
+        model: { capabilities: Record<string, unknown> };
+      }>;
+      expect(saved).toHaveLength(1);
+      expect(saved[0].model.capabilities.reasoning).toBe(true);
+      expect(saved[0].model.capabilities.thinking).toBe(true);
+    });
+
+    // A reload served from this persisted cache keeps supportsReasoning.
+    const provider2 = new OmniRouteChatProvider({ context, log: mockLog });
+    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now());
+    OmniRouteChatProvider.loadPersistentCache(context);
+    const infos = await provider2.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    expect(infos).toHaveLength(1);
+    expect(infos[0].supportsReasoning).toBe(true);
+  });
 });

@@ -50,9 +50,11 @@ async function doSyncProviders(
 
   const routes = await cachedLoadRoutes(context);
   const activeRoutes = routes.slice(0, 10);
-  if (routes.length > 10) {
+  const droppedRoutes = routes.slice(10);
+  if (droppedRoutes.length > 0) {
+    const names = droppedRoutes.map((r) => r.name.trim() || r.id).join(", ");
     log.warn(
-      `OmniRoute supports up to 10 active servers simultaneously. Truncating ${routes.length} configured servers to 10.`
+      `OmniRoute supports up to 10 active servers simultaneously. Truncating ${routes.length} configured servers to 10. Not imported: ${names}.`
     );
   }
 

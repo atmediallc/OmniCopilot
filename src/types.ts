@@ -78,6 +78,10 @@ export interface ChatRequest {
   tools?: ChatTool[];
   tool_choice?: "auto" | "required";
   temperature?: number;
+  /** OpenAI-compatible reasoning effort (low/medium/high) for models with
+   * extended thinking. Translating gateways (e.g. Claude/Gemini thinking)
+   * map it server-side. */
+  reasoning_effort?: "low" | "medium" | "high";
   max_tokens?: number;
 }
 

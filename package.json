@@ -299,6 +299,19 @@
           "default": "omniroute",
           "order": 9,
           "description": "%cfg.cliPath%"
+        },
+        "omnicopilot.defaultReasoningEffort": {
+          "type": "string",
+          "enum": ["none", "low", "medium", "high"],
+          "enumDescriptions": [
+            "%cfg.defaultReasoningEffort.none%",
+            "%cfg.defaultReasoningEffort.low%",
+            "%cfg.defaultReasoningEffort.medium%",
+            "%cfg.defaultReasoningEffort.high%"
+          ],
+          "default": "none",
+          "order": 10,
+          "description": "%cfg.defaultReasoningEffort%"
         }
       }
     }

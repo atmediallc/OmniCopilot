@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isTransientHttpError, isThrottleError } from "./client";
 
+import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
 import type { ChatRequest } from "./types";
@@ -10,6 +11,9 @@ import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
   routeId: string;
+  /** Derived from the catalog entry's capabilities (reasoning/thinking):
+   * gates sending `reasoning_effort` on models that support it. */
+  supportsReasoning?: boolean;
 }
 
 export interface ProviderDeps {
@@ -34,6 +38,51 @@ export interface ProviderDeps {
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
+}
+
+const REASONING_EFFORTS = new Set(["low", "medium", "high"]);
+
+type ReasoningEffort = "low" | "medium" | "high";
+
+function isReasoningEffort(value: string): value is ReasoningEffort {
+  return REASONING_EFFORTS.has(value);
+}
+
+/** Resolves the reasoning effort to forward to the backend. Only models that
+ * advertise reasoning/thinking in their catalog entry (`supportsReasoning`)
+ * ever receive the parameter — for all other models the selector is
+ * effectively unavailable. Precedence: 
+ * 1. Explicit UI intent (`options.modelOptions.reasoningEffort` or `reasoning_effort`)
+ * 2. Inferred effort from the model ID suffix (-low, -medium, -high)
+ * 3. The `defaultReasoningEffort` global configuration
+ * Invalid values are dropped (backends can 400 on unknown params). */
+export function resolveReasoningEffort(
+  modelId: string,
+  modelOptions: Readonly<Record<string, unknown>> | undefined,
+  configured: unknown,
+  supportsReasoning: boolean
+): ReasoningEffort | undefined {
+  if (!supportsReasoning) return undefined;
+  
+  const explicit = modelOptions?.reasoningEffort ?? modelOptions?.reasoning_effort;
+  if (typeof explicit === "string") {
+    const normalized = explicit.trim().toLowerCase();
+    if (isReasoningEffort(normalized)) return normalized;
+  }
+  
+  const idLower = modelId.toLowerCase();
+  for (const effort of REASONING_EFFORTS) {
+    if (idLower.endsWith(`-${effort}`) || idLower.includes(`-${effort}-`)) {
+      return effort as ReasoningEffort;
+    }
+  }
+
+  if (configured === "none") return undefined;
+  if (typeof configured === "string") {
+    const normalized = configured.trim().toLowerCase();
+    if (isReasoningEffort(normalized)) return normalized;
+  }
+  return undefined;
 }
 
 /** Compiles the user's model filter regex. A malformed or overly long pattern
@@ -213,6 +262,8 @@ export class OmniRouteChatProvider
         capabilities: {
           tool_calling: c.model.capabilities?.tool_calling,
           vision: c.model.capabilities?.vision,
+          reasoning: c.model.capabilities?.reasoning,
+          thinking: c.model.capabilities?.thinking,
         },
       },
     }));
@@ -318,8 +369,27 @@ export class OmniRouteChatProvider
           fetchP = (async () => {
             try {
               const models = await getClientForRoute(r, this.deps.log).listModels();
+              // Count what actually reaches the picker after catalog shaping
+              // (specialty registries + dual-prefix mirrors are dropped), so a
+              // silent all-drop (e.g. wrong `type` from a server version skew)
+              // shows as "0/N" instead of a misleading "succeeded: N".
+              const chatModels = selectChatModels(models);
               this.deps.onActivity?.(true, r.id);
-              this.deps.log.info(`Route "${r.name}" (${r.baseUrl}) model discovery succeeded: ${models.length} model(s)`);
+              this.deps.log.info(
+                `Route "${r.name}" (${r.baseUrl}) model discovery succeeded: ${chatModels.length}/${models.length} chat model(s)`
+              );
+              if (models.length > 0 && chatModels.length === 0) {
+                const sample = models
+                  .slice(0, 3)
+                  .map(
+                    (m) =>
+                      `${m.id} (type=${m.type ?? "-"}, endpoints=${JSON.stringify(m.supported_endpoints ?? [])}, parent=${m.parent ?? "-"})`
+                  )
+                  .join(", ");
+                this.deps.log.warn(
+                  `Route "${r.name}" filtered out ALL ${models.length} model(s) — server catalog shape is incompatible. Sample: ${sample}`
+                );
+              }
               return { routeId: r.id, name: r.name, models };
             } catch (err) {
               this.deps.onActivity?.(false, r.id);
@@ -401,6 +471,16 @@ export class OmniRouteChatProvider
     const isCombo = model.owned_by === "combo";
 
     const displayName = model.display_name?.trim() || model.id;
+    const idLower = model.id.toLowerCase();
+    const nameLower = displayName.toLowerCase();
+
+    // Some routers (like OmniRoute) expose tiered/effort variants in the ID/name
+    // or we might miss `caps.reasoning` for o1/o3/r1/thinking models.
+    const hasReasoningKeywords =
+      caps.reasoning === true ||
+      caps.thinking === true ||
+      /(-low|-medium|-high|-tiered|\bthinking\b|\breasoning\b|\bo1\b|\bo3\b|-r1|\bqwq\b)/.test(idLower) ||
+      /(-low|-medium|-high|-tiered|\bthinking\b|\breasoning\b|\bo1\b|\bo3\b|-r1|\bqwq\b)/.test(nameLower);
 
     return {
       id: c.entry.prefixedId,
@@ -417,6 +497,7 @@ export class OmniRouteChatProvider
       },
       omniModelId: c.entry.modelId,
       routeId: c.entry.routeId,
+      supportsReasoning: hasReasoningKeywords,
     };
   }
 
@@ -484,6 +565,15 @@ export class OmniRouteChatProvider
     const modelOptions = options.modelOptions as Record<string, unknown> | undefined;
     if (typeof modelOptions?.temperature === "number") {
       request.temperature = modelOptions.temperature;
+    }
+    const effort = resolveReasoningEffort(
+      model.omniModelId,
+      modelOptions,
+      getConfig().get<string>("defaultReasoningEffort", "none"),
+      Boolean(model.supportsReasoning)
+    );
+    if (effort) {
+      request.reasoning_effort = effort;
     }
     return request;
   }
