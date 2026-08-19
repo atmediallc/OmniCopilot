@@ -81,7 +81,7 @@ async function doSyncProviders(
   if (activeRoutes.length <= 1) {
     const p = new OmniRouteChatProvider(deps);
     try {
-      const reg = vscode.lm.registerLanguageModelChatProvider(VENDOR, p);
+      const reg = vscode.lm.registerLanguageModelChatProvider(VENDOR, p as unknown as vscode.LanguageModelChatProvider);
       activeProviders.push(p);
       providerDisposables.push(p, reg);
       log.info(`Registered provider for vendor "${VENDOR}" (${activeRoutes.length} server(s) configured)`);
@@ -93,7 +93,7 @@ async function doSyncProviders(
       const vendorId = index === 0 ? VENDOR : `omniroute-${index + 1}`;
       const p = new OmniRouteChatProvider(deps, route.id);
       try {
-        const reg = vscode.lm.registerLanguageModelChatProvider(vendorId, p);
+        const reg = vscode.lm.registerLanguageModelChatProvider(vendorId, p as unknown as vscode.LanguageModelChatProvider);
         activeProviders.push(p);
         providerDisposables.push(p, reg);
         log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}" (routeId: ${route.id})`);

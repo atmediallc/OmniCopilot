@@ -78,10 +78,6 @@ export interface ChatRequest {
   tools?: ChatTool[];
   tool_choice?: "auto" | "required";
   temperature?: number;
-  /** OpenAI-compatible reasoning effort (low/medium/high) for models with
-   * extended thinking. Translating gateways (e.g. Claude/Gemini thinking)
-   * map it server-side. */
-  reasoning_effort?: "low" | "medium" | "high";
   max_tokens?: number;
   /** Canonical reasoning tier (none/low/medium/high/xhigh). OmniRoute maps it
    * onto each provider's own field — reasoning_effort, reasoning.effort or a
