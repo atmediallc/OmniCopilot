@@ -98,7 +98,7 @@ export function selectChatModels(models: readonly OmniRouteModel[]): OmniRouteMo
       // points straight back at this row (a cyclic/misconfigured dual-prefix
       // pair), dropping both would silently wipe the whole catalog — keep
       // each row instead of losing the model.
-      if (!parent || parent.parent !== model.id) continue;
+      if (parent?.parent !== model.id) continue;
     }
     out.push(model);
   }
