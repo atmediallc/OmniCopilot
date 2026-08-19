@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Nơi mở bảng điều khiển OmniRoute.",
   "cfg.dashboardOpen.external": "Mở bảng điều khiển trong trình duyệt web mặc định của bạn.",
   "cfg.dashboardOpen.editor": "Mở bảng điều khiển trong một tab trình soạn thảo VS Code (Simple Browser). Yêu cầu phiên bản OmniRoute cho phép nhúng.",
+  "cfg.defaultReasoningEffort": "Mức suy luận mặc định cho các mô hình hỗ trợ tư duy mở rộng. Để trống để mỗi mô hình tự quyết định; giá trị chọn trong giao diện trò chuyện luôn được ưu tiên.",
+  "cfg.defaultReasoningEffort.unset": "Chưa đặt — để mô hình/máy chủ quyết định",
+  "cfg.defaultReasoningEffort.none": "Không tư duy mở rộng",
+  "cfg.defaultReasoningEffort.low": "Thấp",
+  "cfg.defaultReasoningEffort.medium": "Trung bình",
+  "cfg.defaultReasoningEffort.high": "Cao",
+  "cfg.defaultReasoningEffort.xhigh": "Cao nhất — hạ xuống với mô hình không hỗ trợ",
   "cfg.cliPath": "Đường dẫn đến OmniRoute CLI, được lệnh \"Cấu hình CLI lập trình\" sử dụng."
 }

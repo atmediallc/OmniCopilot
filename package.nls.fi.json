@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Missä OmniRouten hallintapaneeli avataan.",
   "cfg.dashboardOpen.external": "Avaa hallintapaneeli oletusselaimessa.",
   "cfg.dashboardOpen.editor": "Avaa hallintapaneeli VS Coden editorivälilehdessä (Simple Browser). Vaatii OmniRoute-version, joka sallii upottamisen.",
+  "cfg.defaultReasoningEffort": "Oletuspäättelyn taso malleille, jotka tukevat laajennettua ajattelua. Jätä tyhjäksi, jolloin malli päättää itse; chatissa valittu arvo voittaa aina.",
+  "cfg.defaultReasoningEffort.unset": "Ei asetettu — malli/palvelin päättää",
+  "cfg.defaultReasoningEffort.none": "Ei laajennettua ajattelua",
+  "cfg.defaultReasoningEffort.low": "Matala",
+  "cfg.defaultReasoningEffort.medium": "Keskitaso",
+  "cfg.defaultReasoningEffort.high": "Korkea",
+  "cfg.defaultReasoningEffort.xhigh": "Korkein — lasketaan malleille, jotka eivät tue sitä",
   "cfg.cliPath": "OmniRoute CLI:n polku, jota \"Configure Coding CLI\" -komento käyttää."
 }

@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Tempat dasbor OmniRoute dibuka.",
   "cfg.dashboardOpen.external": "Buka dasbor di browser web default Anda.",
   "cfg.dashboardOpen.editor": "Buka dasbor di tab editor VS Code (Simple Browser). Memerlukan versi OmniRoute yang mengizinkan penyematan.",
+  "cfg.defaultReasoningEffort": "Upaya penalaran bawaan untuk model yang mendukung pemikiran diperluas. Biarkan kosong agar tiap model memutuskan sendiri; nilai yang dipilih di UI obrolan selalu menang.",
+  "cfg.defaultReasoningEffort.unset": "Tidak diatur — biarkan model/server memutuskan",
+  "cfg.defaultReasoningEffort.none": "Tanpa pemikiran diperluas",
+  "cfg.defaultReasoningEffort.low": "Rendah",
+  "cfg.defaultReasoningEffort.medium": "Sedang",
+  "cfg.defaultReasoningEffort.high": "Tinggi",
+  "cfg.defaultReasoningEffort.xhigh": "Tertinggi — diturunkan untuk model yang tidak mendukung",
   "cfg.cliPath": "Jalur ke CLI OmniRoute, digunakan oleh perintah \"Konfigurasikan CLI Pengodean\"."
 }

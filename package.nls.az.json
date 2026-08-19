@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute idarə panelinin harada açılacağı.",
   "cfg.dashboardOpen.external": "İdarə panelini standart veb-brauzerinizdə açın.",
   "cfg.dashboardOpen.editor": "İdarə panelini VS Code redaktor tabında açın (Simple Browser). Yerləşdirməyə icazə verən OmniRoute versiyası tələb olunur.",
+  "cfg.defaultReasoningEffort": "Genişlənmiş düşünməni dəstəkləyən modellər üçün standart mülahizə səyi. Hər modelin özü qərar verməsi üçün boş buraxın; söhbət interfeysində seçilən dəyər həmişə üstündür.",
+  "cfg.defaultReasoningEffort.unset": "Təyin edilməyib — model/server qərar versin",
+  "cfg.defaultReasoningEffort.none": "Genişlənmiş düşünmə yoxdur",
+  "cfg.defaultReasoningEffort.low": "Aşağı",
+  "cfg.defaultReasoningEffort.medium": "Orta",
+  "cfg.defaultReasoningEffort.high": "Yüksək",
+  "cfg.defaultReasoningEffort.xhigh": "Ən yüksək — dəstəkləməyən modellərdə aşağı salınır",
   "cfg.cliPath": "\"Configure Coding CLI\" əmrinin istifadə etdiyi OmniRoute CLI-nin yolu."
 }

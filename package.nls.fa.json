@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "محل باز شدن داشبورد OmniRoute.",
   "cfg.dashboardOpen.external": "باز کردن داشبورد در مرورگر وب پیش‌فرض شما.",
   "cfg.dashboardOpen.editor": "باز کردن داشبورد در یک زبانه ویرایشگر VS Code (Simple Browser). به نسخه‌ای از OmniRoute نیاز دارد که جاسازی را مجاز کند.",
+  "cfg.defaultReasoningEffort": "تلاش استدلال پیش‌فرض برای مدل‌هایی که تفکر گسترده دارند. خالی بگذارید تا هر مدل خودش تصمیم بگیرد؛ مقدار انتخاب‌شده در رابط گفتگو همیشه اولویت دارد.",
+  "cfg.defaultReasoningEffort.unset": "تعیین‌نشده — مدل/سرور تصمیم بگیرد",
+  "cfg.defaultReasoningEffort.none": "بدون تفکر گسترده",
+  "cfg.defaultReasoningEffort.low": "کم",
+  "cfg.defaultReasoningEffort.medium": "متوسط",
+  "cfg.defaultReasoningEffort.high": "زیاد",
+  "cfg.defaultReasoningEffort.xhigh": "بالاترین — برای مدل‌های فاقد پشتیبانی کاهش می‌یابد",
   "cfg.cliPath": "مسیر OmniRoute CLI که فرمان \"Configure Coding CLI\" از آن استفاده می‌کند."
 }

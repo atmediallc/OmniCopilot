@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "היכן נפתח לוח הבקרה של OmniRoute.",
   "cfg.dashboardOpen.external": "פתיחת לוח הבקרה בדפדפן האינטרנט המהווה ברירת מחדל.",
   "cfg.dashboardOpen.editor": "פתיחת לוח הבקרה בכרטיסיית עורך של VS Code (Simple Browser). נדרשת גרסת OmniRoute המאפשרת הטמעה.",
+  "cfg.defaultReasoningEffort": "מאמץ חשיבה ברירת מחדל עבור מודלים התומכים בחשיבה מורחבת. השאירו ריק כדי שכל מודל יחליט; ערך שנבחר בממשק הצ'אט תמיד גובר.",
+  "cfg.defaultReasoningEffort.unset": "לא מוגדר — שהמודל/השרת יחליטו",
+  "cfg.defaultReasoningEffort.none": "ללא חשיבה מורחבת",
+  "cfg.defaultReasoningEffort.low": "נמוך",
+  "cfg.defaultReasoningEffort.medium": "בינוני",
+  "cfg.defaultReasoningEffort.high": "גבוה",
+  "cfg.defaultReasoningEffort.xhigh": "הגבוה ביותר — מופחת במודלים שאינם תומכים",
   "cfg.cliPath": "הנתיב אל OmniRoute CLI, המשמש את הפקודה \"Configure Coding CLI\"."
 }

@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Où s'ouvre le tableau de bord OmniRoute.",
   "cfg.dashboardOpen.external": "Ouvrir le tableau de bord dans votre navigateur web par défaut.",
   "cfg.dashboardOpen.editor": "Ouvrir le tableau de bord dans un onglet d'éditeur VS Code (Simple Browser). Nécessite une version d'OmniRoute autorisant l'incorporation.",
+  "cfg.defaultReasoningEffort": "Effort de raisonnement par défaut pour les modèles à pensée étendue. Laissez vide pour que chaque modèle décide ; une valeur choisie dans le chat l'emporte toujours.",
+  "cfg.defaultReasoningEffort.unset": "Non défini — laisser le modèle/serveur décider",
+  "cfg.defaultReasoningEffort.none": "Aucune pensée étendue",
+  "cfg.defaultReasoningEffort.low": "Faible",
+  "cfg.defaultReasoningEffort.medium": "Moyen",
+  "cfg.defaultReasoningEffort.high": "Élevé",
+  "cfg.defaultReasoningEffort.xhigh": "Maximal — abaissé pour les modèles qui ne le gèrent pas",
   "cfg.cliPath": "Chemin de la CLI OmniRoute, utilisé par la commande \"Configure Coding CLI\"."
 }

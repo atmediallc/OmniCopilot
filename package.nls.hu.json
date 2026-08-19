@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Hol nyíljon meg az OmniRoute irányítópultja.",
   "cfg.dashboardOpen.external": "Az irányítópult megnyitása az alapértelmezett webböngészőben.",
   "cfg.dashboardOpen.editor": "Az irányítópult megnyitása egy VS Code szerkesztőlapon (Simple Browser). Beágyazást engedélyező OmniRoute-verziót igényel.",
+  "cfg.defaultReasoningEffort": "Alapértelmezett gondolkodási ráfordítás a kiterjesztett gondolkodást támogató modellekhez. Hagyd üresen, hogy a modell döntsön; a chatben választott érték mindig elsőbbséget élvez.",
+  "cfg.defaultReasoningEffort.unset": "Nincs beállítva — döntsön a modell/kiszolgáló",
+  "cfg.defaultReasoningEffort.none": "Nincs kiterjesztett gondolkodás",
+  "cfg.defaultReasoningEffort.low": "Alacsony",
+  "cfg.defaultReasoningEffort.medium": "Közepes",
+  "cfg.defaultReasoningEffort.high": "Magas",
+  "cfg.defaultReasoningEffort.xhigh": "Legmagasabb — az azt nem támogató modelleknél lejjebb kerül",
   "cfg.cliPath": "Az OmniRoute CLI elérési útja, amelyet a \"Kódolási CLI konfigurálása\" parancs használ."
 }

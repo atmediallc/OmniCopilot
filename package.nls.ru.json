@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Где открывается панель управления OmniRoute.",
   "cfg.dashboardOpen.external": "Открывать панель управления в веб-браузере по умолчанию.",
   "cfg.dashboardOpen.editor": "Открывать панель управления во вкладке редактора VS Code (Simple Browser). Требуется версия OmniRoute, разрешающая встраивание.",
+  "cfg.defaultReasoningEffort": "Уровень рассуждений по умолчанию для моделей с расширенным мышлением. Оставьте пустым, чтобы решала сама модель; значение, выбранное в чате, всегда важнее.",
+  "cfg.defaultReasoningEffort.unset": "Не задано — пусть решает модель/сервер",
+  "cfg.defaultReasoningEffort.none": "Без расширенного мышления",
+  "cfg.defaultReasoningEffort.low": "Низкий",
+  "cfg.defaultReasoningEffort.medium": "Средний",
+  "cfg.defaultReasoningEffort.high": "Высокий",
+  "cfg.defaultReasoningEffort.xhigh": "Наивысший — понижается для моделей без поддержки",
   "cfg.cliPath": "Путь к CLI OmniRoute, используемый командой «Настроить CLI для написания кода»."
 }

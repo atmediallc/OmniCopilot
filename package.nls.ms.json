@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Tempat papan pemuka OmniRoute dibuka.",
   "cfg.dashboardOpen.external": "Buka papan pemuka dalam pelayar web lalai anda.",
   "cfg.dashboardOpen.editor": "Buka papan pemuka dalam tab editor VS Code (Simple Browser). Memerlukan versi OmniRoute yang membenarkan pembenaman.",
+  "cfg.defaultReasoningEffort": "Usaha penaakulan lalai untuk model yang menyokong pemikiran lanjutan. Biarkan kosong supaya setiap model menentukan sendiri; nilai yang dipilih dalam UI sembang sentiasa diutamakan.",
+  "cfg.defaultReasoningEffort.unset": "Tidak ditetapkan — biar model/pelayan menentukan",
+  "cfg.defaultReasoningEffort.none": "Tiada pemikiran lanjutan",
+  "cfg.defaultReasoningEffort.low": "Rendah",
+  "cfg.defaultReasoningEffort.medium": "Sederhana",
+  "cfg.defaultReasoningEffort.high": "Tinggi",
+  "cfg.defaultReasoningEffort.xhigh": "Tertinggi — diturunkan bagi model tanpa sokongan",
   "cfg.cliPath": "Laluan ke CLI OmniRoute, digunakan oleh perintah \"Konfigurasikan CLI Pengekodan\"."
 }

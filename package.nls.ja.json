@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRouteダッシュボードを開く場所。",
   "cfg.dashboardOpen.external": "既定のWebブラウザーでダッシュボードを開きます。",
   "cfg.dashboardOpen.editor": "VS Codeのエディタータブ（Simple Browser）でダッシュボードを開きます。埋め込みを許可するバージョンのOmniRouteが必要です。",
+  "cfg.defaultReasoningEffort": "拡張思考に対応したモデルの既定の推論強度。空のままにすると各モデルが判断します。チャット UI で選んだ値が常に優先されます。",
+  "cfg.defaultReasoningEffort.unset": "未設定 — モデル/サーバーに任せる",
+  "cfg.defaultReasoningEffort.none": "拡張思考なし",
+  "cfg.defaultReasoningEffort.low": "低",
+  "cfg.defaultReasoningEffort.medium": "中",
+  "cfg.defaultReasoningEffort.high": "高",
+  "cfg.defaultReasoningEffort.xhigh": "最高 — 非対応モデルでは引き下げ",
   "cfg.cliPath": "「コーディングCLIの構成」コマンドで使用するOmniRoute CLIのパス。"
 }

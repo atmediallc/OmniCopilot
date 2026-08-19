@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { selectChatModels } from "./catalogFilter";
 import { DEFAULT_BASE_URL, OmniRouteClient } from "./client";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
+import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import type { ChatRequest, OmniRouteModel } from "./types";
 
 export const SECRET_API_KEY = "omnicopilot.apiKey";
@@ -29,6 +30,10 @@ export class OmniRouteChatProvider
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
   private cachedModels: OmniRouteModel[] = [];
+  /** Ids the catalog marks as reasoning/thinking-capable, refreshed with the
+   * catalog. Chat requests consult it before applying the configured default
+   * effort — the request itself carries no capability information. */
+  private reasoningModelIds = new Set<string>();
 
   constructor(private readonly deps: ProviderDeps) {}
 
@@ -39,6 +44,7 @@ export class OmniRouteChatProvider
   /** Re-query the catalog and tell VS Code the model list changed. */
   async refresh(): Promise<void> {
     this.cachedModels = [];
+    this.reasoningModelIds.clear();
     this._onDidChange.fire();
   }
 
@@ -93,8 +99,10 @@ export class OmniRouteChatProvider
     }
 
     const infos: OmniModelInfo[] = [];
+    this.reasoningModelIds.clear();
     for (const model of selectChatModels(models)) {
       if (filter && !filter.test(model.id)) continue;
+      if (isReasoningModel(model)) this.reasoningModelIds.add(model.id);
 
       const contextLength = model.context_length ?? defaultContext;
       const maxOutputTokens = Math.min(model.max_completion_tokens ?? maxOutput, maxOutput);
@@ -107,7 +115,9 @@ export class OmniRouteChatProvider
         family: model.owned_by || "omniroute",
         version: "1.0.0",
         detail: isCombo ? "combo" : model.owned_by,
-        tooltip: `OmniRoute · ${model.id}`,
+        tooltip: isReasoningModel(model)
+          ? `OmniRoute · ${model.id} · extended thinking`
+          : `OmniRoute · ${model.id}`,
         maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
         maxOutputTokens,
         capabilities: {
@@ -166,6 +176,17 @@ export class OmniRouteChatProvider
     if (typeof modelOptions?.temperature === "number") {
       request.temperature = modelOptions.temperature;
     }
+
+    // #7: forward extended-thinking effort. The editor's per-request choice wins;
+    // the configured default only reaches models the catalog marks as reasoning-
+    // capable. Nothing is sent when neither applies, so non-thinking models keep
+    // the exact request shape they had before.
+    const effort = resolveReasoningEffort({
+      modelOptions,
+      configuredDefault: getConfig().get<string>("defaultReasoningEffort", ""),
+      modelIsReasoning: this.reasoningModelIds.has(model.omniModelId),
+    });
+    if (effort) request.reasoning_effort = effort;
 
     log.debug(
       `Chat → ${model.omniModelId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)`

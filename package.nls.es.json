@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Dónde se abre el panel de OmniRoute.",
   "cfg.dashboardOpen.external": "Abrir el panel en el explorador web predeterminado.",
   "cfg.dashboardOpen.editor": "Abrir el panel en una pestaña del editor de VS Code (Simple Browser). Requiere una versión de OmniRoute que permita la inserción.",
+  "cfg.defaultReasoningEffort": "Esfuerzo de razonamiento predeterminado para modelos con pensamiento extendido. Déjalo sin definir para que cada modelo decida; un valor elegido en el chat siempre prevalece.",
+  "cfg.defaultReasoningEffort.unset": "Sin definir — que decida el modelo/servidor",
+  "cfg.defaultReasoningEffort.none": "Sin pensamiento extendido",
+  "cfg.defaultReasoningEffort.low": "Bajo",
+  "cfg.defaultReasoningEffort.medium": "Medio",
+  "cfg.defaultReasoningEffort.high": "Alto",
+  "cfg.defaultReasoningEffort.xhigh": "El más alto — se reduce en modelos que no lo admiten",
   "cfg.cliPath": "Ruta de la CLI de OmniRoute, usada por el comando \"Configure Coding CLI\"."
 }

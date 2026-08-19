@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Hvor OmniRoute-dashbordet åpnes.",
   "cfg.dashboardOpen.external": "Åpne dashbordet i standardnettleseren din.",
   "cfg.dashboardOpen.editor": "Åpne dashbordet i en VS Code-redigeringsfane (Simple Browser). Krever en OmniRoute-versjon som tillater innebygging.",
+  "cfg.defaultReasoningEffort": "Standard resonneringsinnsats for modeller med utvidet tenkning. La stå tom så modellen bestemmer selv; en verdi valgt i chatten vinner alltid.",
+  "cfg.defaultReasoningEffort.unset": "Ikke satt — la modellen/serveren bestemme",
+  "cfg.defaultReasoningEffort.none": "Ingen utvidet tenkning",
+  "cfg.defaultReasoningEffort.low": "Lav",
+  "cfg.defaultReasoningEffort.medium": "Middels",
+  "cfg.defaultReasoningEffort.high": "Høy",
+  "cfg.defaultReasoningEffort.xhigh": "Høyest — nedjusteres for modeller uten støtte",
   "cfg.cliPath": "Bane til OmniRoute-CLI-en, brukt av kommandoen \"Konfigurer koding-CLI\"."
 }

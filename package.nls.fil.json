@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Kung saan bubuksan ang OmniRoute dashboard.",
   "cfg.dashboardOpen.external": "Buksan ang dashboard sa iyong default na web browser.",
   "cfg.dashboardOpen.editor": "Buksan ang dashboard sa isang tab ng editor ng VS Code (Simple Browser). Nangangailangan ng bersyon ng OmniRoute na nagpapahintulot ng pag-embed.",
+  "cfg.defaultReasoningEffort": "Default na reasoning effort para sa mga modelong may extended thinking. Iwanang blangko para ang bawat modelo ang magpasya; laging nananaig ang halagang pinili sa chat UI.",
+  "cfg.defaultReasoningEffort.unset": "Hindi nakatakda — hayaang magpasya ang modelo/server",
+  "cfg.defaultReasoningEffort.none": "Walang extended thinking",
+  "cfg.defaultReasoningEffort.low": "Mababa",
+  "cfg.defaultReasoningEffort.medium": "Katamtaman",
+  "cfg.defaultReasoningEffort.high": "Mataas",
+  "cfg.defaultReasoningEffort.xhigh": "Pinakamataas — ibinababa sa mga modelong walang suporta",
   "cfg.cliPath": "Path patungo sa OmniRoute CLI, ginagamit ng command na \"I-configure ang Coding CLI\"."
 }

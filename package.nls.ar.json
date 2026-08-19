@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "مكان فتح لوحة تحكم OmniRoute.",
   "cfg.dashboardOpen.external": "فتح لوحة التحكم في متصفح الويب الافتراضي لديك.",
   "cfg.dashboardOpen.editor": "فتح لوحة التحكم في علامة تبويب محرر VS Code (Simple Browser). يتطلب إصدار OmniRoute يسمح بالتضمين.",
+  "cfg.defaultReasoningEffort": "جهد الاستدلال الافتراضي للنماذج التي تدعم التفكير الموسّع. اتركه فارغًا ليقرر كل نموذج بنفسه؛ القيمة المختارة في واجهة الدردشة تسبق دائمًا.",
+  "cfg.defaultReasoningEffort.unset": "غير محدد — اترك القرار للنموذج/الخادم",
+  "cfg.defaultReasoningEffort.none": "بدون تفكير موسّع",
+  "cfg.defaultReasoningEffort.low": "منخفض",
+  "cfg.defaultReasoningEffort.medium": "متوسط",
+  "cfg.defaultReasoningEffort.high": "مرتفع",
+  "cfg.defaultReasoningEffort.xhigh": "الأعلى — يُخفَّض للنماذج التي لا تدعمه",
   "cfg.cliPath": "مسار OmniRoute CLI، الذي يستخدمه الأمر \"Configure Coding CLI\"."
 }

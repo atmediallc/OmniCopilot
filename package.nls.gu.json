@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute ડેશબોર્ડ ક્યાં ખૂલે છે.",
   "cfg.dashboardOpen.external": "તમારા ડિફૉલ્ટ વેબ બ્રાઉઝરમાં ડેશબોર્ડ ખોલો.",
   "cfg.dashboardOpen.editor": "VS Code એડિટર ટૅબમાં (Simple Browser) ડેશબોર્ડ ખોલો. એમ્બેડિંગની મંજૂરી આપતી OmniRoute આવૃત્તિ જરૂરી છે.",
+  "cfg.defaultReasoningEffort": "વિસ્તૃત વિચારને ટેકો આપતા મોડેલો માટે ડિફોલ્ટ રિઝનિંગ પ્રયાસ. દરેક મોડેલ પોતે નક્કી કરે તે માટે ખાલી રાખો; ચેટ UI માં પસંદ કરેલ મૂલ્ય હંમેશા જીતે છે.",
+  "cfg.defaultReasoningEffort.unset": "સેટ નથી — મોડેલ/સર્વરને નક્કી કરવા દો",
+  "cfg.defaultReasoningEffort.none": "વિસ્તૃત વિચાર નહીં",
+  "cfg.defaultReasoningEffort.low": "નીચું",
+  "cfg.defaultReasoningEffort.medium": "મધ્યમ",
+  "cfg.defaultReasoningEffort.high": "ઊંચું",
+  "cfg.defaultReasoningEffort.xhigh": "સર્વોચ્ચ — ટેકો ન હોય તેવા મોડેલો માટે ઘટાડાય છે",
   "cfg.cliPath": "OmniRoute CLI નો પાથ, જે \"Configure Coding CLI\" કમાન્ડ દ્વારા વપરાય છે."
 }

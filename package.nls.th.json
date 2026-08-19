@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "ตำแหน่งที่แดชบอร์ด OmniRoute จะเปิด",
   "cfg.dashboardOpen.external": "เปิดแดชบอร์ดในเว็บเบราว์เซอร์เริ่มต้นของคุณ",
   "cfg.dashboardOpen.editor": "เปิดแดชบอร์ดในแท็บตัวแก้ไขของ VS Code (Simple Browser) ต้องใช้ OmniRoute เวอร์ชันที่อนุญาตการฝัง",
+  "cfg.defaultReasoningEffort": "ระดับการให้เหตุผลเริ่มต้นสำหรับโมเดลที่รองรับการคิดแบบขยาย เว้นว่างไว้เพื่อให้แต่ละโมเดลตัดสินใจเอง ค่าที่เลือกในหน้าแชทจะมีผลเหนือกว่าเสมอ",
+  "cfg.defaultReasoningEffort.unset": "ไม่กำหนด — ให้โมเดล/เซิร์ฟเวอร์ตัดสินใจ",
+  "cfg.defaultReasoningEffort.none": "ไม่ใช้การคิดแบบขยาย",
+  "cfg.defaultReasoningEffort.low": "ต่ำ",
+  "cfg.defaultReasoningEffort.medium": "ปานกลาง",
+  "cfg.defaultReasoningEffort.high": "สูง",
+  "cfg.defaultReasoningEffort.xhigh": "สูงสุด — ลดระดับสำหรับโมเดลที่ไม่รองรับ",
   "cfg.cliPath": "พาธไปยัง OmniRoute CLI ซึ่งใช้โดยคำสั่ง \"กำหนดค่า CLI สำหรับเขียนโค้ด\""
 }

@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute 仪表板的打开位置。",
   "cfg.dashboardOpen.external": "在默认 Web 浏览器中打开仪表板。",
   "cfg.dashboardOpen.editor": "在 VS Code 编辑器选项卡（Simple Browser）中打开仪表板。需要允许嵌入的 OmniRoute 版本。",
+  "cfg.defaultReasoningEffort": "支持扩展思考的模型的默认推理强度。留空则由各模型自行决定；在聊天界面中选择的值始终优先。",
+  "cfg.defaultReasoningEffort.unset": "未设置 — 交给模型/服务器决定",
+  "cfg.defaultReasoningEffort.none": "不使用扩展思考",
+  "cfg.defaultReasoningEffort.low": "低",
+  "cfg.defaultReasoningEffort.medium": "中",
+  "cfg.defaultReasoningEffort.high": "高",
+  "cfg.defaultReasoningEffort.xhigh": "最高 — 对不支持的模型自动降级",
   "cfg.cliPath": "OmniRoute CLI 的路径，由“配置编码 CLI”命令使用。"
 }

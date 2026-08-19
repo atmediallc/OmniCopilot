@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Unde se deschide tabloul de bord OmniRoute.",
   "cfg.dashboardOpen.external": "Deschide tabloul de bord în browserul web implicit.",
   "cfg.dashboardOpen.editor": "Deschide tabloul de bord într-o filă de editor VS Code (Simple Browser). Necesită o versiune OmniRoute care permite încorporarea.",
+  "cfg.defaultReasoningEffort": "Efortul de raționament implicit pentru modelele cu gândire extinsă. Lasă necompletat pentru ca fiecare model să decidă; o valoare aleasă în chat are mereu prioritate.",
+  "cfg.defaultReasoningEffort.unset": "Nesetat — decide modelul/serverul",
+  "cfg.defaultReasoningEffort.none": "Fără gândire extinsă",
+  "cfg.defaultReasoningEffort.low": "Scăzut",
+  "cfg.defaultReasoningEffort.medium": "Mediu",
+  "cfg.defaultReasoningEffort.high": "Ridicat",
+  "cfg.defaultReasoningEffort.xhigh": "Maxim — redus la modelele fără suport",
   "cfg.cliPath": "Calea către CLI-ul OmniRoute, folosită de comanda \"Configurare CLI de codare\"."
 }

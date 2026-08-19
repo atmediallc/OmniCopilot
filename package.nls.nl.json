@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Waar het OmniRoute-dashboard wordt geopend.",
   "cfg.dashboardOpen.external": "Open het dashboard in uw standaardwebbrowser.",
   "cfg.dashboardOpen.editor": "Open het dashboard in een VS Code-editortabblad (Simple Browser). Vereist een OmniRoute-versie die insluiten toestaat.",
+  "cfg.defaultReasoningEffort": "Standaard redeneerinspanning voor modellen met uitgebreid denken. Laat leeg zodat elk model zelf beslist; een in de chat gekozen waarde wint altijd.",
+  "cfg.defaultReasoningEffort.unset": "Niet ingesteld — laat model/server beslissen",
+  "cfg.defaultReasoningEffort.none": "Geen uitgebreid denken",
+  "cfg.defaultReasoningEffort.low": "Laag",
+  "cfg.defaultReasoningEffort.medium": "Gemiddeld",
+  "cfg.defaultReasoningEffort.high": "Hoog",
+  "cfg.defaultReasoningEffort.xhigh": "Hoogst — verlaagd voor modellen zonder ondersteuning",
   "cfg.cliPath": "Pad naar de OmniRoute-CLI, gebruikt door de opdracht \"Coding-CLI configureren\"."
 }

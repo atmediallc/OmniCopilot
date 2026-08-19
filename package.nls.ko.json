@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute 대시보드를 여는 위치입니다.",
   "cfg.dashboardOpen.external": "기본 웹 브라우저에서 대시보드를 엽니다.",
   "cfg.dashboardOpen.editor": "VS Code 편집기 탭(Simple Browser)에서 대시보드를 엽니다. 포함을 허용하는 OmniRoute 버전이 필요합니다.",
+  "cfg.defaultReasoningEffort": "확장 사고를 지원하는 모델의 기본 추론 강도입니다. 비워 두면 모델이 스스로 결정하며, 채팅 UI에서 고른 값이 항상 우선합니다.",
+  "cfg.defaultReasoningEffort.unset": "설정 안 함 — 모델/서버가 결정",
+  "cfg.defaultReasoningEffort.none": "확장 사고 없음",
+  "cfg.defaultReasoningEffort.low": "낮음",
+  "cfg.defaultReasoningEffort.medium": "보통",
+  "cfg.defaultReasoningEffort.high": "높음",
+  "cfg.defaultReasoningEffort.xhigh": "최고 — 미지원 모델에서는 하향 조정",
   "cfg.cliPath": "\"코딩 CLI 구성\" 명령에서 사용하는 OmniRoute CLI의 경로입니다."
 }

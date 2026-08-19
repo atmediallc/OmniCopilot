@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Къде се отваря таблото на OmniRoute.",
   "cfg.dashboardOpen.external": "Отваряне на таблото в уеб браузъра по подразбиране.",
   "cfg.dashboardOpen.editor": "Отваряне на таблото в раздел на редактора на VS Code (Simple Browser). Изисква версия на OmniRoute, която позволява вграждане.",
+  "cfg.defaultReasoningEffort": "Ниво на разсъждение по подразбиране за модели с разширено мислене. Оставете празно, за да реши всеки модел; стойност, избрана в чата, винаги има предимство.",
+  "cfg.defaultReasoningEffort.unset": "Незададено — моделът/сървърът решава",
+  "cfg.defaultReasoningEffort.none": "Без разширено мислене",
+  "cfg.defaultReasoningEffort.low": "Ниско",
+  "cfg.defaultReasoningEffort.medium": "Средно",
+  "cfg.defaultReasoningEffort.high": "Високо",
+  "cfg.defaultReasoningEffort.xhigh": "Най-високо — понижава се за модели без него",
   "cfg.cliPath": "Път до CLI на OmniRoute, използван от командата \"Configure Coding CLI\"."
 }

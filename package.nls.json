@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Where the OmniRoute dashboard opens.",
   "cfg.dashboardOpen.external": "Open the dashboard in your default web browser.",
   "cfg.dashboardOpen.editor": "Open the dashboard in a VS Code editor tab (Simple Browser). Requires an OmniRoute version that allows embedding.",
+  "cfg.defaultReasoningEffort": "Default reasoning effort for models that support extended thinking. Leave unset to let each model decide; a value picked in the chat UI always wins.",
+  "cfg.defaultReasoningEffort.unset": "Unset — let the model/server decide",
+  "cfg.defaultReasoningEffort.none": "No extended thinking",
+  "cfg.defaultReasoningEffort.low": "Low",
+  "cfg.defaultReasoningEffort.medium": "Medium",
+  "cfg.defaultReasoningEffort.high": "High",
+  "cfg.defaultReasoningEffort.xhigh": "Highest — downshifted for models without it",
   "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command."
 }

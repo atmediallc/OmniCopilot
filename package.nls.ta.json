@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute டாஷ்போர்டு எங்கே திறக்கப்படும்.",
   "cfg.dashboardOpen.external": "உங்கள் இயல்புநிலை இணைய உலாவியில் டாஷ்போர்டைத் திற.",
   "cfg.dashboardOpen.editor": "VS Code எடிட்டர் தாவலில் (Simple Browser) டாஷ்போர்டைத் திற. உட்பொதிவை அனுமதிக்கும் OmniRoute பதிப்பு தேவை.",
+  "cfg.defaultReasoningEffort": "விரிவான சிந்தனையை ஆதரிக்கும் மாதிரிகளுக்கான இயல்பு பகுத்தறிவு முயற்சி. ஒவ்வொரு மாதிரியும் தானே முடிவு செய்ய வெறுமையாக விடுங்கள்; அரட்டை UI-இல் தேர்ந்தெடுத்த மதிப்பு எப்போதும் மேலோங்கும்.",
+  "cfg.defaultReasoningEffort.unset": "அமைக்கப்படவில்லை — மாதிரி/சேவையகம் முடிவு செய்யட்டும்",
+  "cfg.defaultReasoningEffort.none": "விரிவான சிந்தனை இல்லை",
+  "cfg.defaultReasoningEffort.low": "குறைவு",
+  "cfg.defaultReasoningEffort.medium": "நடுத்தரம்",
+  "cfg.defaultReasoningEffort.high": "அதிகம்",
+  "cfg.defaultReasoningEffort.xhigh": "அதிகபட்சம் — ஆதரவில்லாத மாதிரிகளில் குறைக்கப்படும்",
   "cfg.cliPath": "\"கோடிங் CLI ஐ உள்ளமை\" கட்டளையால் பயன்படுத்தப்படும் OmniRoute CLI இன் பாதை."
 }

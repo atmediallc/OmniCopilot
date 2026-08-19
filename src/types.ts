@@ -72,6 +72,11 @@ export interface ChatRequest {
   tool_choice?: "auto" | "required";
   temperature?: number;
   max_tokens?: number;
+  /** Canonical reasoning tier (none/low/medium/high/xhigh). OmniRoute maps it
+   * onto each provider's own field — reasoning_effort, reasoning.effort or a
+   * thinking budget — and an explicit value here always wins over its own
+   * heuristics. Plain OpenAI-compatible servers read it natively. */
+  reasoning_effort?: string;
 }
 
 /** Incremental tool-call fragment inside a stream delta. */

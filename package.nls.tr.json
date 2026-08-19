@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute gösterge panelinin nerede açılacağı.",
   "cfg.dashboardOpen.external": "Gösterge panelini varsayılan web tarayıcınızda aç.",
   "cfg.dashboardOpen.editor": "Gösterge panelini bir VS Code düzenleyici sekmesinde (Simple Browser) aç. Gömmeye izin veren bir OmniRoute sürümü gerektirir.",
+  "cfg.defaultReasoningEffort": "Genişletilmiş düşünmeyi destekleyen modeller için varsayılan akıl yürütme çabası. Her modelin kendi karar vermesi için boş bırakın; sohbet arayüzünde seçilen değer her zaman öncelikli.",
+  "cfg.defaultReasoningEffort.unset": "Ayarlanmadı — modele/sunucuya bırak",
+  "cfg.defaultReasoningEffort.none": "Genişletilmiş düşünme yok",
+  "cfg.defaultReasoningEffort.low": "Düşük",
+  "cfg.defaultReasoningEffort.medium": "Orta",
+  "cfg.defaultReasoningEffort.high": "Yüksek",
+  "cfg.defaultReasoningEffort.xhigh": "En yüksek — desteklemeyen modellerde düşürülür",
   "cfg.cliPath": "\"Kodlama CLI'sını Yapılandır\" komutunun kullandığı OmniRoute CLI yolu."
 }

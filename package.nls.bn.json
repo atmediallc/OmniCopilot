@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute ড্যাশবোর্ড কোথায় খুলবে।",
   "cfg.dashboardOpen.external": "আপনার ডিফল্ট ওয়েব ব্রাউজারে ড্যাশবোর্ড খুলুন।",
   "cfg.dashboardOpen.editor": "VS Code এডিটর ট্যাবে (Simple Browser) ড্যাশবোর্ড খুলুন। এম্বেডিং অনুমোদনকারী OmniRoute সংস্করণ প্রয়োজন।",
+  "cfg.defaultReasoningEffort": "বর্ধিত চিন্তন সমর্থনকারী মডেলগুলোর জন্য ডিফল্ট রিজনিং এফোর্ট। প্রতিটি মডেলকে নিজে সিদ্ধান্ত নিতে দিতে খালি রাখুন; চ্যাট UI-তে বেছে নেওয়া মান সবসময় অগ্রাধিকার পায়।",
+  "cfg.defaultReasoningEffort.unset": "নির্ধারিত নয় — মডেল/সার্ভার সিদ্ধান্ত নিক",
+  "cfg.defaultReasoningEffort.none": "বর্ধিত চিন্তন নেই",
+  "cfg.defaultReasoningEffort.low": "নিম্ন",
+  "cfg.defaultReasoningEffort.medium": "মাঝারি",
+  "cfg.defaultReasoningEffort.high": "উচ্চ",
+  "cfg.defaultReasoningEffort.xhigh": "সর্বোচ্চ — যেসব মডেলে নেই সেখানে কমিয়ে দেওয়া হয়",
   "cfg.cliPath": "OmniRoute CLI-এর পাথ, যা \"Configure Coding CLI\" কমান্ড ব্যবহার করে।"
 }

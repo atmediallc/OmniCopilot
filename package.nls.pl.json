@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Gdzie otwiera się pulpit OmniRoute.",
   "cfg.dashboardOpen.external": "Otwórz pulpit w domyślnej przeglądarce internetowej.",
   "cfg.dashboardOpen.editor": "Otwórz pulpit na karcie edytora VS Code (Simple Browser). Wymaga wersji OmniRoute zezwalającej na osadzanie.",
+  "cfg.defaultReasoningEffort": "Domyślny poziom rozumowania dla modeli z rozszerzonym myśleniem. Zostaw puste, aby zdecydował sam model; wartość wybrana w czacie zawsze ma pierwszeństwo.",
+  "cfg.defaultReasoningEffort.unset": "Nieustawione — niech zdecyduje model/serwer",
+  "cfg.defaultReasoningEffort.none": "Bez rozszerzonego myślenia",
+  "cfg.defaultReasoningEffort.low": "Niski",
+  "cfg.defaultReasoningEffort.medium": "Średni",
+  "cfg.defaultReasoningEffort.high": "Wysoki",
+  "cfg.defaultReasoningEffort.xhigh": "Najwyższy — obniżany dla modeli bez obsługi",
   "cfg.cliPath": "Ścieżka do interfejsu CLI OmniRoute, używana przez polecenie \"Skonfiguruj interfejs CLI do kodowania\"."
 }

@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Kde sa otvára ovládací panel OmniRoute.",
   "cfg.dashboardOpen.external": "Otvoriť ovládací panel v predvolenom webovom prehliadači.",
   "cfg.dashboardOpen.editor": "Otvoriť ovládací panel na karte editora VS Code (Simple Browser). Vyžaduje verziu OmniRoute, ktorá umožňuje vkladanie.",
+  "cfg.defaultReasoningEffort": "Predvolená miera uvažovania pre modely s rozšíreným myslením. Nechajte prázdne, nech rozhodne model; hodnota zvolená v chate má vždy prednosť.",
+  "cfg.defaultReasoningEffort.unset": "Nenastavené — nech rozhodne model/server",
+  "cfg.defaultReasoningEffort.none": "Bez rozšíreného myslenia",
+  "cfg.defaultReasoningEffort.low": "Nízka",
+  "cfg.defaultReasoningEffort.medium": "Stredná",
+  "cfg.defaultReasoningEffort.high": "Vysoká",
+  "cfg.defaultReasoningEffort.xhigh": "Najvyššia — znížená pri modeloch bez podpory",
   "cfg.cliPath": "Cesta k CLI OmniRoute, ktorú používa príkaz „Konfigurovať kódovacie CLI“."
 }

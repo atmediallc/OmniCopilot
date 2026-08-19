@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute డాష్‌బోర్డ్ ఎక్కడ తెరుచుకుంటుంది.",
   "cfg.dashboardOpen.external": "డాష్‌బోర్డ్‌ను మీ డిఫాల్ట్ వెబ్ బ్రౌజర్‌లో తెరవండి.",
   "cfg.dashboardOpen.editor": "డాష్‌బోర్డ్‌ను VS Code ఎడిటర్ ట్యాబ్‌లో (Simple Browser) తెరవండి. ఎంబెడ్డింగ్‌ను అనుమతించే OmniRoute వెర్షన్ అవసరం.",
+  "cfg.defaultReasoningEffort": "విస్తృత ఆలోచనకు మద్దతు ఇచ్చే మోడళ్ల డిఫాల్ట్ రీజనింగ్ ప్రయత్నం. ప్రతి మోడల్ తానే నిర్ణయించుకునేలా ఖాళీగా వదిలేయండి; చాట్ UIలో ఎంచుకున్న విలువ ఎప్పుడూ గెలుస్తుంది.",
+  "cfg.defaultReasoningEffort.unset": "సెట్ చేయలేదు — మోడల్/సర్వర్ నిర్ణయించనివ్వండి",
+  "cfg.defaultReasoningEffort.none": "విస్తృత ఆలోచన లేదు",
+  "cfg.defaultReasoningEffort.low": "తక్కువ",
+  "cfg.defaultReasoningEffort.medium": "మధ్యస్థం",
+  "cfg.defaultReasoningEffort.high": "ఎక్కువ",
+  "cfg.defaultReasoningEffort.xhigh": "అత్యధికం — మద్దతు లేని మోడళ్లలో తగ్గించబడుతుంది",
   "cfg.cliPath": "\"కోడింగ్ CLIని కాన్ఫిగర్ చేయండి\" ఆదేశం ఉపయోగించే OmniRoute CLI పాత్."
 }

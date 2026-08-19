@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "Mahali dashibodi ya OmniRoute inapofunguliwa.",
   "cfg.dashboardOpen.external": "Fungua dashibodi katika kivinjari chako chaguomsingi.",
   "cfg.dashboardOpen.editor": "Fungua dashibodi katika kichupo cha kihariri cha VS Code (Simple Browser). Inahitaji toleo la OmniRoute linaloruhusu upachikaji.",
+  "cfg.defaultReasoningEffort": "Kiwango chaguo-msingi cha ufikirio kwa modeli zinazounga mkono ufikirio wa kina. Acha wazi ili kila modeli iamue yenyewe; thamani iliyochaguliwa kwenye gumzo hushinda kila wakati.",
+  "cfg.defaultReasoningEffort.unset": "Haijawekwa — acha modeli/seva iamue",
+  "cfg.defaultReasoningEffort.none": "Hakuna ufikirio wa kina",
+  "cfg.defaultReasoningEffort.low": "Chini",
+  "cfg.defaultReasoningEffort.medium": "Wastani",
+  "cfg.defaultReasoningEffort.high": "Juu",
+  "cfg.defaultReasoningEffort.xhigh": "Juu zaidi — hupunguzwa kwa modeli zisizounga mkono",
   "cfg.cliPath": "Njia ya CLI ya OmniRoute, inayotumiwa na amri ya \"Sanidi CLI ya Uandishi wa Msimbo\"."
 }

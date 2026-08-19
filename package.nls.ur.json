@@ -18,5 +18,12 @@
   "cfg.dashboardOpen": "OmniRoute ڈیش بورڈ کہاں کھلتا ہے۔",
   "cfg.dashboardOpen.external": "ڈیش بورڈ کو اپنے ڈیفالٹ ویب براؤزر میں کھولیں۔",
   "cfg.dashboardOpen.editor": "ڈیش بورڈ کو VS Code ایڈیٹر ٹیب (Simple Browser) میں کھولیں۔ اس کے لیے OmniRoute کا ایسا ورژن درکار ہے جو ایمبیڈنگ کی اجازت دیتا ہو۔",
+  "cfg.defaultReasoningEffort": "توسیعی سوچ کی حمایت کرنے والے ماڈلز کے لیے پہلے سے طے شدہ استدلالی کوشش۔ ہر ماڈل خود فیصلہ کرے اس کے لیے خالی چھوڑ دیں؛ چیٹ انٹرفیس میں منتخب کردہ قدر ہمیشہ غالب رہتی ہے۔",
+  "cfg.defaultReasoningEffort.unset": "غیر متعین — ماڈل/سرور فیصلہ کرے",
+  "cfg.defaultReasoningEffort.none": "توسیعی سوچ نہیں",
+  "cfg.defaultReasoningEffort.low": "کم",
+  "cfg.defaultReasoningEffort.medium": "درمیانہ",
+  "cfg.defaultReasoningEffort.high": "زیادہ",
+  "cfg.defaultReasoningEffort.xhigh": "سب سے زیادہ — حمایت نہ رکھنے والے ماڈلز میں کم کر دیا جاتا ہے",
   "cfg.cliPath": "OmniRoute CLI کا راستہ، جو \"کوڈنگ CLI کنفیگر کریں\" کمانڈ استعمال کرتی ہے۔"
 }
