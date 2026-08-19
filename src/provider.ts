@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
 
@@ -80,13 +81,28 @@ function describeFinalFailure(modelId: string, serverCount: number, err: unknown
       String(err instanceof OmniRouteError && err.status ? err.status : "503/429")
     );
   }
-  const reason = err instanceof OmniRouteError ? err.message : String(err);
+  const reason = err instanceof OmniRouteError ? err.message : formatErrorValue(err);
   return vscode.l10n.t(
     "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
     modelId,
     String(serverCount),
     reason
   );
+}
+
+/** Best-effort human-readable rendering of an unknown thrown value. Errors
+ * and strings keep their normal stringification; other objects get their JSON
+ * form instead of the useless "[object Object]" (Sonar S6143). */
+function formatErrorValue(err: unknown): string {
+  if (err instanceof Error || typeof err === "string") return String(err);
+  if (err === undefined || err === null || typeof err !== "object") return String(err);
+  try {
+    const serialized = JSON.stringify(err);
+    return serialized === undefined ? String(err) : serialized;
+  } catch {
+    // Circular or un-serializable object — fall back to default formatting.
+    return String(err);
+  }
 }
 
 export class OmniRouteChatProvider
@@ -245,7 +261,9 @@ export class OmniRouteChatProvider
               return { routeId: r.id, name: r.name, models };
             } catch (err) {
               this.deps.onActivity?.(false, r.id);
-              this.deps.log.warn(`Route "${r.name}" (${r.baseUrl}) model discovery failed: ${String(err)}`);
+              this.deps.log.warn(
+                `Route "${r.name}" (${r.baseUrl}) model discovery failed: ${formatErrorValue(err)}`
+              );
               return { routeId: r.id, name: r.name, models: [] };
             }
           })().finally(() => {
@@ -447,9 +465,12 @@ export class OmniRouteChatProvider
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
     const lastIndex = candidates.length - 1;
 
+    // Pre-compute the fallback chain readout: building it inline would nest a
+    // template literal inside another one (Sonar S4624).
+    const fallbackSummary = fallbacksByHealth.map((f) => `${f.routeId}:${f.modelId}`).join(", ");
     log.info(
       `Chat → ${primary.modelId} @${primary.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
-        (fallbacks.length ? `, fallbacks: ${fallbacksByHealth.map((f) => `${f.routeId}:${f.modelId}`).join(", ")}` : "")
+        (fallbacks.length ? `, fallbacks: ${fallbackSummary}` : "")
     );
 
     const abort = new AbortController();
@@ -559,7 +580,7 @@ export class OmniRouteChatProvider
             }
             if (reportedAny) {
               this.deps.onActivity?.(false, cand.routeId);
-              log.error(`Chat request failed mid-stream: ${String(err)}`);
+              log.error(`Chat request failed mid-stream: ${formatErrorValue(err)}`);
               this.deps.onRequestEnd?.(false, describeFetchError(err), i);
               throw err;
             }
@@ -569,13 +590,13 @@ export class OmniRouteChatProvider
             const transient = status === undefined || isTransientHttpError(status);
             if (!transient) {
               this.deps.onActivity?.(false, cand.routeId);
-              log.error(`Chat request failed: ${String(err)}`);
+              log.error(`Chat request failed: ${formatErrorValue(err)}`);
               this.deps.onRequestEnd?.(false, describeFetchError(err), i);
               throw err;
             }
             candError = err;
             log.warn(
-              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${String(err)})`
+              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${formatErrorValue(err)})`
             );
             // A stall means the upstream is alive and already processing the
             // same request; re-sending it would burn tokens a second time.
@@ -593,7 +614,10 @@ export class OmniRouteChatProvider
               effectiveRetries = Math.max(effectiveRetries, admissionRetries);
             }
             if (attempted + 1 < effectiveRetries) {
-              const baseDelay = isThrottle ? 1500 + Math.random() * 1000 : 250;
+              // crypto.randomInt: jitter for desynchronizing retries. Sonar
+              // S2245 flags Math.random (not a security context here, but a
+              // CSPRNG costs nothing and satisfies the rule).
+              const baseDelay = isThrottle ? 1500 + crypto.randomInt(1000) : 250;
               const maxDelay = isThrottle ? 8000 : 2000;
               const multiplier = isThrottle ? 1.5 : 2;
               const backoff = Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted));
@@ -615,11 +639,11 @@ export class OmniRouteChatProvider
           this.recordRouteFailure(cand.routeId);
         }
         log.warn(
-          `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${String(candError)}); next server`
+          `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${formatErrorValue(candError)}); next server`
         );
         if (last) {
           this.deps.onActivity?.(false, cand.routeId);
-          log.error(`Chat request failed after ${candidates.length} model(s): ${String(candError)}`);
+          log.error(`Chat request failed after ${candidates.length} model(s): ${formatErrorValue(candError)}`);
           this.deps.onRequestEnd?.(false, describeFetchError(candError), i);
           void vscode.window.showErrorMessage(
             describeFinalFailure(model.omniModelId, serverCount, candError)
@@ -629,7 +653,7 @@ export class OmniRouteChatProvider
       }
       if (lastError !== undefined) {
         this.deps.onActivity?.(false, candidates[0]?.routeId);
-        log.error(`Chat request failed after ${candidates.length} model(s): ${String(lastError)}`);
+        log.error(`Chat request failed after ${candidates.length} model(s): ${formatErrorValue(lastError)}`);
         this.deps.onRequestEnd?.(false, describeFetchError(lastError), candidates.length - 1);
         void vscode.window.showErrorMessage(
           describeFinalFailure(model.omniModelId, serverCount, lastError)
