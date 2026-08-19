@@ -134,11 +134,11 @@ export function formatErrorValue(err: unknown): string {
   if (err instanceof Error || typeof err === "string") return String(err);
   if (err === undefined || err === null || typeof err !== "object") return String(err);
   try {
-    const serialized = JSON.stringify(err);
-    return serialized === undefined ? String(err) : serialized;
+    return JSON.stringify(err) ?? "[unserializable object]";
   } catch {
-    // Circular or un-serializable object — fall back to default formatting.
-    return String(err);
+    // Circular or un-serializable object — stable placeholder instead of the
+    // useless "[object Object]".
+    return "[unserializable object]";
   }
 }
 

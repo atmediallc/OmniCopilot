@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { formatErrorValue } from "./client";
 import type { ChatContentPart, ChatMessage, ChatTool } from "./types";
 
 /**
@@ -176,7 +177,9 @@ export function extractToolResultText(content: unknown): string {
         if (c instanceof vscode.LanguageModelTextPart) return c.value;
         if (c && typeof c === "object" && "value" in c) {
           const val = (c as Record<string, unknown>).value;
-          return String(val ?? "");
+          // Objects must not fall through to String() (that would render the
+          // useless "[object Object]"); keep null/undefined as an empty string.
+          return val === undefined || val === null ? "" : formatErrorValue(val);
         }
         return typeof c === "string" ? c : JSON.stringify(c);
       })

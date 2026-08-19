@@ -34,7 +34,9 @@ function shellQuote(value: string): string {
     const escaped = sanitized.replace(/["^\\]/g, String.raw`\$&`);
     return `"${escaped}"`;
   }
-  const escaped = sanitized.replace(/'/g, "'\\''");
+  // POSIX: escape every ' as '\'' so the value survives a single-quoted
+  // argument. String.raw keeps the backslash literal (no double escaping).
+  const escaped = sanitized.replaceAll("'", String.raw`'\''`);
   return `'${escaped}'`;
 }
 

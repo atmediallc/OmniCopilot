@@ -701,7 +701,6 @@ export class OmniRouteChatProvider
       }
       if (attempted + 1 < effectiveRetries) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
-        continue;
       }
     }
 
