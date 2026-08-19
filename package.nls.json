@@ -29,5 +29,10 @@
   "cfg.dashboardOpen.external": "Open the dashboard in your default web browser.",
   "cfg.dashboardOpen.editor": "Open the dashboard in a VS Code editor tab (Simple Browser). Requires an OmniRoute version that allows embedding.",
   "cfg.modelCacheTtlMinutes": "How often in minutes to refresh the model catalog automatically (default 15 minutes). Set to 0 for manual sync only.",
-  "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command."
+  "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command.",
+  "cfg.defaultReasoningEffort": "Default reasoning effort sent to models that support extended thinking (low/medium/high). \"none\" (default) does not send it; the request uses the model's own default.",
+  "cfg.defaultReasoningEffort.none": "Off — never send a reasoning effort",
+  "cfg.defaultReasoningEffort.low": "Low — faster, lighter reasoning",
+  "cfg.defaultReasoningEffort.medium": "Medium — balanced reasoning",
+  "cfg.defaultReasoningEffort.high": "High — deeper, slower reasoning"
 }

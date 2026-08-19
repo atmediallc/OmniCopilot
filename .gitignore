@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+scripts/
 *.vsix
 *.log
 .DS_Store
