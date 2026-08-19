@@ -95,7 +95,23 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 | `omnicopilot.statusBar` | `true` | Show the connection dot |
 | `omnicopilot.healthCheckIntervalSeconds` | `30` | Probe frequency |
 | `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser, or in a VS Code tab (`editor`) — see below |
+| `omnicopilot.defaultReasoningEffort` | *(unset)* | Effort for models with extended thinking — `none`/`low`/`medium`/`high`/`xhigh`; see below |
 | `omnicopilot.cliPath` | `omniroute` | Path to the OmniRoute CLI |
+
+### Reasoning effort
+
+Models with extended thinking (GPT-5.x, Claude with thinking, DeepSeek R1, Gemini
+Thinking…) accept a reasoning tier. When VS Code shows an effort control next to the model,
+that choice is forwarded to OmniRoute as `reasoning_effort` — you do not have to configure
+anything.
+
+`omnicopilot.defaultReasoningEffort` covers the case where the editor exposes no control. It
+uses OmniRoute's canonical vocabulary — `none`, `low`, `medium`, `high`, `xhigh` — and the
+server downshifts a tier a model does not implement, so asking for `xhigh` is always safe.
+
+The default is applied **only** to models the catalog marks as reasoning-capable: sending the
+field to a model without thinking support is ignored at best and rejected with a 400 at worst.
+An explicit choice from the chat UI always wins over the setting.
 
 ### Dashboard inside VS Code
 

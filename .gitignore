@@ -5,3 +5,8 @@ scripts/
 *.vsix
 *.log
 .DS_Store
+
+# Secrets — never commit (publish tokens live here)
+.env
+.env.*
+!.env.example

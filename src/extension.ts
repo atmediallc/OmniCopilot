@@ -50,6 +50,7 @@ async function doSyncProviders(
 
   const routes = await cachedLoadRoutes(context);
   const activeRoutes = routes.slice(0, 10);
+  await vscode.commands.executeCommand("setContext", "omnicopilot.routeCount", activeRoutes.length);
   const droppedRoutes = routes.slice(10);
   if (droppedRoutes.length > 0) {
     const names = droppedRoutes.map((r) => r.name.trim() || r.id).join(", ");

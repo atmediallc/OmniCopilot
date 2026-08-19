@@ -2,7 +2,7 @@
   "name": "omnicopilot",
   "displayName": "OmniRoute for GitHub Copilot Chat",
   "description": "1200+ AI models in your Copilot Chat — free & forever free. Powered by OmniRoute: 340+ providers (90+ free) — Kimi, Claude, GPT, Gemini, GLM, DeepSeek, Qwen — with agent mode, tool calling, vision and auto-fallback. MIT open source.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "publisher": "diegosouzapw",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -80,43 +80,62 @@
     "languageModelChatProviders": [
       {
         "vendor": "omniroute",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute",
+        "configuration": "omnicopilot"
       },
       {
         "vendor": "omniroute-2",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #2",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 2"
       },
       {
         "vendor": "omniroute-3",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #3",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 3"
       },
       {
         "vendor": "omniroute-4",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #4",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 4"
       },
       {
         "vendor": "omniroute-5",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #5",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 5"
       },
       {
         "vendor": "omniroute-6",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #6",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 6"
       },
       {
         "vendor": "omniroute-7",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #7",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 7"
       },
       {
         "vendor": "omniroute-8",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #8",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 8"
       },
       {
         "vendor": "omniroute-9",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #9",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 9"
       },
       {
         "vendor": "omniroute-10",
-        "displayName": "OmniRoute"
+        "displayName": "OmniRoute #10",
+        "configuration": "omnicopilot",
+        "when": "omnicopilot.routeCount >= 10"
       }
     ],
     "commands": [
@@ -174,27 +193,11 @@
     "configuration": {
       "title": "OmniRoute for Copilot",
       "properties": {
-        "omnicopilot.routes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "baseUrl": { "type": "string" }
-            },
-            "required": ["id", "name", "baseUrl"]
-          },
-          "default": [],
-          "order": 1,
-          "description": "%cfg.routes%"
-        },
         "omnicopilot.baseUrl": {
           "type": "string",
-          "default": "http://localhost:20128/v1",
-          "order": 9,
-          "deprecationMessage": "%cfg.baseUrlDeprecated%",
-          "description": "%cfg.baseUrl%"
+          "default": "",
+          "scope": "application",
+          "description": "%cfg.baseUrlDeprecated%"
         },
         "omnicopilot.statusBar": {
           "type": "boolean",
@@ -202,51 +205,9 @@
           "order": 2,
           "description": "%cfg.statusBar%"
         },
-        "omnicopilot.fallbackMode": {
-          "type": "string",
-          "enum": [
-            "none",
-            "sameModel",
-            "sameFamily",
-            "full"
-          ],
-          "enumDescriptions": [
-            "%cfg.fallbackMode.none%",
-            "%cfg.fallbackMode.sameModel%",
-            "%cfg.fallbackMode.sameFamily%",
-            "%cfg.fallbackMode.full%"
-          ],
-          "default": "sameModel",
-          "order": 8,
-          "description": "%cfg.fallbackMode%"
-        },
-        "omnicopilot.retriesPerServer": {
-          "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "maximum": 10,
-          "order": 7,
-          "description": "%cfg.retriesPerServer%"
-        },
-        "omnicopilot.firstByteTimeoutSeconds": {
-          "type": "number",
-          "default": 120,
-          "minimum": 5,
-          "maximum": 600,
-          "order": 8,
-          "description": "Maximum time to wait for a model's first response. Local models may need longer while loading or processing large agent prompts."
-        },
-        "omnicopilot.maxTools": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 128,
-          "order": 6,
-          "description": "%cfg.maxTools%"
-        },
         "omnicopilot.healthCheckIntervalSeconds": {
           "type": "number",
-          "default": 10,
+          "default": 30,
           "minimum": 5,
           "maximum": 3600,
           "order": 3,
@@ -286,13 +247,27 @@
           "order": 7,
           "description": "%cfg.dashboardOpen%"
         },
-        "omnicopilot.modelCacheTtlMinutes": {
-          "type": "number",
-          "default": 15,
-          "minimum": 0,
-          "maximum": 1440,
+        "omnicopilot.defaultReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "enumDescriptions": [
+            "%cfg.defaultReasoningEffort.unset%",
+            "%cfg.defaultReasoningEffort.none%",
+            "%cfg.defaultReasoningEffort.low%",
+            "%cfg.defaultReasoningEffort.medium%",
+            "%cfg.defaultReasoningEffort.high%",
+            "%cfg.defaultReasoningEffort.xhigh%"
+          ],
+          "default": "",
           "order": 8,
-          "description": "%cfg.modelCacheTtlMinutes%"
+          "description": "%cfg.defaultReasoningEffort%"
         },
         "omnicopilot.cliPath": {
           "type": "string",
@@ -300,18 +275,101 @@
           "order": 9,
           "description": "%cfg.cliPath%"
         },
-        "omnicopilot.defaultReasoningEffort": {
+        "omnicopilot.routes": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "description": "%cfg.routes%",
+          "items": {
+            "type": "object",
+            "required": [
+              "baseUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique identifier for the server route."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name for this OmniRoute server."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Base URL for this OmniRoute server (e.g. http://127.0.0.1:8000/v1)."
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Optional API key for this server."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Explicit model whitelist. If empty, all models are imported."
+              },
+              "excludeModels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models to exclude from this server."
+              },
+              "prefix": {
+                "type": "string",
+                "description": "Optional prefix for model IDs from this server."
+              },
+              "priority": {
+                "type": "number",
+                "default": 1,
+                "description": "Route priority (lower numbers = higher priority)."
+              },
+              "weight": {
+                "type": "number",
+                "default": 1,
+                "description": "Traffic weight for load balancing between equal priority routes."
+              }
+            }
+          }
+        },
+        "omnicopilot.fallbackMode": {
           "type": "string",
-          "enum": ["none", "low", "medium", "high"],
-          "enumDescriptions": [
-            "%cfg.defaultReasoningEffort.none%",
-            "%cfg.defaultReasoningEffort.low%",
-            "%cfg.defaultReasoningEffort.medium%",
-            "%cfg.defaultReasoningEffort.high%"
+          "default": "conservative",
+          "enum": [
+            "conservative",
+            "crossServerOnly",
+            "sameFamily",
+            "disabled"
           ],
-          "default": "none",
-          "order": 10,
-          "description": "%cfg.defaultReasoningEffort%"
+          "enumDescriptions": [
+            "%cfg.fallbackMode.conservative%",
+            "%cfg.fallbackMode.crossServerOnly%",
+            "%cfg.fallbackMode.sameFamily%",
+            "%cfg.fallbackMode.disabled%"
+          ],
+          "description": "%cfg.fallbackMode%"
+        },
+        "omnicopilot.retriesPerServer": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "%cfg.retriesPerServer%"
+        },
+        "omnicopilot.maxTools": {
+          "type": "number",
+          "default": 32,
+          "minimum": 1,
+          "maximum": 128,
+          "description": "%cfg.maxTools%"
+        },
+        "omnicopilot.modelCacheTtlMinutes": {
+          "type": "number",
+          "default": 60,
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "%cfg.modelCacheTtlMinutes%"
         }
       }
     }
@@ -331,9 +389,9 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.104.0",
     "@vscode/vsce": "^3.7.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.1",
     "eslint": "^9.13.0",
-    "sharp": "^0.33.0",
+    "sharp": "^0.35.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.39.0",
     "vitest": "^3.0.0"

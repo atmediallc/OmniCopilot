@@ -1,5 +1,24 @@
 # Change Log
 
+## 1.1.0
+
+- **Reasoning effort is forwarded to models that support extended thinking.**
+  When VS Code offers an effort control next to the model, the choice now reaches
+  OmniRoute as `reasoning_effort`; a new `omnicopilot.defaultReasoningEffort`
+  setting covers the case where the editor does not expose one. Values use
+  OmniRoute's canonical vocabulary (`none`/`low`/`medium`/`high`/`xhigh`) and the
+  server downshifts a tier a model does not support, so asking for the top tier is
+  always safe. The default only applies to models the catalog marks as
+  reasoning-capable — sending the field to a model without thinking support is
+  ignored at best and a 400 at worst. Reasoning models are now labelled
+  "extended thinking" in the picker tooltip. Requested in
+  [#7](https://github.com/diegosouzapw/OmniCopilot/issues/7) by @aliaksandrsen.
+- **Security:** `sharp` 0.33 → 0.35 (high — inherited libvips CVE-2026-33327 /
+  33328 / 35590 / 35591) and `esbuild` 0.24 → 0.28 (moderate — dev server could be
+  read cross-origin). Both are build-time-only dependencies and never shipped
+  inside the `.vsix`, so no published version was exploitable; `npm audit` is now
+  clean.
+
 ## 1.0.2
 
 - **The in-editor dashboard no longer opens a broken tab.** `dashboardOpen: "editor"`

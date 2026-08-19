@@ -1,6 +1,8 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
-import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isTransientHttpError, isThrottleError } from "./client";
+import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isThrottleError, isTransientHttpError } from "./client";
+import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
+import type { OmniRouteModel } from "./types";
 
 import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
@@ -438,6 +440,7 @@ export class OmniRouteChatProvider
     for (const c of catalog) {
       if (!this.isModelEligible(c, filter, validRouteIds)) continue;
       infos.push(this.toModelInfo(c, maxOutput, defaultContext));
+    }
     }
     return infos;
   }
