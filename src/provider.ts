@@ -6,7 +6,7 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
-import type { ChatRequest } from "./types";
+import type { ChatRequest, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
@@ -197,6 +197,27 @@ export class OmniRouteChatProvider
     if (Array.isArray(savedCatalog) && savedCatalog.length > 0 && typeof savedTime === "number" && savedTime > 0) {
       OmniRouteChatProvider.sharedCachedModels = savedCatalog;
       OmniRouteChatProvider.sharedLastCatalogFetch = savedTime;
+
+      // Reconstruct sharedRouteCatalogs from disk so per-route fallback / retention
+      // works even if a route is slow or fails on its very first discovery run
+      // after VS Code restarts or reloads.
+      const byRoute = new Map<string, { routeId: string; name: string; models: OmniRouteModel[] }>();
+      for (const item of savedCatalog) {
+        if (!item?.entry?.routeId || !item?.model) continue;
+        let seg = byRoute.get(item.entry.routeId);
+        if (!seg) {
+          seg = {
+            routeId: item.entry.routeId,
+            name: item.entry.routeName || item.entry.routeId,
+            models: [],
+          };
+          byRoute.set(item.entry.routeId, seg);
+        }
+        seg.models.push(item.model);
+      }
+      for (const [routeId, seg] of byRoute) {
+        OmniRouteChatProvider.sharedRouteCatalogs.set(routeId, seg);
+      }
     }
   }
 
@@ -353,6 +374,28 @@ export class OmniRouteChatProvider
               this.deps.log.warn(
                 `Route "${r.name}" (${r.baseUrl}) model discovery failed: ${formatErrorValue(err)}`
               );
+              // A failed discovery must never wipe the picker: the route may be
+              // alive but slow (headers past the budget, transient timeout),
+              // and dropping its models makes the selected model vanish
+              // mid-chat (VS Code then fails with NotFound, killing the chat).
+              // Keep the last-known-good catalog until discovery succeeds again.
+              const lastKnown = OmniRouteChatProvider.sharedRouteCatalogs.get(r.id);
+              if (lastKnown && lastKnown.models.length > 0) {
+                this.deps.log.warn(
+                  `Route "${r.name}" discovery failed — keeping ${lastKnown.models.length} previously discovered model(s) from the last successful refresh`
+                );
+                return lastKnown;
+              }
+              // Secondary safety: if sharedRouteCatalogs was empty, check sharedCachedModels
+              const fallbackModels = OmniRouteChatProvider.sharedCachedModels
+                .filter((c) => c.entry.routeId === r.id)
+                .map((c) => c.model);
+              if (fallbackModels.length > 0) {
+                this.deps.log.warn(
+                  `Route "${r.name}" discovery failed — keeping ${fallbackModels.length} cached model(s)`
+                );
+                return { routeId: r.id, name: r.name, models: fallbackModels };
+              }
               return { routeId: r.id, name: r.name, models: [] };
             }
           })().finally(() => {

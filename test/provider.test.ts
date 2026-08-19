@@ -135,4 +135,110 @@ describe("OmniRouteChatProvider", () => {
     expect(infos).toHaveLength(1);
     expect(infos[0].supportsReasoning).toBe(true);
   });
+
+  it("keeps last-known models when a route's discovery fails transiently", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080" },
+    ]);
+    const mockClient = {
+      // First refresh succeeds (56 models), second call fails (slow/timeout).
+      listModels: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { id: "openai/gpt-4o", owned_by: "openai", display_name: "GPT-4o" },
+        ])
+        .mockRejectedValueOnce(new Error("Timeout listing models after 60000ms")),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    await provider.refresh();
+    // First discovery populates the catalog.
+    const first = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    expect(first).toHaveLength(1);
+    expect(first[0].omniModelId).toBe("openai/gpt-4o");
+
+    // Force the in-memory catalog stale so the second call re-runs discovery
+    // instead of serving the fresh cache (which would never hit the failure).
+    (OmniRouteChatProvider as unknown as { sharedLastCatalogFetch: number }).sharedLastCatalogFetch = 0;
+
+    // Second discovery fails; the previously discovered model must survive.
+    const second = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    expect(second).toHaveLength(1);
+    expect(second[0].omniModelId).toBe("openai/gpt-4o");
+    // The provider still reports a complete catalog (no transient wipe).
+    expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).not.toEqual([]);
+  });
+
+  it("reconstructs sharedRouteCatalogs on loadPersistentCache so models survive startup discovery failure", async () => {
+    const context = mockContext();
+    // Simulate persistent cache on disk from a previous session
+    await context.globalState.update("omnicopilot.cachedCatalog.v1", [
+      {
+        entry: {
+          routeId: "route-ashburn",
+          routeName: "Ashburn",
+          modelId: "openai/gpt-4o",
+          prefixedId: "Ashburn · openai/gpt-4o",
+        },
+        model: {
+          id: "openai/gpt-4o",
+          owned_by: "openai",
+          display_name: "GPT-4o",
+          capabilities: { tool_calling: true },
+        },
+      },
+    ]);
+    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now() - 100_000_000); // stale TTL
+
+    // On startup: load persistent cache
+    OmniRouteChatProvider.loadPersistentCache(context);
+
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-ashburn", name: "Ashburn", baseUrl: "http://10.0.0.143:20128/v1" },
+    ]);
+    // The very first discovery run on startup fails (timeout/slow)
+    const mockClient = {
+      listModels: vi.fn().mockRejectedValue(new Error("Timeout listing models after 60000ms")),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    // Models from Ashburn must survive!
+    expect(infos).toHaveLength(1);
+    expect(infos[0].omniModelId).toBe("openai/gpt-4o");
+    expect(infos[0].name).toContain("Ashburn");
+  });
+
+  it("returns no models when discovery fails and there is nothing cached", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080" },
+    ]);
+    const mockClient = {
+      listModels: vi.fn().mockRejectedValue(new Error("connection refused")),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    await provider.refresh();
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    expect(infos).toEqual([]);
+    // Nothing was invented out of thin air.
+    expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
+  });
 });

@@ -361,10 +361,16 @@ export class OmniRouteClient {
   async listModels(token?: { isCancellationRequested?: boolean; onCancellationRequested?: (listener: () => void) => { dispose(): void } }): Promise<OmniRouteModel[]> {
     const ctrl = new AbortController();
     // Large catalogs (3000+ models) or slow/remote servers (different IPs)
-    // can take well over 8s to list models. Keep this generous so model
-    // discovery doesn't abort mid-CONNECTION on real OmniRoute servers.
-    const timeoutMs = 30_000;
-    const timer = setTimeout(() => ctrl.abort(new Error(`Timeout listing models after ${timeoutMs}ms`)), timeoutMs);
+    // can take well over 8s to list models. Keep a generous HEADER budget so
+    // model discovery doesn't abort mid-CONNECTION on real OmniRoute servers;
+    // once headers arrive the server is proven alive, so the body read gets
+    // its own fresh budget instead of being killed by the header timer.
+    const headerTimeoutMs = 60_000;
+    const bodyTimeoutMs = 30_000;
+    let timer = setTimeout(
+      () => ctrl.abort(new Error(`Timeout listing models after ${headerTimeoutMs}ms`)),
+      headerTimeoutMs
+    );
     let sub: { dispose(): void } | undefined;
     if (token?.onCancellationRequested) {
       if (token.isCancellationRequested) {
@@ -398,6 +404,13 @@ export class OmniRouteClient {
           "/models"
         );
       }
+      // Headers arrived: the server is alive. A slow body read must not be
+      // aborted by the (possibly nearly-expired) header budget.
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => ctrl.abort(new Error(`Timeout reading models body after ${bodyTimeoutMs}ms`)),
+        bodyTimeoutMs
+      );
       if (token?.isCancellationRequested) return [];
       const body = (await res.json()) as ModelsResponse;
       const models = Array.isArray(body.data) ? body.data : [];
