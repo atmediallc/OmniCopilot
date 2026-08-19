@@ -5,6 +5,7 @@ import type {
   ModelsResponse,
   OmniRouteModel,
   StreamChunk,
+  StreamDelta,
   StreamEvent,
   StreamToolCallDelta,
 } from "./types";
@@ -512,47 +513,40 @@ export class OmniRouteClient {
       throw sseError(chunk.error.message);
     }
 
-    const events: StreamEvent[] = [];
-    let alive = false;
     const choice = chunk.choices?.[0];
-    if (choice) {
-      const delta = choice.delta;
-      const dAny = delta as Record<string, unknown> | undefined;
-      const reasoning =
-        delta?.reasoning_content ??
-        delta?.reasoning ??
-        delta?.thinking ??
-        (typeof dAny?.thought === "string" ? dAny.thought : undefined) ??
-        (typeof dAny?.reasoning_text === "string" ? dAny.reasoning_text : undefined) ??
-        (typeof dAny?.reasoning_delta === "string" ? dAny.reasoning_delta : undefined) ??
-        (typeof dAny?.thoughts === "string" ? dAny.thoughts : undefined);
+    if (!choice) return { events: [], alive: false };
+    return this.processChoice(choice, assembler);
+  }
 
-      // Only real progress keeps the idle watchdog alive. Empty-delta
-      // keep-alives (e.g. OmniRoute's {delta:{}}) must NOT reset it, or a
-      // model that stalls forever while the server keeps the stream open is
-      // never killed → the chat hangs indefinitely.
-      const progressed =
-        delta?.content ?? reasoning ?? delta?.tool_calls ?? choice.finish_reason;
-      alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
-      if (reasoning) {
-        // Filter out OmniRoute encrypted/private reasoning placeholder messages
-        const isEncryptedReasoningNotice =
-          typeof reasoning === "string" &&
-          reasoning.includes("encrypted private reasoning") &&
-          reasoning.includes("OmniRoute cannot recover plaintext");
-        if (!isEncryptedReasoningNotice) {
-          events.push({ kind: "text", text: reasoning });
-        }
-      }
-      if (delta?.content) {
-        events.push({ kind: "text", text: delta.content });
-      }
-      if (delta?.tool_calls) {
-        assembler.accept(delta.tool_calls);
-      }
-      if (choice.finish_reason) {
-        events.push(...assembler.flush());
-      }
+  /** Normalizes one `choices[0]` delta into user-visible events. `alive` is
+   * true on real progress (content/reasoning/tool deltas or finish_reason). */
+  private processChoice(
+    choice: NonNullable<StreamChunk["choices"]>[number],
+    assembler: ToolCallAssembler
+  ): { events: StreamEvent[]; alive: boolean } {
+    const delta = choice.delta;
+    const reasoning = extractReasoning(delta);
+    // Only real progress keeps the idle watchdog alive. Empty-delta
+    // keep-alives (e.g. OmniRoute's {delta:{}}) must NOT reset it, or a
+    // model that stalls forever while the server keeps the stream open is
+    // never killed → the chat hangs indefinitely.
+    const progressed =
+      delta?.content ?? reasoning ?? delta?.tool_calls ?? choice.finish_reason;
+    const alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
+
+    const events: StreamEvent[] = [];
+    // Filter out OmniRoute encrypted/private reasoning placeholder messages.
+    if (reasoning && !isEncryptedReasoningNotice(reasoning)) {
+      events.push({ kind: "text", text: reasoning });
+    }
+    if (delta?.content) {
+      events.push({ kind: "text", text: delta.content });
+    }
+    if (delta?.tool_calls) {
+      assembler.accept(delta.tool_calls);
+    }
+    if (choice.finish_reason) {
+      events.push(...assembler.flush());
     }
     return { events, alive };
   }
@@ -761,6 +755,31 @@ export class EncryptedReasoningFilter {
     this.buffer = "";
     return [out];
   }
+}
+
+/** Extracts reasoning text from a streaming delta, across the shapes
+ * different providers expose (reasoning_content, reasoning, thinking,
+ * thought, reasoning_text, reasoning_delta, thoughts). */
+function extractReasoning(delta: StreamDelta | undefined): string | undefined {
+  const dAny = delta as Record<string, unknown> | undefined;
+  return (
+    delta?.reasoning_content ??
+    delta?.reasoning ??
+    delta?.thinking ??
+    (typeof dAny?.thought === "string" ? dAny.thought : undefined) ??
+    (typeof dAny?.reasoning_text === "string" ? dAny.reasoning_text : undefined) ??
+    (typeof dAny?.reasoning_delta === "string" ? dAny.reasoning_delta : undefined) ??
+    (typeof dAny?.thoughts === "string" ? dAny.thoughts : undefined)
+  );
+}
+
+/** True when the text is OmniRoute's encrypted/private reasoning notice,
+ * which must be filtered out rather than shown to the user. */
+function isEncryptedReasoningNotice(reasoning: string): boolean {
+  return (
+    reasoning.includes("encrypted private reasoning") &&
+    reasoning.includes("OmniRoute cannot recover plaintext")
+  );
 }
 
 async function safeErrorDetail(res: Response): Promise<string> {

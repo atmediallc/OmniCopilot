@@ -45,7 +45,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   private status: Status = "checking";
   private health: ServerHealth[] = [];
   private usage: ChatUsage | undefined;
-  private lastActive = new Map<string, number>();
+  private readonly lastActive = new Map<string, number>();
   private disposed = false;
   /** Guards overlapping checkNow() runs so a slow probe can't stack pings. */
   private checking = false;
@@ -86,37 +86,64 @@ export class ConnectionStatusBar implements vscode.Disposable {
   /** Feed request outcomes from the provider so the dot reacts instantly per route. */
   reportActivity(ok: boolean, routeId?: string): void {
     if (this.disposed) return;
-    if (routeId) {
-      if (ok) {
-        this.lastActive.set(routeId, Date.now());
-      }
-      const existing = this.health.find((h) => h.routeId === routeId);
-      // Grace period: don't flip a route to offline if it was active
-      // within the last 15s — transient 503/429 under load shouldn't
-      // cause the status dot to flicker.
-      const recentlyOk = !ok && this.lastActive.has(routeId) &&
-        Date.now() - (this.lastActive.get(routeId) ?? 0) < 15_000;
-      if (existing) {
-        existing.online = recentlyOk ? existing.online : ok;
-      } else {
-        this.health.push({ routeId, name: routeId, online: recentlyOk || ok });
-      }
-      const onlineCount = this.health.filter((h) => h.online).length;
-      this.setStatus(
-        onlineCount === this.health.length ? "online" : onlineCount > 0 ? "partial" : "offline"
-      );
-      const serverName = existing?.name && existing.name !== routeId ? existing.name : routeId;
-      void this.metricsTracker?.recordActivity(routeId, serverName, "", ok);
-      // Let a fresh probe confirm the new state right away (300ms debounce
-      // coalesces bursts of onActivity from model discovery).
-      this.scheduleRecheck();
-    } else {
+    if (!routeId) {
       if (ok) {
         this.setStatus("online");
       } else {
         void this.checkNow();
       }
+      return;
     }
+    if (ok) this.lastActive.set(routeId, Date.now());
+    this.updateRouteHealth(routeId, ok);
+    void this.metricsTracker?.recordActivity(routeId, this.serverNameFor(routeId), "", ok);
+    // Let a fresh probe confirm the new state right away (300ms debounce
+    // coalesces bursts of onActivity from model discovery).
+    this.scheduleRecheck();
+  }
+
+  /** Display name for a route: falls back to the routeId when unnamed. */
+  private serverNameFor(routeId: string): string {
+    const known = this.health.find((h) => h.routeId === routeId);
+    return known?.name && known.name !== routeId ? known.name : routeId;
+  }
+
+  /** True when this route answered successfully within the last 15s — lets
+   * transient 503/429 under load keep the dot green instead of flickering. */
+  private wasRecentlyActive(routeId: string): boolean {
+    return this.lastActive.has(routeId) &&
+      Date.now() - (this.lastActive.get(routeId) ?? 0) < 15_000;
+  }
+
+  /** Merge a route outcome into the health roster and re-derive the dot. */
+  private updateRouteHealth(routeId: string, ok: boolean): void {
+    const existing = this.health.find((h) => h.routeId === routeId);
+    // Grace period: don't flip a route to offline if it was active
+    // within the last 15s — transient 503/429 under load shouldn't
+    // cause the status dot to flicker.
+    const recentlyOk = !ok && this.wasRecentlyActive(routeId);
+    if (existing) {
+      existing.online = recentlyOk ? existing.online : ok;
+    } else {
+      this.health.push({ routeId, name: routeId, online: recentlyOk || ok });
+    }
+    this.setStatus(this.overallStatus());
+  }
+
+  /** Dot color from the current roster: all up → online, some → partial,
+   * none → offline. Empty roster reports online (no known servers). */
+  private overallStatus(): Status {
+    const online = this.health.filter((h) => h.online).length;
+    if (online === this.health.length) return "online";
+    if (online > 0) return "partial";
+    return "offline";
+  }
+
+  /** Connection state from the roster: empty → checking, all up → online,
+   * some → partial, none → offline. */
+  private connectionState(): Status {
+    if (this.health.length === 0) return "checking";
+    return this.overallStatus();
   }
 
   /** Live token usage from a streaming chat round-trip. */
@@ -166,15 +193,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
       this.lastResponseAt = Date.now();
       this.lastError = undefined;
       this.activeModel = undefined;
-      this.setStatus(
-        this.health.length === 0
-          ? "checking"
-          : this.health.every((h) => h.online)
-            ? "online"
-            : this.health.some((h) => h.online)
-              ? "partial"
-              : "offline"
-      );
+      this.setStatus(this.connectionState());
     } else {
       this.lastError = error;
       this.activeModel = undefined;
@@ -183,15 +202,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
       } else {
         // Cancel/abort without a failure message: fall back to the last
         // known connection state instead of painting the dot red.
-        this.setStatus(
-          this.health.length === 0
-            ? "checking"
-            : this.health.every((h) => h.online)
-              ? "online"
-              : this.health.some((h) => h.online)
-                ? "partial"
-                : "offline"
-        );
+        this.setStatus(this.connectionState());
       }
     }
     this.render();
@@ -249,7 +260,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
       const ok = this.health.filter((h) => h.online).length;
       this.consecutiveFailures = ok > 0 ? 0 : this.consecutiveFailures + 1;
       this.lastCheckOk = ok > 0;
-      this.setStatus(ok === routes.length ? "online" : ok > 0 ? "partial" : "offline");
+      this.setStatus(this.overallStatus());
       this.scheduleNext();
       return ok > 0;
     } finally {

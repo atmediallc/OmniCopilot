@@ -9,7 +9,7 @@ import type { StatusSnapshot } from "./status/statusRenderer";
 export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
-  private disposables: vscode.Disposable[] = [];
+  private readonly disposables: vscode.Disposable[] = [];
   private webviewReady = false;
   private isUpdating = false;
 
@@ -33,11 +33,8 @@ export class OmniStatusPopup {
     // on manual "ready"/"refresh".
     this.disposables.push(
       this.metricsTracker.onDidChangeMetrics(() => {
-        void this.renderMetricsOnly();
-      })
-    );
-
-    this.disposables.push(
+        this.renderMetricsOnly();
+      }),
       this.statusBar.onDidChangeSnapshot((snapshot) => {
         void this.renderStatusSnapshot(snapshot);
       })
@@ -62,70 +59,20 @@ export class OmniStatusPopup {
               vscode.l10n.t("Token metrics reset.")
             );
             break;
-          case "toggleSetting": {
-            const payload = msg.value as { setting: string; enabled: boolean };
-            // Only settings the popup is allowed to flip may be written.
-            const allowedSettings = new Set(["statusBar"]);
-            if (typeof payload?.setting !== "string" || !allowedSettings.has(payload.setting)) break;
-            if (typeof payload.enabled !== "boolean") break;
-            await vscode.workspace
-              .getConfiguration("omnicopilot")
-              .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
-            // Reflect the toggle immediately so a metrics-only render can't
-            // flip it back before the throttled refresh runs.
-            if (this.lastState) {
-              this.lastState = { ...this.lastState, statusBarEnabled: payload.enabled };
-              void this.panel.webview.postMessage({ command: "updateState", state: this.lastState });
-            }
-            this.lastUpdateMs = 0;
-            await this.updateStateData();
+          case "toggleSetting":
+            await this.handleToggleSetting(msg.value);
             break;
-          }
-          case "changeFallbackMode": {
-            const mode = msg.value as string;
-            const allowedModes = new Set(["sameModel", "sameFamily", "full", "none"]);
-            if (typeof mode !== "string" || !allowedModes.has(mode)) break;
-            await vscode.workspace
-              .getConfiguration("omnicopilot")
-              .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
-            // Reflect the choice immediately (even if updateStateData is
-            // throttled/in-flight) so a metrics-only render can't revert it.
-            if (this.lastState) {
-              this.lastState = { ...this.lastState, fallbackMode: mode };
-              void this.panel.webview.postMessage({
-                command: "updateState",
-                state: { ...this.lastState, fallbackMode: mode },
-              });
-            }
-            this.lastUpdateMs = 0;
-            await this.updateStateData();
+          case "changeFallbackMode":
+            await this.handleChangeFallbackMode(msg.value);
             break;
-          }
-          case "runCommand": {
-            const payload = msg.value as { cmd?: unknown; args?: unknown[] };
-            const allowedCommands = new Set([
-              "omnicopilot.openDashboard",
-              "omnicopilot.manage",
-              "omnicopilot.refreshModels",
-              "omnicopilot.configureCliTool",
-              "omnicopilot.checkConnection",
-              "omnicopilot.installOmniRoute",
-              "omnicopilot.openGitHub",
-            ]);
-            if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) break;
-            if (payload.args && payload.args.length > 0) {
-              await vscode.commands.executeCommand(payload.cmd, ...payload.args);
-            } else {
-              await vscode.commands.executeCommand(payload.cmd);
-            }
+          case "runCommand":
+            await this.handleRunCommand(msg.value);
             break;
-          }
-          case "snooze": {
+          case "snooze":
             void vscode.window.showInformationMessage(
               vscode.l10n.t("Status bar metrics snoozed for 5 minutes.")
             );
             break;
-          }
         }
       },
       null,
@@ -133,7 +80,6 @@ export class OmniStatusPopup {
     );
 
     this.panel.webview.html = this.getHtmlForWebview();
-    void this.updateStateData();
   }
 
   public static show(
@@ -162,7 +108,12 @@ export class OmniStatusPopup {
     );
 
     OmniStatusPopup.currentPanel = panel;
-    new OmniStatusPopup(panel, context, metricsTracker, log, statusBar);
+    const popup = new OmniStatusPopup(panel, context, metricsTracker, log, statusBar);
+    // Kick off the initial state fetch outside the constructor: async work
+    // started in a constructor is fire-and-forget and its errors would be
+    // unobservable there. Same timing, observable errors via updateStateData's
+    // own try/catch logging.
+    void popup.updateStateData();
   }
 
   public dispose(): void {
@@ -171,6 +122,67 @@ export class OmniStatusPopup {
     while (this.disposables.length) {
       const d = this.disposables.pop();
       if (d) d.dispose();
+    }
+  }
+
+  /** Apply a user toggle for a quick-settings item (only allowed items). */
+  private async handleToggleSetting(value: unknown): Promise<void> {
+    const payload = value as { setting: string; enabled: boolean };
+    // Only settings the popup is allowed to flip may be written.
+    const allowedSettings = new Set(["statusBar"]);
+    if (typeof payload?.setting !== "string" || !allowedSettings.has(payload.setting)) return;
+    if (typeof payload.enabled !== "boolean") return;
+    await vscode.workspace
+      .getConfiguration("omnicopilot")
+      .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
+    // Reflect the toggle immediately so a metrics-only render can't
+    // flip it back before the throttled refresh runs.
+    if (this.lastState) {
+      this.lastState = { ...this.lastState, statusBarEnabled: payload.enabled };
+      void this.panel.webview.postMessage({ command: "updateState", state: this.lastState });
+    }
+    this.lastUpdateMs = 0;
+    await this.updateStateData();
+  }
+
+  /** Apply a user-chosen fallback strategy. */
+  private async handleChangeFallbackMode(value: unknown): Promise<void> {
+    const mode = value as string;
+    const allowedModes = new Set(["sameModel", "sameFamily", "full", "none"]);
+    if (typeof mode !== "string" || !allowedModes.has(mode)) return;
+    await vscode.workspace
+      .getConfiguration("omnicopilot")
+      .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
+    // Reflect the choice immediately (even if updateStateData is
+    // throttled/in-flight) so a metrics-only render can't revert it.
+    if (this.lastState) {
+      this.lastState = { ...this.lastState, fallbackMode: mode };
+      void this.panel.webview.postMessage({
+        command: "updateState",
+        state: { ...this.lastState, fallbackMode: mode },
+      });
+    }
+    this.lastUpdateMs = 0;
+    await this.updateStateData();
+  }
+
+  /** Run an allow-listed command coming from the webview. */
+  private async handleRunCommand(value: unknown): Promise<void> {
+    const payload = value as { cmd?: unknown; args?: unknown[] };
+    const allowedCommands = new Set([
+      "omnicopilot.openDashboard",
+      "omnicopilot.manage",
+      "omnicopilot.refreshModels",
+      "omnicopilot.configureCliTool",
+      "omnicopilot.checkConnection",
+      "omnicopilot.installOmniRoute",
+      "omnicopilot.openGitHub",
+    ]);
+    if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) return;
+    if (payload.args && payload.args.length > 0) {
+      await vscode.commands.executeCommand(payload.cmd, ...payload.args);
+    } else {
+      await vscode.commands.executeCommand(payload.cmd);
     }
   }
 

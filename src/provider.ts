@@ -45,7 +45,7 @@ function compileModelFilter(filterRaw: string): RegExp | undefined {
   } catch {
     // invalid or overly complex regex → fall back to safe escaped substring matching
     const needle = filterRaw.slice(0, 200).toLowerCase();
-    return new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    return new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), "i");
   }
 }
 
