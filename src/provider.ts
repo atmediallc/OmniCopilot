@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
-import { OmniRouteError, describeFetchError, formatErrorValue, isTransientHttpError, isThrottleError } from "./client";
+import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isTransientHttpError, isThrottleError } from "./client";
 
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
@@ -90,6 +90,77 @@ function describeFinalFailure(modelId: string, serverCount: number, err: unknown
   );
 }
 
+/** HTTP status code carried by an OmniRouteError, if any. */
+function errorStatus(err: unknown): number | undefined {
+  return err instanceof OmniRouteError ? err.status : undefined;
+}
+
+/** Jittered delay between retries. Honors the upstream's Retry-After header
+ * when present (capped at 30s) so a misbehaving server can't stall a request. */
+function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number): number {
+  const retryAfterMs = err instanceof OmniRouteError ? err.retryAfterMs : undefined;
+  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 30_000);
+  const baseDelay = isThrottle ? 1500 + crypto.randomInt(1000) : 250;
+  const maxDelay = isThrottle ? 8000 : 2000;
+  const multiplier = isThrottle ? 1.5 : 2;
+  return Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted));
+}
+
+/** Parses a tool-call's JSON args defensively; `{}` on malformed input. */
+function parseToolCallArgs(
+  event: { args: string; name: string },
+  log: vscode.LogOutputChannel
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(event.args);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
+    return {};
+  }
+}
+
+/** Everything needed to run the chat fallback chain for one request. */
+interface ChatPlan {
+  clientByRoute: Map<string, OmniRouteClient>;
+  nameByRoute: Map<string, string>;
+  candidates: FallbackCandidate[];
+  serverCount: number;
+  modelId: string;
+  retriesPerServer: number;
+  admissionRetries: number;
+}
+
+/** Shared context for streaming against one fallback candidate. */
+interface ChatCandidateContext {
+  cand: FallbackCandidate;
+  client: OmniRouteClient;
+  i: number;
+  request: ChatRequest;
+  routeName: string;
+  inputTokens: number;
+  progress: vscode.Progress<vscode.LanguageModelResponsePart>;
+  token: vscode.CancellationToken;
+  abort: AbortController;
+  log: vscode.LogOutputChannel;
+  retriesPerServer: number;
+  admissionRetries: number;
+}
+
+/** Outcome of a single stream attempt. */
+type StreamAttemptOutcome =
+  | { kind: "completed"; streamed: string; startedAt: number; firstTokenAt: number | undefined }
+  | { kind: "cancelled" }
+  | { kind: "failed"; error: unknown; stall: boolean; throttle: boolean };
+
+/** Outcome of a whole candidate (all of its retries). */
+type CandidateOutcome =
+  | { kind: "succeeded" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; error: unknown };
+
 export class OmniRouteChatProvider
   implements vscode.LanguageModelChatProvider<OmniModelInfo>, vscode.Disposable
 {
@@ -147,6 +218,16 @@ export class OmniRouteChatProvider
     }));
     await context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, slim);
     await context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, Date.now());
+  }
+
+  /** Drops catalog segments whose routes are no longer configured, so model
+   * discovery never serves stale entries. */
+  private static pruneStaleRouteCatalogs(validRouteIds: Set<string>): void {
+    for (const key of Array.from(OmniRouteChatProvider.sharedRouteCatalogs.keys())) {
+      if (!validRouteIds.has(key)) {
+        OmniRouteChatProvider.sharedRouteCatalogs.delete(key);
+      }
+    }
   }
 
   constructor(
@@ -217,11 +298,7 @@ export class OmniRouteChatProvider
     const validRouteIds = new Set(routes.map((r) => r.id));
 
     // Prune entries from sharedRouteCatalogs that belong to routes no longer configured
-    for (const key of Array.from(OmniRouteChatProvider.sharedRouteCatalogs.keys())) {
-      if (!validRouteIds.has(key)) {
-        OmniRouteChatProvider.sharedRouteCatalogs.delete(key);
-      }
-    }
+    OmniRouteChatProvider.pruneStaleRouteCatalogs(validRouteIds);
 
     const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
     const isManualOnly = ttlMinutes <= 0;
@@ -371,44 +448,80 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken
   ): Promise<void> {
     const log = this.deps.log;
+    const request = this.buildChatRequest(model, messages, options, log);
+    const plan = await this.resolveChatPlan(model, request, options, log);
 
+    const abort = new AbortController();
+    const cancelSub = token.onCancellationRequested(() => abort.abort());
+
+    // Estimate the input side of the request for the usage readout.
+    const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
+
+    try {
+      await this.executeChatPlan(plan, request, inputTokens, progress, token, abort);
+    } finally {
+      cancelSub.dispose();
+    }
+  }
+
+  /** Builds the wire request for the selected model: OpenAI-compatible chat
+   * payload with the user's tool cap, mandatory tool mode and temperature. */
+  private buildChatRequest(
+    model: OmniModelInfo,
+    messages: readonly vscode.LanguageModelChatRequestMessage[],
+    options: vscode.ProvideLanguageModelChatResponseOptions,
+    log: vscode.LogOutputChannel
+  ): ChatRequest {
     const request: ChatRequest = {
       model: model.omniModelId,
       messages: toOpenAiMessages(messages),
       stream: true,
-      tools: (() => {
-        const allTools = toOpenAiTools(options.tools);
-        if (!allTools?.length) return allTools;
-        // maxTools <= 0 means "send every tool VS Code provides". A positive
-        // value is an explicit hard cap for saving context.
-        const maxTools = getConfig().get<number>("maxTools", 0);
-        if (maxTools > 0 && allTools.length <= maxTools) return allTools;
-        if (maxTools > 0) {
-          log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
-          return allTools.slice(0, maxTools);
-        }
-        return allTools;
-      })(),
+      tools: this.capTools(options.tools, log),
     };
-
     if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
       request.tool_choice = "required";
     }
-
     const modelOptions = options.modelOptions as Record<string, unknown> | undefined;
     if (typeof modelOptions?.temperature === "number") {
       request.temperature = modelOptions.temperature;
     }
+    return request;
+  }
 
-    // Route per candidate; a route disappearing mid-session is skipped, never
-    // fatal. Fallback chain (transient 429/5xx only): primary → same model on
-    // another route → same family on the same route → any compatible model.
+  /** Caps the tool list VS Code offered us, saving context: `maxTools <= 0`
+   * means "send every tool"; a positive value is an explicit hard cap. */
+  private capTools(
+    tools: readonly vscode.LanguageModelChatTool[] | undefined,
+    log: vscode.LogOutputChannel
+  ): ReturnType<typeof toOpenAiTools> {
+    const allTools = toOpenAiTools(tools);
+    if (!allTools?.length) return allTools;
+    const maxTools = getConfig().get<number>("maxTools", 0);
+    if (maxTools > 0 && allTools.length <= maxTools) return allTools;
+    if (maxTools > 0) {
+      log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
+      return allTools.slice(0, maxTools);
+    }
+    return allTools;
+  }
+
+  /** Resolves the fallback chain for the selected model: primary → same model
+   * on another route → same family on the same route → any compatible model.
+   * A route disappearing mid-session is skipped, never fatal. Offline servers
+   * are deprioritized so a dead secondary never delays a healthy primary. */
+  private async resolveChatPlan(
+    model: OmniModelInfo,
+    request: ChatRequest,
+    options: vscode.ProvideLanguageModelChatResponseOptions,
+    log: vscode.LogOutputChannel
+  ): Promise<ChatPlan> {
     const routes = await cachedLoadRoutes(this.deps.context);
     const firstByteTimeoutMs =
       getConfig().get<number>("firstByteTimeoutSeconds", 120) * 1000;
     const clientByRoute = new Map(
       routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs)])
     );
+    const nameByRoute = new Map(routes.map((r) => [r.id, r.name]));
 
     const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
     if (!primaryEntry) {
@@ -424,22 +537,22 @@ export class OmniRouteChatProvider
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : [];
-    if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
-      throw new OmniRouteError(`Model ${model.id} is not available or not properly configured`, undefined);
-    }
     // The prefixedId is the source of truth for what the user selected.
     // Resolve the route from the catalog entry, NOT from model.routeId which
     // can be stale or point to a different server.
+    if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
+      throw new OmniRouteError(`Model ${model.id} is not available or not properly configured`, undefined);
+    }
     const primary: FallbackCandidate = primaryEntry
       ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
       : { routeId: model.routeId!, modelId: model.omniModelId! };
 
-    this.deps.log.info(
-      `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map(c => c.entry.prefixedId).join(", ")})`
+    log.info(
+      `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map((c) => c.entry.prefixedId).join(", ")})`
     );
 
-    // Filter out offline servers from fallbacks so an unreachable secondary server
-    // never blocks or delays requests on a healthy primary server.
+    // Filter out offline servers from fallbacks so an unreachable secondary
+    // server never blocks or delays requests on a healthy primary server.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
     const fallbacksByHealth =
       knownOnline.size > 0
@@ -448,7 +561,6 @@ export class OmniRouteChatProvider
 
     const candidates = [primary, ...fallbacksByHealth];
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
-    const lastIndex = candidates.length - 1;
 
     // Pre-compute the fallback chain readout: building it inline would nest a
     // template literal inside another one (Sonar S4624).
@@ -458,197 +570,293 @@ export class OmniRouteChatProvider
         (fallbacks.length ? `, fallbacks: ${fallbackSummary}` : "")
     );
 
-    const abort = new AbortController();
-    const cancelSub = token.onCancellationRequested(() => abort.abort());
+    const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
+    return {
+      clientByRoute,
+      nameByRoute,
+      candidates,
+      serverCount,
+      modelId: model.omniModelId,
+      retriesPerServer,
+      admissionRetries: Math.max(retriesPerServer, 12),
+    };
+  }
 
-    // Estimate the input side of the request for the usage readout.
-    const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
-
+  /** Walks the fallback chain, one candidate at a time, until one succeeds or
+   * every candidate is exhausted. Returns on success/cancellation; throws the
+   * final error when the chain is exhausted. */
+  private async executeChatPlan(
+    plan: ChatPlan,
+    request: ChatRequest,
+    inputTokens: number,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    token: vscode.CancellationToken,
+    abort: AbortController
+  ): Promise<void> {
+    const candidates = plan.candidates;
+    const lastIndex = candidates.length - 1;
     let lastError: unknown;
 
-    try {
-      // Single chat retry layer: route clients make one HTTP attempt, then
-      // this loop can immediately move to another server. Defaults to 3
-      // attempts so transient 503 ("capacity busy") / 429 get a bounded,
-      // backoff-driven retry on the same server before giving up.
-      const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
-      // 503/429 are upstream throttling — give them up to 12 retries with jittered
-      // backoff so capacity blips resolve transparently without failing.
-      const admissionRetries = Math.max(retriesPerServer, 12);
-
-      for (const [i, cand] of candidates.entries()) {
-        if (this.isRouteCoolingDown(cand.routeId) && i < lastIndex) {
-          log.warn(`Skipping ${cand.routeId}: circuit breaker cooldown active`);
-          continue;
-        }
-        const client = clientByRoute.get(cand.routeId);
-        if (token.isCancellationRequested) {
-          this.deps.onRequestEnd?.(false, undefined, i);
-          return;
-        }
-        if (!client) {
-          lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
-          continue;
-        }
-        const last = i === lastIndex;
-        const attemptRequest = { ...request, model: cand.modelId };
-        const routeName = routes.find((r) => r.id === cand.routeId)?.name ?? cand.routeId;
-        let attempted = 0;
-        let candError: unknown;
-        // Start with the configured limit; upgraded to admissionRetries if we
-        // see 503/429 (the upstream is healthy, just temporarily full).
-        let effectiveRetries = retriesPerServer;
-        for (; attempted < effectiveRetries; attempted++) {
-          if (token.isCancellationRequested) {
-            this.deps.onRequestEnd?.(false, undefined, i);
-            return;
-          }
-          let streamed = "";
-          let reportedAny = false;
-          const startedAt = Date.now();
-          let firstTokenAt: number | undefined;
-          this.deps.onRequestStart?.(cand.routeId, cand.modelId);
-          try {
-            for await (const event of client.streamChat(attemptRequest, abort.signal)) {
-              if (token.isCancellationRequested) break;
-              if (event.kind === "text") {
-                firstTokenAt ??= Date.now();
-                streamed += event.text;
-                reportedAny = true;
-                progress.report(new vscode.LanguageModelTextPart(event.text));
-              } else {
-                reportedAny = true;
-                let input: Record<string, unknown>;
-                try {
-                  const parsed = JSON.parse(event.args);
-                  input = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                    ? (parsed as Record<string, unknown>)
-                    : {};
-                } catch {
-                  log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
-                  input = {};
-                }
-                progress.report(new vscode.LanguageModelToolCallPart(event.id, event.name, input));
-              }
-            }
-            if (!reportedAny) {
-              log.warn(`Model ${cand.modelId} @${cand.routeId} returned an empty stream; emitting empty text part`);
-              progress.report(new vscode.LanguageModelTextPart(""));
-              reportedAny = true;
-            }
-            // User cancelled after the first tokens: the request did not
-            // complete — don't count it as success or bill usage.
-            if (token.isCancellationRequested) {
-              this.deps.onRequestEnd?.(false, undefined, i);
-              return;
-            }
-            const finishedAt = Date.now();
-            log.info(
-              `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${estimateTokens(streamed)} tokens)`
-            );
-            this.deps.onUsage?.({
-              routeId: cand.routeId,
-              baseUrl: client?.baseUrl ?? "",
-              serverName: routeName,
-              modelName: cand.modelId,
-              inputTokens,
-              outputTokens: estimateTokens(streamed),
-            });
-            this.recordRouteSuccess(cand.routeId);
-            this.deps.onActivity?.(true, cand.routeId);
-            this.deps.onRequestEnd?.(true, undefined, i);
-            return;
-          } catch (err) {
-            if (token.isCancellationRequested) {
-              this.deps.onRequestEnd?.(false, undefined, i);
-              return;
-            }
-            if (reportedAny) {
-              this.deps.onActivity?.(false, cand.routeId);
-              log.error(`Chat request failed mid-stream: ${formatErrorValue(err)}`);
-              this.deps.onRequestEnd?.(false, describeFetchError(err), i);
-              throw err;
-            }
-            const status = err instanceof OmniRouteError ? err.status : undefined;
-            // Network-level failures (no HTTP status, e.g. `fetch failed`) are
-            // treated as transient so the server can be re-attempted.
-            const transient = status === undefined || isTransientHttpError(status);
-            if (!transient) {
-              this.deps.onActivity?.(false, cand.routeId);
-              log.error(`Chat request failed: ${formatErrorValue(err)}`);
-              this.deps.onRequestEnd?.(false, describeFetchError(err), i);
-              throw err;
-            }
-            candError = err;
-            log.warn(
-              `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${formatErrorValue(err)})`
-            );
-            // A stall means the upstream is alive and already processing the
-            // same request; re-sending it would burn tokens a second time.
-            // Skip remaining attempts on this server and move to the next
-            // candidate instead.
-            if (err instanceof OmniRouteError && err.stall) {
-              this.deps.onStall?.(cand.routeId);
-              break;
-            }
-            // 503/429/concurrency/saturation = upstream is healthy but temporarily full. Upgrade to
-            // more retries with longer backoff — this usually resolves in a
-            // few seconds, just like direct JSON / Copilot does.
-            const isThrottle = status === 503 || status === 429 || isThrottleError(err);
-            if (isThrottle) {
-              effectiveRetries = Math.max(effectiveRetries, admissionRetries);
-            }
-            if (attempted + 1 < effectiveRetries) {
-              // crypto.randomInt: jitter for desynchronizing retries. Sonar
-              // S2245 flags Math.random (not a security context here, but a
-              // CSPRNG costs nothing and satisfies the rule).
-              const baseDelay = isThrottle ? 1500 + crypto.randomInt(1000) : 250;
-              const maxDelay = isThrottle ? 8000 : 2000;
-              const multiplier = isThrottle ? 1.5 : 2;
-              const backoff = Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted));
-              // If the upstream told us when to retry (Retry-After header),
-              // honor it instead of guessing — capped so a misbehaving server
-              // can't stall the request forever.
-              const retryAfterMs = err instanceof OmniRouteError ? err.retryAfterMs : undefined;
-              await delay(retryAfterMs !== undefined ? Math.min(retryAfterMs, 30_000) : backoff, token);
-              continue;
-            }
-          }
-        }
-
-        lastError = candError;
-        // 503 (admission capacity) and 429 (rate limit) / saturation errors are upstream throttling,
-        // not route failures — don't penalize the route's circuit breaker.
-        const lastStatus = candError instanceof OmniRouteError ? candError.status : undefined;
-        if (lastStatus !== 503 && lastStatus !== 429 && !isThrottleError(candError)) {
-          this.recordRouteFailure(cand.routeId);
-        }
-        log.warn(
-          `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${formatErrorValue(candError)}); next server`
-        );
-        if (last) {
-          this.deps.onActivity?.(false, cand.routeId);
-          log.error(`Chat request failed after ${candidates.length} model(s): ${formatErrorValue(candError)}`);
-          this.deps.onRequestEnd?.(false, describeFetchError(candError), i);
-          void vscode.window.showErrorMessage(
-            describeFinalFailure(model.omniModelId, serverCount, candError)
-          );
-          throw candError;
-        }
+    for (const [i, cand] of candidates.entries()) {
+      if (this.isCandidateCoolingDown(cand.routeId, i, lastIndex)) {
+        this.deps.log.warn(`Skipping ${cand.routeId}: circuit breaker cooldown active`);
+        continue;
       }
-      if (lastError !== undefined) {
-        this.deps.onActivity?.(false, candidates[0]?.routeId);
-        log.error(`Chat request failed after ${candidates.length} model(s): ${formatErrorValue(lastError)}`);
-        this.deps.onRequestEnd?.(false, describeFetchError(lastError), candidates.length - 1);
-        void vscode.window.showErrorMessage(
-          describeFinalFailure(model.omniModelId, serverCount, lastError)
-        );
-        throw lastError;
+      if (token.isCancellationRequested) {
+        this.deps.onRequestEnd?.(false, undefined, i);
+        return;
       }
-      throw new OmniRouteError("No configured route served this model", undefined);
-    } finally {
-      cancelSub.dispose();
+      const client = plan.clientByRoute.get(cand.routeId);
+      if (!client) {
+        lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+        continue;
+      }
+      const outcome = await this.tryCandidate({
+        cand,
+        client,
+        i,
+        request,
+        inputTokens,
+        progress,
+        token,
+        abort,
+        log: this.deps.log,
+        routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
+        retriesPerServer: plan.retriesPerServer,
+        admissionRetries: plan.admissionRetries,
+      });
+      if (outcome.kind === "succeeded") return;
+      if (outcome.kind === "cancelled") return;
+      lastError = outcome.error;
+      if (i === lastIndex) {
+        this.reportChatFailure({
+          routeId: cand.routeId,
+          fallbacksUsed: i,
+          err: outcome.error,
+          modelId: plan.modelId,
+          serverCount: plan.serverCount,
+          candidateCount: candidates.length,
+        });
+      }
     }
+    if (lastError !== undefined) {
+      this.reportChatFailure({
+        routeId: candidates[0]?.routeId,
+        fallbacksUsed: candidates.length - 1,
+        err: lastError,
+        modelId: plan.modelId,
+        serverCount: plan.serverCount,
+        candidateCount: candidates.length,
+      });
+    }
+    throw new OmniRouteError("No configured route served this model", undefined);
+  }
+
+  /** True while a route's circuit breaker is cooling down and it isn't the
+   * last resort — the last candidate is never skipped. */
+  private isCandidateCoolingDown(routeId: string, i: number, lastIndex: number): boolean {
+    return this.isRouteCoolingDown(routeId) && i < lastIndex;
+  }
+
+  /** Retries one candidate until it succeeds, cancels, stalls, or exhausts
+   * its attempts. Fatal errors (mid-stream or non-transient) propagate. */
+  private async tryCandidate(ctx: ChatCandidateContext): Promise<CandidateOutcome> {
+    const { cand, i, token, log, retriesPerServer, admissionRetries } = ctx;
+    let attempted = 0;
+    let candError: unknown;
+    // Start with the configured limit; upgraded to admissionRetries if we
+    // see 503/429 (the upstream is healthy, just temporarily full).
+    let effectiveRetries = retriesPerServer;
+
+    for (; attempted < effectiveRetries; attempted++) {
+      if (token.isCancellationRequested) {
+        this.deps.onRequestEnd?.(false, undefined, i);
+        return { kind: "cancelled" };
+      }
+      const attempt = await this.streamAttempt(ctx);
+      if (attempt.kind === "completed") {
+        this.reportUsage(cand, attempt, ctx);
+        this.recordRouteSuccess(cand.routeId);
+        this.deps.onActivity?.(true, cand.routeId);
+        this.deps.onRequestEnd?.(true, undefined, i);
+        return { kind: "succeeded" };
+      }
+      if (attempt.kind === "cancelled") return { kind: "cancelled" };
+      candError = attempt.error;
+      log.warn(
+        `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${formatErrorValue(candError)})`
+      );
+      // A stall means the upstream is alive and already processing the same
+      // request; re-sending it would burn tokens a second time. Move to the
+      // next candidate instead.
+      if (attempt.stall) {
+        this.deps.onStall?.(cand.routeId);
+        break;
+      }
+      // 503/429/concurrency/saturation = upstream is healthy but temporarily
+      // full. Escalate to more retries with longer backoff — this usually
+      // resolves in a few seconds, just like direct JSON / Copilot does.
+      if (attempt.throttle) {
+        effectiveRetries = Math.max(effectiveRetries, admissionRetries);
+      }
+      if (attempted + 1 < effectiveRetries) {
+        await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
+        continue;
+      }
+    }
+
+    this.recordCandFailure(cand.routeId, candError);
+    log.warn(
+      `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${formatErrorValue(candError)}); next server`
+    );
+    return { kind: "failed", error: candError };
+  }
+
+  /** Feeds the status bar's live usage readout after a completed stream. */
+  private reportUsage(
+    cand: FallbackCandidate,
+    attempt: Extract<StreamAttemptOutcome, { kind: "completed" }>,
+    ctx: ChatCandidateContext
+  ): void {
+    this.deps.onUsage?.({
+      routeId: cand.routeId,
+      baseUrl: ctx.client?.baseUrl ?? "",
+      serverName: ctx.routeName,
+      modelName: cand.modelId,
+      inputTokens: ctx.inputTokens,
+      outputTokens: estimateTokens(attempt.streamed),
+    });
+  }
+
+  /** One stream attempt: consumes events, reports parts, and classifies the
+   * outcome. Cancellation is honored at every checkpoint. */
+  private async streamAttempt(ctx: ChatCandidateContext): Promise<StreamAttemptOutcome> {
+    const { cand, i, client, request, progress, token, abort, log } = ctx;
+    let streamed = "";
+    let reportedAny = false;
+    const startedAt = Date.now();
+    let firstTokenAt: number | undefined;
+    this.deps.onRequestStart?.(cand.routeId, cand.modelId);
+    try {
+      const consumed = await this.consumeStream(
+        client,
+        { ...request, model: cand.modelId },
+        abort,
+        progress,
+        token
+      );
+      streamed = consumed.streamed;
+      reportedAny = consumed.reportedAny;
+      firstTokenAt = consumed.firstTokenAt;
+      if (!reportedAny) {
+        log.warn(`Model ${cand.modelId} @${cand.routeId} returned an empty stream; emitting empty text part`);
+        progress.report(new vscode.LanguageModelTextPart(""));
+      }
+      // User cancelled after the first tokens: the request did not complete —
+      // don't count it as success or bill usage.
+      if (token.isCancellationRequested) {
+        this.deps.onRequestEnd?.(false, undefined, i);
+        return { kind: "cancelled" };
+      }
+      const finishedAt = Date.now();
+      log.info(
+        `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${estimateTokens(streamed)} tokens)`
+      );
+      return { kind: "completed", streamed, startedAt, firstTokenAt };
+    } catch (err) {
+      return this.concludeStreamFailure(err, reportedAny, ctx);
+    }
+  }
+
+  /** Consumes one SSE stream, reporting text and tool-call parts as they
+   * arrive. Stops early on cancellation. */
+  private async consumeStream(
+    client: OmniRouteClient,
+    request: ChatRequest,
+    abort: AbortController,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    token: vscode.CancellationToken
+  ): Promise<{ streamed: string; reportedAny: boolean; firstTokenAt: number | undefined }> {
+    let streamed = "";
+    let reportedAny = false;
+    let firstTokenAt: number | undefined;
+    for await (const event of client.streamChat(request, abort.signal)) {
+      if (token.isCancellationRequested) break;
+      if (event.kind === "text") {
+        firstTokenAt ??= Date.now();
+        streamed += event.text;
+        reportedAny = true;
+        progress.report(new vscode.LanguageModelTextPart(event.text));
+      } else {
+        reportedAny = true;
+        progress.report(
+          new vscode.LanguageModelToolCallPart(event.id, event.name, parseToolCallArgs(event, this.deps.log))
+        );
+      }
+    }
+    return { streamed, reportedAny, firstTokenAt };
+  }
+
+  /** Classifies a failed attempt: cancellation, mid-stream/fatal → throw,
+   * anything transient → retryable with stall/throttle flags. */
+  private concludeStreamFailure(
+    err: unknown,
+    reportedAny: boolean,
+    ctx: ChatCandidateContext
+  ): StreamAttemptOutcome {
+    const { cand, i, token, log } = ctx;
+    if (token.isCancellationRequested) {
+      this.deps.onRequestEnd?.(false, undefined, i);
+      return { kind: "cancelled" };
+    }
+    if (reportedAny) {
+      this.deps.onActivity?.(false, cand.routeId);
+      log.error(`Chat request failed mid-stream: ${formatErrorValue(err)}`);
+      this.deps.onRequestEnd?.(false, describeFetchError(err), i);
+      throw err;
+    }
+    const status = errorStatus(err);
+    // Network-level failures (no HTTP status, e.g. `fetch failed`) are
+    // treated as transient so the server can be re-attempted.
+    const transient = status === undefined || isTransientHttpError(status);
+    if (!transient) {
+      this.deps.onActivity?.(false, cand.routeId);
+      log.error(`Chat request failed: ${formatErrorValue(err)}`);
+      this.deps.onRequestEnd?.(false, describeFetchError(err), i);
+      throw err;
+    }
+    return {
+      kind: "failed",
+      error: err,
+      stall: err instanceof OmniRouteError && err.stall,
+      throttle: status === 503 || status === 429 || isThrottleError(err),
+    };
+  }
+
+  /** Records a circuit-breaker failure — except 503/429/saturation, which are
+   * upstream throttling, not route failures. */
+  private recordCandFailure(routeId: string, err: unknown): void {
+    const status = errorStatus(err);
+    if (status !== 503 && status !== 429 && !isThrottleError(err)) {
+      this.recordRouteFailure(routeId);
+    }
+  }
+
+  /** Surfaces the final failure: status bar, error message, and throw. */
+  private reportChatFailure(args: {
+    routeId: string | undefined;
+    fallbacksUsed: number;
+    err: unknown;
+    modelId: string;
+    serverCount: number;
+    candidateCount: number;
+  }): never {
+    const { routeId, fallbacksUsed, err, modelId, serverCount, candidateCount } = args;
+    this.deps.onActivity?.(false, routeId);
+    this.deps.log.error(`Chat request failed after ${candidateCount} model(s): ${formatErrorValue(err)}`);
+    this.deps.onRequestEnd?.(false, describeFetchError(err), fallbacksUsed);
+    void vscode.window.showErrorMessage(describeFinalFailure(modelId, serverCount, err));
+    throw err;
   }
 
   // ── Token counting ──────────────────────────────────────────────────────
