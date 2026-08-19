@@ -428,10 +428,13 @@ export class OmniRouteChatProvider
     const isCombo = model.owned_by === "combo";
     const displayName = model.display_name?.trim() || model.id;
     const supportsReasoning = isReasoningModel(model);
+    const name = c.entry.routeName
+      ? `${displayName} (${c.entry.routeName})`
+      : displayName;
 
     return {
       id: c.entry.prefixedId,
-      name: displayName,
+      name,
       family: model.owned_by || "omniroute",
       version: "1.0.0",
       detail: isCombo ? "combo" : (c.entry.routeName || model.owned_by),
