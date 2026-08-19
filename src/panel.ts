@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
-import { normalizeBaseUrl } from "./client";
+import { formatErrorValue, normalizeBaseUrl } from "./client";
 import { cachedLoadRoutes, getClientForRoute, saveRoutes } from "./routes";
 
 interface RawRouteInput {
@@ -72,7 +72,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       };
       void this.view.webview.postMessage(instantStatus);
     } catch (err) {
-      this.log.debug(`Panel initial render error: ${String(err)}`);
+      this.log.debug(`Panel initial render error: ${formatErrorValue(err)}`);
     }
 
     // 2. Fast parallel probe for live status
@@ -88,8 +88,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       try {
         await this.handleMessage(msg);
       } catch (err) {
-        this.log.error(`Panel message failed: ${String(err)}`);
-        void vscode.window.showErrorMessage(`OmniRoute: ${String(err)}`);
+        this.log.error(`Panel message failed: ${formatErrorValue(err)}`);
+        void vscode.window.showErrorMessage(`OmniRoute: ${formatErrorValue(err)}`);
       }
     });
 
@@ -280,7 +280,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   }
 
   addBtn.addEventListener("click", () => {
-    routes.push({ id: "new-" + String(Math.random()).slice(2), name: "", url: "", hasKey: false, online: false, modelCount: null });
+    routes.push({ id: "new-" + crypto.randomUUID(), name: "", url: "", hasKey: false, online: false, modelCount: null });
     render();
   });
 

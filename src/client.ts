@@ -111,7 +111,7 @@ export class OmniRouteError extends Error {
  * `error.cause`. Surface that cause so users see *why* a server is offline
  * instead of a bare "fetch failed". Guards against cyclic cause chains. */
 export function describeFetchError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof Error)) return formatErrorValue(error);
   let msg = error.message;
   let current: unknown = error;
   const seen = new Set<Error>();
@@ -125,6 +125,21 @@ export function describeFetchError(error: unknown): string {
     current = cause;
   }
   return msg;
+}
+
+/** Best-effort human-readable rendering of an unknown thrown value. Errors
+ * and strings keep their normal stringification; other objects get their JSON
+ * form instead of the useless "[object Object]". */
+export function formatErrorValue(err: unknown): string {
+  if (err instanceof Error || typeof err === "string") return String(err);
+  if (err === undefined || err === null || typeof err !== "object") return String(err);
+  try {
+    const serialized = JSON.stringify(err);
+    return serialized === undefined ? String(err) : serialized;
+  } catch {
+    // Circular or un-serializable object — fall back to default formatting.
+    return String(err);
+  }
 }
 
 /** Statuses worth retrying: request timeout, rate limit, and 5xx range. */
@@ -260,7 +275,7 @@ export class OmniRouteClient {
       return ok;
     } catch (err) {
       const elapsed = Date.now() - t0;
-      this.opts.log?.warn(`[PING FAILED] ${this.baseUrl} -> OFFLINE (${elapsed}ms): ${String(err)}`);
+      this.opts.log?.warn(`[PING FAILED] ${this.baseUrl} -> OFFLINE (${elapsed}ms): ${formatErrorValue(err)}`);
       return false;
     } finally {
       clearTimeout(timer);
@@ -315,10 +330,10 @@ export class OmniRouteClient {
       } catch (err) {
         const elapsed = Date.now() - attemptT0;
         if (signal.aborted) {
-          this.opts.log?.warn(`[HTTP ABORTED] ${method} ${url} after ${elapsed}ms: ${String(err)}`);
+          this.opts.log?.warn(`[HTTP ABORTED] ${method} ${url} after ${elapsed}ms: ${formatErrorValue(err)}`);
           throw abortReason(signal);
         }
-        this.opts.log?.warn(`[HTTP ERROR] ${method} ${url} after ${elapsed}ms: ${String(err)}`);
+        this.opts.log?.warn(`[HTTP ERROR] ${method} ${url} after ${elapsed}ms: ${formatErrorValue(err)}`);
         if (attempt >= policy.maxAttempts - 1) {
           throw new OmniRouteError(
             describeFetchError(err),
@@ -389,7 +404,7 @@ export class OmniRouteClient {
       this.opts.log?.info(`[MODELS] Listed ${models.length} model(s) from ${this.baseUrl} in ${Date.now() - t0}ms`);
       return models;
     } catch (err) {
-      this.opts.log?.warn(`[MODELS ERROR] Failed listing models from ${this.baseUrl}: ${String(err)}`);
+      this.opts.log?.warn(`[MODELS ERROR] Failed listing models from ${this.baseUrl}: ${formatErrorValue(err)}`);
       throw err;
     } finally {
       clearTimeout(timer);
@@ -633,7 +648,7 @@ class StreamSession {
     if (this.ctrl.signal.aborted) {
       const reason = this.ctrl.signal.reason;
       if (reason instanceof OmniRouteError) throw reason;
-      throw new OmniRouteError(String(reason), undefined, true, "stream", "/chat/completions");
+      throw new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", "/chat/completions");
     }
   }
 
@@ -643,7 +658,7 @@ class StreamSession {
     if (this.ctrl.signal.aborted) {
       const reason = this.ctrl.signal.reason;
       if (reason instanceof OmniRouteError) return reason;
-      return new OmniRouteError(String(reason), undefined, true, "stream", "/chat/completions");
+      return new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", "/chat/completions");
     }
     return err;
   }

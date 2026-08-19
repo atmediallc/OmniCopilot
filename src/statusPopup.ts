@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
+import { formatErrorValue } from "./client";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
 import { cachedLoadRoutes, type Route } from "./routes";
@@ -349,7 +350,7 @@ export class OmniStatusPopup {
       });
       this.lastUsedRoutes = routes;
     } catch (err) {
-      this.log.error(`Error updating status popup state: ${String(err)}`);
+      this.log.error(`Error updating status popup state: ${formatErrorValue(err)}`);
     } finally {
       this.isUpdating = false;
     }

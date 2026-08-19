@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
-import { OmniRouteError, describeFetchError, isTransientHttpError, isThrottleError } from "./client";
+import { OmniRouteError, describeFetchError, formatErrorValue, isTransientHttpError, isThrottleError } from "./client";
 
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
@@ -88,21 +88,6 @@ function describeFinalFailure(modelId: string, serverCount: number, err: unknown
     String(serverCount),
     reason
   );
-}
-
-/** Best-effort human-readable rendering of an unknown thrown value. Errors
- * and strings keep their normal stringification; other objects get their JSON
- * form instead of the useless "[object Object]" (Sonar S6143). */
-function formatErrorValue(err: unknown): string {
-  if (err instanceof Error || typeof err === "string") return String(err);
-  if (err === undefined || err === null || typeof err !== "object") return String(err);
-  try {
-    const serialized = JSON.stringify(err);
-    return serialized === undefined ? String(err) : serialized;
-  } catch {
-    // Circular or un-serializable object — fall back to default formatting.
-    return String(err);
-  }
 }
 
 export class OmniRouteChatProvider

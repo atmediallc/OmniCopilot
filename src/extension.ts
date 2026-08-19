@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { serverRootUrl } from "./client";
+import { formatErrorValue, serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
@@ -33,7 +33,7 @@ function syncProviders(
   log: vscode.LogOutputChannel
 ): Promise<void> {
   syncPromise = syncPromise.then(() => doSyncProviders(context, log)).catch((err) => {
-    log.error(`Failed to sync providers: ${String(err)}`);
+    log.error(`Failed to sync providers: ${formatErrorValue(err)}`);
   });
   return syncPromise;
 }
@@ -83,7 +83,7 @@ async function doSyncProviders(
       providerDisposables.push(p, reg);
       log.info(`Registered provider for vendor "${VENDOR}" (${activeRoutes.length} server(s) configured)`);
     } catch (err) {
-      log.error(`Failed to register chat provider for vendor "${VENDOR}": ${String(err)}`);
+      log.error(`Failed to register chat provider for vendor "${VENDOR}": ${formatErrorValue(err)}`);
     }
   } else {
     activeRoutes.forEach((route, index) => {
@@ -95,7 +95,7 @@ async function doSyncProviders(
         providerDisposables.push(p, reg);
         log.info(`Registered provider for server "${route.name}" under vendor slot "${vendorId}" (routeId: ${route.id})`);
       } catch (err) {
-        log.error(`Failed to register chat provider for vendor "${vendorId}" (server: ${route.name}): ${String(err)}`);
+        log.error(`Failed to register chat provider for vendor "${vendorId}" (server: ${route.name}): ${formatErrorValue(err)}`);
       }
     });
   }
@@ -246,7 +246,7 @@ function registerCommands(
           await vscode.commands.executeCommand("simpleBrowser.show", root);
           return;
         } catch (err) {
-          log.warn(`Simple Browser unavailable, falling back to external: ${String(err)}`);
+          log.warn(`Simple Browser unavailable, falling back to external: ${formatErrorValue(err)}`);
         }
       } else {
         log.info(
