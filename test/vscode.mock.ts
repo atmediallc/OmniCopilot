@@ -143,3 +143,26 @@ export class MarkdownString {
   }
 }
 
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}
+
+export class ThemeColor {
+  constructor(public id: string) {}
+}
+
+export const window = {
+  showErrorMessage: async (_message: string) => undefined,
+  createStatusBarItem: (_alignment?: StatusBarAlignment, _priority?: number) => ({
+    text: "",
+    tooltip: "",
+    command: "",
+    color: undefined as ThemeColor | undefined,
+    backgroundColor: undefined as ThemeColor | undefined,
+    show: () => {},
+    hide: () => {},
+    dispose: () => {},
+  }),
+};
+

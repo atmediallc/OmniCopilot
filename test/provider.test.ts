@@ -66,6 +66,52 @@ describe("OmniRouteChatProvider", () => {
     expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
   });
 
+  it("persists removal of a configured route even while the cache is fresh", async () => {
+    const context = mockContext();
+    await context.globalState.update("omnicopilot.cachedCatalog.v1", [
+      { entry: { routeId: "A", routeName: "A", modelId: "model-a", prefixedId: "A · model-a" }, model: { id: "model-a" } },
+      { entry: { routeId: "B", routeName: "B", modelId: "model-b", prefixedId: "B · model-b" }, model: { id: "model-b" } },
+    ]);
+    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now());
+    OmniRouteChatProvider.loadPersistentCache(context);
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "A", baseUrl: "http://a/v1" },
+    ]);
+
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    expect(infos.map((info) => info.omniModelId)).toEqual(["model-a"]);
+    await vi.waitFor(() => expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([
+      expect.objectContaining({ entry: expect.objectContaining({ routeId: "A" }) }),
+    ]));
+  });
+
+  it("does not let an older discovery overwrite a manual refresh", async () => {
+    const context = mockContext();
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "A", baseUrl: "http://a/v1" },
+    ]);
+    let resolveOld!: (models: Array<{ id: string }>) => void;
+    const oldModels = new Promise<Array<{ id: string }>>((resolve) => { resolveOld = resolve; });
+    const listModels = vi.fn()
+      .mockReturnValueOnce(oldModels)
+      .mockResolvedValueOnce([{ id: "model-new" }]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({ listModels } as never);
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+
+    await provider.refresh();
+    const oldDiscovery = provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1));
+    await provider.refresh();
+    const refreshed = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    resolveOld([{ id: "model-old" }]);
+    await oldDiscovery;
+
+    expect(refreshed.map((info) => info.omniModelId)).toEqual(["model-new"]);
+    expect(provider.cachedModels.map((item) => item.model.id)).toEqual(["model-new"]);
+  });
+
   it("prunes models belonging to deleted routes", async () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({
@@ -87,6 +133,9 @@ describe("OmniRouteChatProvider", () => {
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
       { id: "active-route", name: "Active Server", baseUrl: "http://localhost:8080" },
     ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
+      listModels: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof routesModule.getClientForRoute>);
 
     const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos.some((i) => i.routeId === "deleted-route")).toBe(false);
@@ -108,6 +157,7 @@ describe("OmniRouteChatProvider", () => {
           id: "o3-mini",
           owned_by: "openai",
           display_name: "o3-mini",
+          supported_endpoints: ["responses"],
           capabilities: { reasoning: true, thinking: true, tool_calling: true },
         },
       ]),
@@ -120,11 +170,12 @@ describe("OmniRouteChatProvider", () => {
     // persistCache is fire-and-forget; wait until it lands in globalState.
     await vi.waitFor(() => {
       const saved = context.globalState.get("omnicopilot.cachedCatalog.v1") as unknown as Array<{
-        model: { capabilities: Record<string, unknown> };
+        model: { capabilities: Record<string, unknown>; supported_endpoints: string[] };
       }>;
       expect(saved).toHaveLength(1);
       expect(saved[0].model.capabilities.reasoning).toBe(true);
       expect(saved[0].model.capabilities.thinking).toBe(true);
+      expect(saved[0].model.supported_endpoints).toEqual(["responses"]);
     });
 
     // A reload served from this persisted cache keeps supportsReasoning.

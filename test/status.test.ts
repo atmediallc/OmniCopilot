@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ConnectionStatusBar } from "../src/statusBar";
 import {
   renderStatusText,
   statusColorTokens,
@@ -87,5 +88,32 @@ describe("statusTooltip", () => {
     const text = md.value;
     expect(text).not.toContain("Last Error");
     expect(text).not.toContain("Connected Servers");
+  });
+});
+
+describe("ConnectionStatusBar concurrency tracking", () => {
+  it("keeps streaming state while any concurrent request is active", () => {
+    const mockLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+    const bar = new ConnectionStatusBar(async () => [], mockLog);
+
+    bar.reportRequestStart("r1", "gpt-4o");
+    expect(bar.getSnapshot().status).toBe("streaming");
+    expect(bar.getSnapshot().activeRequestCount).toBe(1);
+
+    bar.reportRequestStart("r1", "claude-sonnet");
+    expect(bar.getSnapshot().status).toBe("streaming");
+    expect(bar.getSnapshot().activeRequestCount).toBe(2);
+
+    // First request finishes: active count becomes 1, status stays streaming
+    bar.reportRequestEnd(true, undefined, 0);
+    expect(bar.getSnapshot().status).toBe("streaming");
+    expect(bar.getSnapshot().activeRequestCount).toBe(1);
+
+    // Second request finishes: active count becomes 0
+    bar.reportRequestEnd(true, undefined, 0);
+    expect(bar.getSnapshot().activeRequestCount).toBe(0);
+    expect(bar.getSnapshot().status).not.toBe("streaming");
+
+    bar.dispose();
   });
 });

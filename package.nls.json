@@ -30,10 +30,10 @@
   "cfg.routes": "List of OmniRoute server routes with optional model whitelists, priorities, and fallback weights.",
   "cfg.baseUrlDeprecated": "Base URL of your primary OmniRoute server. Note: for multi-server setups, configure omnicopilot.routes instead.",
   "cfg.fallbackMode": "Cross-server model fallback strategy when a model request fails on the primary route.",
-  "cfg.fallbackMode.conservative": "Conservative: only fallback on 503/429 errors or server failure.",
-  "cfg.fallbackMode.crossServerOnly": "Cross-server only: retry on alternative servers only, not alternative models.",
+  "cfg.fallbackMode.sameModel": "Same model: retry the selected model on alternative servers.",
   "cfg.fallbackMode.sameFamily": "Same family: allow fallback to compatible models in the same provider family.",
-  "cfg.fallbackMode.disabled": "Disabled: do not attempt fallback if request fails.",
+  "cfg.fallbackMode.full": "Full: allow fallback to any compatible model.",
+  "cfg.fallbackMode.none": "None: do not attempt fallback if the request fails.",
   "cfg.retriesPerServer": "Maximum number of retry attempts per server on transient errors before failing over.",
   "cfg.maxTools": "Maximum number of tools to send in a single chat request. Extra tools will be omitted defensively.",
   "cfg.modelCacheTtlMinutes": "Time-to-live in minutes for model catalog cache before automatic background refresh."

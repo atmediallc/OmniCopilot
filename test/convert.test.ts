@@ -11,6 +11,8 @@ import { normalizeBaseUrl, serverRootUrl } from "../src/client";
 
 type AnyMessage = Parameters<typeof toOpenAiMessages>[0][number];
 
+const SystemRole = 3 as vscode.LanguageModelChatMessageRole;
+
 function msg(role: vscode.LanguageModelChatMessageRole, content: unknown[]): AnyMessage {
   return { role, content } as unknown as AnyMessage;
 }
@@ -19,7 +21,7 @@ describe("toOpenAiMessages", () => {
   it("moves system messages to the beginning of the request", () => {
     const out = toOpenAiMessages([
       msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("hello")]),
-      msg(3 as vscode.LanguageModelChatMessageRole, [new vscode.LanguageModelTextPart("rules")]),
+      msg(SystemRole, [new vscode.LanguageModelTextPart("rules")]),
       msg(vscode.LanguageModelChatMessageRole.Assistant, [new vscode.LanguageModelTextPart("reply")]),
     ]);
 
@@ -37,7 +39,7 @@ describe("toOpenAiMessages", () => {
 
   it("maps roles including system", () => {
     const out = toOpenAiMessages([
-      msg(vscode.LanguageModelChatMessageRole.System, [
+      msg(SystemRole, [
         new vscode.LanguageModelTextPart("be brief"),
       ]),
       msg(vscode.LanguageModelChatMessageRole.Assistant, [
@@ -101,6 +103,28 @@ describe("toOpenAiMessages", () => {
     expect(parts[0]).toEqual({ type: "text", text: "what is this?" });
     expect(parts[1].type).toBe("image_url");
     expect(parts[1].image_url?.url).toBe(`data:image/png;base64,${Buffer.from(bytes).toString("base64")}`);
+  });
+
+  it("merges mixed text and image system messages without dropping text", () => {
+    const bytes = new Uint8Array([4, 5, 6]);
+    const out = toOpenAiMessages([
+      msg(SystemRole, [
+        new vscode.LanguageModelTextPart("System prompt instructions"),
+      ]),
+      msg(SystemRole, [
+        vscode.LanguageModelDataPart.image(bytes, "image/jpeg"),
+      ]),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelTextPart("Hello"),
+      ]),
+    ]);
+
+    expect(out[0].role).toBe("system");
+    expect(Array.isArray(out[0].content)).toBe(true);
+    const systemParts = out[0].content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    expect(systemParts[0]).toEqual({ type: "text", text: "System prompt instructions" });
+    expect(systemParts[1].type).toBe("image_url");
+    expect(systemParts[1].image_url?.url).toBe(`data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`);
   });
 });
 

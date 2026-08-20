@@ -240,6 +240,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 
 <script nonce="${nonce}">
   const vscodeApi = acquireVsCodeApi();
+  const STRINGS = ${JSON.stringify(S)};
   function el(tag, props) { const n = document.createElement(tag); if (props) Object.assign(n, props); return n; }
   const host = document.getElementById("routes");
   const dot = document.getElementById("dot");
@@ -250,15 +251,15 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 
   function render() {
     host.textContent = "";
-    if (routes.length === 0) host.appendChild(el("div", { className: "hint", textContent: "＋ " + "${S.add}" }));
+    if (routes.length === 0) host.appendChild(el("div", { className: "hint", textContent: "＋ " + STRINGS.add }));
     routes.forEach((r, i) => {
       const card = el("div", { className: "card" });
       const name = el("input", { type: "text", value: r.name || "", maxLength: 40 });
-      const url = el("input", { type: "text", value: r.url || "", placeholder: "${S.urlPlaceholder}", spellcheck: false });
-      const key = el("input", { type: "password", value: "", placeholder: r.hasKey ? "${S.keyStored}" : "${S.keyPlaceholder}", spellcheck: false });
+      const url = el("input", { type: "text", value: r.url || "", placeholder: STRINGS.urlPlaceholder, spellcheck: false });
+      const key = el("input", { type: "password", value: "", placeholder: r.hasKey ? STRINGS.keyStored : STRINGS.keyPlaceholder, spellcheck: false });
       const stDot = el("span", { className: "dot" + (r.online ? " on" : " off") });
-      const stText = el("span", { textContent: r.online ? "${S.online}" : "${S.offline}" });
-      const rem = el("button", { className: "remove", title: "${S.remove}", textContent: "✕" });
+      const stText = el("span", { textContent: r.online ? STRINGS.online : STRINGS.offline });
+      const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "✕" });
       rem.disabled = routes.length <= 1;
       rem.addEventListener("click", () => { routes.splice(i, 1); render(); });
 
@@ -268,9 +269,9 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         rw.appendChild(field);
         return rw;
       };
-      card.appendChild(row("${S.serverName}", name));
-      card.appendChild(row("${S.serverUrl}", url));
-      card.appendChild(row("${S.apiKey}", key));
+      card.appendChild(row(STRINGS.serverName, name));
+      card.appendChild(row(STRINGS.serverUrl, url));
+      card.appendChild(row(STRINGS.apiKey, key));
       const st = el("div", { className: "status" });
       st.appendChild(stDot); st.appendChild(stText); st.appendChild(el("span", { style: "flex:1" }));
       card.appendChild(st); card.appendChild(rem);
@@ -292,8 +293,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       payload.push({ id: r?.id ?? "", name: inputs[0].value, url: inputs[1].value, apiKey: inputs[2].value });
     });
     vscodeApi.postMessage({ type: "save", routes: payload });
-    saveBtn.textContent = "${S.saved}";
-    setTimeout(() => { saveBtn.textContent = "${S.save}"; }, 1200);
+    saveBtn.textContent = STRINGS.saved;
+    setTimeout(() => { saveBtn.textContent = STRINGS.save; }, 1200);
   });
 
   document.querySelectorAll(".link").forEach((lnk) =>
@@ -305,8 +306,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     if (msg.type !== "status") return;
     dot.className = "dot" + (msg.onlineCount > 0 ? " on" : " off");
     summaryEl.textContent = msg.total === 1
-      ? (msg.routes[0]?.online ? "${S.online}" : "${S.offline}")
-      : "${S.summary}".replace("{0}", msg.onlineCount).replace("{1}", msg.total);
+      ? (msg.routes[0]?.online ? STRINGS.online : STRINGS.offline)
+      : STRINGS.summary.replace("{0}", msg.onlineCount).replace("{1}", msg.total);
     routes = msg.routes.map((r) => ({ id: r.id, name: r.name, url: r.url, hasKey: r.hasKey, online: r.online, modelCount: r.modelCount }));
     render();
   });

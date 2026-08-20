@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
 import { selectChatModels } from "./catalogFilter";
 import type { OmniLogger } from "./client";
-import type { OmniRouteModel, RouteConfig } from "./types";
+import type { ModelTransport, OmniRouteModel, RouteConfig } from "./types";
 
 /** Legacy single-route secret (migrated into route-1). */
 export const SECRET_API_KEY = "omnicopilot.apiKey";
@@ -139,7 +139,15 @@ const _clientPool = new Map<string, OmniRouteClient>();
 /** Reusable client for a route. Keyed by `routeId`; invalidated with routes. */
 export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByteTimeoutMs?: number): OmniRouteClient {
   const existing = _clientPool.get(route.id);
-  if (existing) return existing;
+  if (
+    existing &&
+    existing.baseUrl === normalizeBaseUrl(route.baseUrl) &&
+    existing.options.apiKey === route.apiKey &&
+    existing.options.streamFirstByteTimeoutMs === streamFirstByteTimeoutMs &&
+    existing.options.log === log
+  ) {
+    return existing;
+  }
   const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs);
   _clientPool.set(route.id, client);
   return client;
@@ -202,6 +210,7 @@ export interface CatalogModel {
 export interface FallbackCandidate {
   routeId: string;
   modelId: string;
+  transport: ModelTransport;
 }
 
 export interface RouteCatalog {
@@ -243,6 +252,21 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
 
 export type FallbackMode = "none" | "sameModel" | "sameFamily" | "full";
 
+/** Responses-first transport selection. Only explicit chat-only catalog
+ * metadata opts a model out of Responses API. */
+export function transportForModel(model: OmniRouteModel | undefined): ModelTransport {
+  const endpoints = model?.supported_endpoints;
+  if (!Array.isArray(endpoints) || endpoints.length === 0) return "responses";
+  const normalized = endpoints.map((endpoint) => String(endpoint).trim().toLowerCase());
+  if (normalized.some((endpoint) => endpoint === "responses" || endpoint.endsWith("/responses"))) {
+    return "responses";
+  }
+  const supportsChat = normalized.some(
+    (endpoint) => endpoint.includes("chat") || endpoint === "completions" || endpoint.endsWith("/completions")
+  );
+  return supportsChat ? "chatCompletions" : "responses";
+}
+
 /** Ordered cross-route fallback candidates for a failing chat request.
  *
  * `mode` controls how far the chain reaches:
@@ -269,7 +293,11 @@ export function pickFallbackCandidates(
   const push = (c: CatalogModel) => {
     if (seen.has(c.entry.prefixedId)) return;
     seen.add(c.entry.prefixedId);
-    out.push({ routeId: c.entry.routeId, modelId: c.entry.modelId });
+    out.push({
+      routeId: c.entry.routeId,
+      modelId: c.entry.modelId,
+      transport: transportForModel(c.model),
+    });
   };
 
   if (mode === "none") return out;

@@ -86,6 +86,77 @@ export interface ChatRequest {
   reasoning_effort?: string;
 }
 
+/** Wire protocol used for one model request. Responses is preferred unless
+ * catalog metadata explicitly limits a model to Chat Completions. */
+export type ModelTransport = "responses" | "chatCompletions";
+
+export interface ResponsesFunctionTool {
+  type: "function";
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export type ResponsesContentPart =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string };
+
+export interface ResponsesMessageItem {
+  type: "message";
+  role: "system" | "developer" | "user" | "assistant";
+  content: ResponsesContentPart[];
+}
+
+export interface ResponsesFunctionCallItem {
+  type: "function_call";
+  call_id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ResponsesFunctionCallOutputItem {
+  type: "function_call_output";
+  call_id: string;
+  output: string;
+}
+
+export type ResponsesInputItem =
+  | ResponsesMessageItem
+  | ResponsesFunctionCallItem
+  | ResponsesFunctionCallOutputItem;
+
+export interface ResponsesRequest {
+  model: string;
+  input: ResponsesInputItem[];
+  stream: true;
+  tools?: ResponsesFunctionTool[];
+  tool_choice?: "auto" | "required" | "none";
+  temperature?: number;
+  max_output_tokens?: number;
+  reasoning?: { effort: string };
+}
+
+/** Minimal subset of Responses streaming events consumed by the extension. */
+export interface ResponsesStreamEvent {
+  type?: string;
+  delta?: string;
+  item_id?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  item?: {
+    id?: string;
+    type?: string;
+    call_id?: string;
+    name?: string;
+    arguments?: string;
+  };
+  response?: {
+    error?: { message?: string; code?: string };
+  };
+  error?: { message?: string; code?: string };
+}
+
 /** Incremental tool-call fragment inside a stream delta. */
 export interface StreamToolCallDelta {
   index: number;

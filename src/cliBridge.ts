@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { serverRootUrl } from "./client";
-import { loadRoutes } from "./routes";
+import { cachedLoadRoutes } from "./routes";
 
 interface CliTool {
   id: string;
@@ -56,7 +56,7 @@ export async function configureCliTool(
     : await pickTool();
   if (!tool) return;
 
-  const routes = await loadRoutes(context);
+  const routes = await cachedLoadRoutes(context);
   if (routes.length === 0) {
     void vscode.window.showWarningMessage(
       vscode.l10n.t("Add an OmniRoute server in the panel before configuring a coding CLI.")

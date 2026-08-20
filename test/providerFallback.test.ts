@@ -62,7 +62,7 @@ describe("full fallback at the request level", () => {
     const clientA = {
       baseUrl: "http://server-a.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamChat: vi.fn().mockImplementation(async function* () {
+      streamModel: vi.fn().mockImplementation(async function* () {
         throw new OmniRouteError("fetch failed", undefined);
       }),
     };
@@ -72,7 +72,7 @@ describe("full fallback at the request level", () => {
       listModels: vi
         .fn()
         .mockResolvedValue([{ id: "openai/gpt-4o" }, { id: "kimi/k2" }]),
-      streamChat: vi.fn().mockImplementation(() => streamText("fallback reply")),
+      streamModel: vi.fn().mockImplementation(() => streamText("fallback reply")),
     };
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -106,12 +106,244 @@ describe("full fallback at the request level", () => {
     );
 
     // The primary was tried, then the same model on server B answered.
-    expect(clientA.streamChat).toHaveBeenCalled();
-    expect(clientB.streamChat).toHaveBeenCalled();
+    expect(clientA.streamModel).toHaveBeenCalled();
+    expect(clientB.streamModel).toHaveBeenCalled();
     expect(progress.report).toHaveBeenCalledWith(
       expect.objectContaining({ value: "fallback reply" })
     );
     // ok=true, no error, exactly 1 fallback consumed.
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+  });
+
+  it("tries offline fallback candidate if primary fails instead of dropping it", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+
+    const context = mockContext();
+    const onRequestEnd = vi.fn();
+    // Only server A is currently in the online set (e.g. server B failed a transient ping)
+    const getOnlineRouteIds = vi.fn().mockReturnValue(new Set(["A"]));
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+      onRequestEnd,
+      getOnlineRouteIds,
+    });
+
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("fetch failed", undefined);
+      }),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("offline server answered")),
+    };
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => (route.id === "A" ? clientA : clientB)) as unknown as typeof routesModule.getClientForRoute
+    );
+
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      progress as unknown as vscode.Progress<unknown>,
+      dummyToken
+    );
+
+    expect(clientA.streamModel).toHaveBeenCalled();
+    expect(clientB.streamModel).toHaveBeenCalled();
+    expect(progress.report).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "offline server answered" })
+    );
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+  });
+
+  it.each([429, 503])("honors retriesPerServer for HTTP %i admission failures and immediately tries another route", async (status) => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+
+    const context = mockContext();
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+      onRequestEnd,
+    });
+
+    // Server A: admission full for both models.
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "openai/gpt-4o" },
+        { id: "openai/gpt-4o-mini" },
+      ]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("Chat admission capacity is temporarily unavailable", status);
+      }),
+    };
+    // Server B: healthy backup
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("server B answered")),
+    };
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => (route.id === "A" ? clientA : clientB)) as unknown as typeof routesModule.getClientForRoute
+    );
+
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      progress as unknown as vscode.Progress<unknown>,
+      dummyToken
+    );
+
+    // The configured attempt is honored; same-route fallback is skipped.
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    // The other route is tried immediately and succeeds.
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(progress.report).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "server B answered" })
+    );
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, expect.any(Number));
+  });
+
+  it("rethrows an exhausted admission failure without showing extension error UI", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    const showErrorMessage = vi.spyOn(vscode.window, "showErrorMessage");
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
+    const failure = new OmniRouteError("Chat admission capacity is temporarily unavailable", 503);
+    const client = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw failure;
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      client as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    await expect(provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      { report: vi.fn() } as unknown as vscode.Progress<unknown>,
+      dummyToken
+    )).rejects.toBe(failure);
+
+    expect.soft(client.streamModel).toHaveBeenCalledTimes(1);
+    expect(showErrorMessage).not.toHaveBeenCalled();
+  });
+
+  it("starts 12 simultaneous streams before any response is released or completes", async () => {
+    configValues["omnicopilot"] = { fallbackMode: "sameModel" };
+
+    const context = mockContext();
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog, onRequestEnd });
+    let releaseStream!: () => void;
+    const streamGate = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    let signalAllEntered!: () => void;
+    const allEntered = new Promise<void>((resolve) => {
+      signalAllEntered = resolve;
+    });
+    let entered = 0;
+    const client = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        entered += 1;
+        if (entered === 12) signalAllEntered();
+        await streamGate;
+        yield { kind: "text", text: "done" };
+      }),
+    };
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      client as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+    let completed = 0;
+    const responses = Array.from({ length: 12 }, () =>
+      provider.provideLanguageModelChatResponse(
+        model,
+        [],
+        {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+        { report: vi.fn() } as unknown as vscode.Progress<unknown>,
+        dummyToken
+      ).then(() => {
+        completed += 1;
+      })
+    );
+
+    await allEntered;
+    expect(client.streamModel).toHaveBeenCalledTimes(12);
+    expect(entered).toBe(12);
+    expect(completed).toBe(0);
+
+    releaseStream();
+    await Promise.all(responses);
+    expect(completed).toBe(12);
+    expect(onRequestEnd).toHaveBeenCalledTimes(12);
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 0);
   });
 });

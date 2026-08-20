@@ -50,7 +50,7 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // other family ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "sameModel")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o" },
+      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
     ]);
   });
 
@@ -63,8 +63,8 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // other route+family ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "sameFamily")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o" },
-      { routeId: "A", modelId: "openai/gpt-4o-mini" },
+      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
+      { routeId: "A", modelId: "openai/gpt-4o-mini", transport: "responses" },
     ]);
   });
 
@@ -77,10 +77,10 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // tier 3: anything
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "full")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o" },
-      { routeId: "A", modelId: "openai/gpt-4o-mini" },
-      { routeId: "A", modelId: "anthropic/claude-3-5-sonnet" },
-      { routeId: "B", modelId: "kimi/k2" },
+      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
+      { routeId: "A", modelId: "openai/gpt-4o-mini", transport: "responses" },
+      { routeId: "A", modelId: "anthropic/claude-3-5-sonnet", transport: "responses" },
+      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
     ]);
   });
 
@@ -93,8 +93,8 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("C", "Server C", "mistral/mistral-7b"), // no capabilities field → treated as compatible ✓
     ];
     expect(pickFallbackCandidates(primary, catalog, true, "full")).toEqual([
-      { routeId: "B", modelId: "kimi/k2" },
-      { routeId: "C", modelId: "mistral/mistral-7b" },
+      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
+      { routeId: "C", modelId: "mistral/mistral-7b", transport: "responses" },
     ]);
   });
 
@@ -124,7 +124,7 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"),
     ];
     expect(pickFallbackCandidates(primary, catalog, false)).toEqual([
-      { routeId: "B", modelId: "kimi/k2" },
+      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
     ]);
   });
 });

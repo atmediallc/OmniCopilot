@@ -189,6 +189,10 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.disposed) return;
     this.activeRequestCount = Math.max(0, this.activeRequestCount - 1);
     this.fallbackCount = fallbacksUsed;
+    if (this.activeRequestCount > 0) {
+      this.render();
+      return;
+    }
     if (ok) {
       this.lastResponseAt = Date.now();
       this.lastError = undefined;
@@ -295,7 +299,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.loopTimer) clearTimeout(this.loopTimer);
     const seconds = vscode.workspace
       .getConfiguration("omnicopilot")
-      .get<number>("healthCheckIntervalSeconds", 10);
+      .get<number>("healthCheckIntervalSeconds", 30);
     const base = Math.max(seconds, 5) * 1000;
     const multiplier = this.consecutiveFailures >= 2
       ? Math.pow(2, Math.min(this.consecutiveFailures - 1, 4))
@@ -362,7 +366,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   }
 
   /** Pure state handed to the renderer — the adapter keeps no formatting. */
-  private snapshot(): StatusSnapshot {
+  public snapshot(): StatusSnapshot {
     const serverMetrics = this.metricsTracker?.getMetrics().servers ?? {};
     return {
       status: this.status,

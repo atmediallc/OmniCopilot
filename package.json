@@ -335,18 +335,18 @@
         },
         "omnicopilot.fallbackMode": {
           "type": "string",
-          "default": "conservative",
+          "default": "sameModel",
           "enum": [
-            "conservative",
-            "crossServerOnly",
+            "sameModel",
             "sameFamily",
-            "disabled"
+            "full",
+            "none"
           ],
           "enumDescriptions": [
-            "%cfg.fallbackMode.conservative%",
-            "%cfg.fallbackMode.crossServerOnly%",
+            "%cfg.fallbackMode.sameModel%",
             "%cfg.fallbackMode.sameFamily%",
-            "%cfg.fallbackMode.disabled%"
+            "%cfg.fallbackMode.full%",
+            "%cfg.fallbackMode.none%"
           ],
           "description": "%cfg.fallbackMode%"
         },

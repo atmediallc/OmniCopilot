@@ -5,7 +5,7 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
 import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
-import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates } from "./routes";
+import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates, transportForModel } from "./routes";
 import type { ChatRequest, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
@@ -74,27 +74,6 @@ function delay(ms: number, token?: vscode.CancellationToken): Promise<void> {
   });
 }
 
-/** Builds a user-facing failure message, separating upstream capacity/rate-limit
- * (503/429 — retry shortly) from connection/config problems (check your server). */
-function describeFinalFailure(modelId: string, serverCount: number, err: unknown): string {
-  const isThrottle =
-    err instanceof OmniRouteError && (err.status === 503 || err.status === 429 || isThrottleError(err));
-  if (isThrottle) {
-    return vscode.l10n.t(
-      "OmniRoute: model {0} is temporarily unavailable on all {1} server(s). The upstream is at capacity or rate-limited (HTTP {2}); retry in a moment or pick another model.",
-      modelId,
-      String(serverCount),
-      String(err instanceof OmniRouteError && err.status ? err.status : "503/429")
-    );
-  }
-  const reason = err instanceof OmniRouteError ? err.message : formatErrorValue(err);
-  return vscode.l10n.t(
-    "OmniRoute: the model {0} couldn't be reached on any of {1} server(s). Last error: {2}. Check the server's proxy/API key in the panel or pick another model.",
-    modelId,
-    String(serverCount),
-    reason
-  );
-}
 
 /** HTTP status code carried by an OmniRouteError, if any. */
 function errorStatus(err: unknown): number | undefined {
@@ -105,11 +84,10 @@ function errorStatus(err: unknown): number | undefined {
  * when present (capped at 30s) so a misbehaving server can't stall a request. */
 function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number): number {
   const retryAfterMs = err instanceof OmniRouteError ? err.retryAfterMs : undefined;
-  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 30_000);
-  const baseDelay = isThrottle ? 1500 + crypto.randomInt(1000) : 250;
-  const maxDelay = isThrottle ? 8000 : 2000;
-  const multiplier = isThrottle ? 1.5 : 2;
-  return Math.min(maxDelay, baseDelay * Math.pow(multiplier, attempted));
+  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 10_000);
+  const baseDelay = isThrottle ? 400 + crypto.randomInt(300) : 250;
+  const maxDelay = isThrottle ? 1500 : 1000;
+  return Math.min(maxDelay, baseDelay * (attempted + 1));
 }
 
 /** Parses a tool-call's JSON args defensively; `{}` on malformed input. */
@@ -136,7 +114,6 @@ interface ChatPlan {
   serverCount: number;
   modelId: string;
   retriesPerServer: number;
-  admissionRetries: number;
 }
 
 /** Shared context for streaming against one fallback candidate. */
@@ -152,7 +129,6 @@ interface ChatCandidateContext {
   abort: AbortController;
   log: vscode.LogOutputChannel;
   retriesPerServer: number;
-  admissionRetries: number;
 }
 
 /** Outcome of a single stream attempt. */
@@ -177,10 +153,7 @@ export class OmniRouteChatProvider
   private static readonly sharedRouteFetchPromises = new Map<string, Promise<RouteCatalog>>();
   private static sharedCachedModels: CatalogModel[] = [];
   private static sharedLastCatalogFetch = 0;
-  private static readonly routeFailures = new Map<string, number>();
-  private static readonly routeCooldowns = new Map<string, number>();
-  private static readonly ROUTE_FAILURE_LIMIT = 2;
-  private static readonly ROUTE_COOLDOWN_MS = 60_000;
+  private static sharedRefreshGeneration = 0;
   private static readonly CACHE_STATE_KEY = "omnicopilot.cachedCatalog.v1";
   private static readonly CACHE_TIME_KEY = "omnicopilot.cachedCatalogTime.v1";
 
@@ -237,6 +210,7 @@ export class OmniRouteChatProvider
         display_name: c.model.display_name,
         context_length: c.model.context_length,
         max_completion_tokens: c.model.max_completion_tokens,
+        supported_endpoints: c.model.supported_endpoints,
         capabilities: {
           tool_calling: c.model.capabilities?.tool_calling,
           vision: c.model.capabilities?.vision,
@@ -251,12 +225,15 @@ export class OmniRouteChatProvider
 
   /** Drops catalog segments whose routes are no longer configured, so model
    * discovery never serves stale entries. */
-  private static pruneStaleRouteCatalogs(validRouteIds: Set<string>): void {
+  private static pruneStaleRouteCatalogs(validRouteIds: Set<string>): boolean {
+    let pruned = false;
     for (const key of Array.from(OmniRouteChatProvider.sharedRouteCatalogs.keys())) {
       if (!validRouteIds.has(key)) {
         OmniRouteChatProvider.sharedRouteCatalogs.delete(key);
+        pruned = true;
       }
     }
+    return pruned;
   }
 
   constructor(
@@ -268,43 +245,15 @@ export class OmniRouteChatProvider
     return OmniRouteChatProvider.sharedCachedModels;
   }
 
-  private isRouteCoolingDown(routeId: string): boolean {
-    const until = OmniRouteChatProvider.routeCooldowns.get(routeId) ?? 0;
-    if (until <= Date.now()) {
-      OmniRouteChatProvider.routeCooldowns.delete(routeId);
-      return false;
-    }
-    return true;
-  }
-
-  private recordRouteSuccess(routeId: string): void {
-    OmniRouteChatProvider.routeFailures.delete(routeId);
-    OmniRouteChatProvider.routeCooldowns.delete(routeId);
-  }
-
-  private recordRouteFailure(routeId: string): void {
-    const failures = (OmniRouteChatProvider.routeFailures.get(routeId) ?? 0) + 1;
-    OmniRouteChatProvider.routeFailures.set(routeId, failures);
-    if (failures >= OmniRouteChatProvider.ROUTE_FAILURE_LIMIT) {
-      OmniRouteChatProvider.routeCooldowns.set(
-        routeId,
-        Date.now() + OmniRouteChatProvider.ROUTE_COOLDOWN_MS
-      );
-    }
-  }
-
   dispose(): void {
     this._onDidChange.dispose();
   }
 
   /** Re-query the catalog and tell VS Code the model list changed. */
   async refresh(): Promise<void> {
-    OmniRouteChatProvider.sharedRouteCatalogs.clear();
+    OmniRouteChatProvider.sharedRefreshGeneration++;
     OmniRouteChatProvider.sharedRouteFetchPromises.clear();
-    OmniRouteChatProvider.sharedCachedModels = [];
     OmniRouteChatProvider.sharedLastCatalogFetch = 0;
-    await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_STATE_KEY, []);
-    await this.deps.context.globalState.update(OmniRouteChatProvider.CACHE_TIME_KEY, 0);
     this._onDidChange.fire();
   }
 
@@ -327,7 +276,10 @@ export class OmniRouteChatProvider
     const validRouteIds = new Set(routes.map((r) => r.id));
 
     // Prune entries from sharedRouteCatalogs that belong to routes no longer configured
-    OmniRouteChatProvider.pruneStaleRouteCatalogs(validRouteIds);
+    if (OmniRouteChatProvider.pruneStaleRouteCatalogs(validRouteIds)) {
+      OmniRouteChatProvider.sharedCachedModels = OmniRouteChatProvider.rebuildSharedCatalog();
+      void OmniRouteChatProvider.persistCache(this.deps.context, OmniRouteChatProvider.sharedCachedModels);
+    }
 
     const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
     const isManualOnly = ttlMinutes <= 0;
@@ -339,6 +291,7 @@ export class OmniRouteChatProvider
     }
 
     const activeRoutes = routes.slice(0, 10);
+    const refreshGeneration = OmniRouteChatProvider.sharedRefreshGeneration;
 
     const segments: RouteCatalog[] = await Promise.all(
       activeRoutes.map(async (r) => {
@@ -399,7 +352,9 @@ export class OmniRouteChatProvider
               return { routeId: r.id, name: r.name, models: [] };
             }
           })().finally(() => {
-            OmniRouteChatProvider.sharedRouteFetchPromises.delete(r.id);
+            if (OmniRouteChatProvider.sharedRouteFetchPromises.get(r.id) === fetchP) {
+              OmniRouteChatProvider.sharedRouteFetchPromises.delete(r.id);
+            }
           });
           OmniRouteChatProvider.sharedRouteFetchPromises.set(r.id, fetchP);
         }
@@ -407,6 +362,9 @@ export class OmniRouteChatProvider
       })
     );
 
+    if (refreshGeneration !== OmniRouteChatProvider.sharedRefreshGeneration) {
+      return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels, validRouteIds);
+    }
     for (const seg of segments) {
       OmniRouteChatProvider.sharedRouteCatalogs.set(seg.routeId, seg);
     }
@@ -607,10 +565,11 @@ export class OmniRouteChatProvider
     );
     const nameByRoute = new Map(routes.map((r) => [r.id, r.name]));
 
-    const primaryEntry = this.cachedModels.find((c) => c.entry.prefixedId === model.id)?.entry;
+    const primaryCatalogModel = this.cachedModels.find((c) => c.entry.prefixedId === model.id);
+    const primaryEntry = primaryCatalogModel?.entry;
     if (!primaryEntry) {
-      this.deps.log.error(
-        `Primary model not found in catalog: ${model.id}. Available: ${this.cachedModels.map((c) => c.entry.prefixedId).join(", ")}`
+      this.deps.log.warn(
+        `Primary model not found in catalog: ${model.id} (${this.cachedModels.length} cached)`
       );
     }
     const fallbacks = primaryEntry
@@ -628,19 +587,27 @@ export class OmniRouteChatProvider
       throw new OmniRouteError(`Model ${model.id} is not available or not properly configured`, undefined);
     }
     const primary: FallbackCandidate = primaryEntry
-      ? { routeId: primaryEntry.routeId, modelId: primaryEntry.modelId }
-      : { routeId: model.routeId!, modelId: model.omniModelId! };
+      ? {
+          routeId: primaryEntry.routeId,
+          modelId: primaryEntry.modelId,
+          transport: transportForModel(primaryCatalogModel?.model),
+        }
+      : { routeId: model.routeId!, modelId: model.omniModelId!, transport: "responses" };
 
     log.info(
-      `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, cachedModels: ${this.cachedModels.map((c) => c.entry.prefixedId).join(", ")})`
+      `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, catalog: ${this.cachedModels.length} models)`
     );
 
-    // Filter out offline servers from fallbacks so an unreachable secondary
-    // server never blocks or delays requests on a healthy primary server.
+    // Prioritize online servers over offline servers so unreachable secondary
+    // servers are tried after known-healthy ones without being dropped entirely.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
     const fallbacksByHealth =
       knownOnline.size > 0
-        ? fallbacks.filter((f) => knownOnline.has(f.routeId))
+        ? [...fallbacks].sort((a, b) => {
+            const aOnline = knownOnline.has(a.routeId) ? 0 : 1;
+            const bOnline = knownOnline.has(b.routeId) ? 0 : 1;
+            return aOnline - bOnline;
+          })
         : fallbacks;
 
     const candidates = [primary, ...fallbacksByHealth];
@@ -662,7 +629,6 @@ export class OmniRouteChatProvider
       serverCount,
       modelId: model.omniModelId,
       retriesPerServer,
-      admissionRetries: Math.max(retriesPerServer, 12),
     };
   }
 
@@ -681,114 +647,131 @@ export class OmniRouteChatProvider
     const lastIndex = candidates.length - 1;
     let lastError: unknown;
 
-    for (const [i, cand] of candidates.entries()) {
-      if (this.isCandidateCoolingDown(cand.routeId, i, lastIndex)) {
-        this.deps.log.warn(`Skipping ${cand.routeId}: circuit breaker cooldown active`);
-        continue;
+    this.deps.onRequestStart?.(candidates[0]?.routeId, plan.modelId);
+    let requestSettled = false;
+
+    try {
+      for (let i = 0; i < candidates.length; i++) {
+        const cand = candidates[i];
+        if (token.isCancellationRequested) {
+          requestSettled = true;
+          this.deps.onRequestEnd?.(false, undefined, i);
+          return;
+        }
+        const client = plan.clientByRoute.get(cand.routeId);
+        if (!client) {
+          lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+          continue;
+        }
+        const outcome = await this.tryCandidate({
+          cand,
+          client,
+          i,
+          request,
+          inputTokens,
+          progress,
+          token,
+          abort,
+          log: this.deps.log,
+          routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
+          retriesPerServer: plan.retriesPerServer,
+        });
+        if (outcome.kind === "succeeded") {
+          requestSettled = true;
+          this.deps.onRequestEnd?.(true, undefined, i);
+          return;
+        }
+        if (outcome.kind === "cancelled") {
+          requestSettled = true;
+          this.deps.onRequestEnd?.(false, undefined, i);
+          return;
+        }
+        lastError = outcome.error;
+        const status = errorStatus(outcome.error);
+        const isThrottle = status === 503 || status === 429 || isThrottleError(outcome.error);
+        if (isThrottle) {
+          // If this server route is admission-saturated (503/429), trying other models
+          // on the same route will hit the same 503. Skip same-route candidates and move to another route.
+          const currentRouteId = cand.routeId;
+          while (i + 1 < candidates.length && candidates[i + 1].routeId === currentRouteId) {
+            this.deps.log.info(
+              `Skipping fallback ${candidates[i + 1].modelId} @${currentRouteId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
+            );
+            i++;
+          }
+        }
+        if (i === lastIndex || i >= candidates.length - 1) {
+          requestSettled = true;
+          this.reportChatFailure({
+            routeId: cand.routeId,
+            fallbacksUsed: i,
+            err: outcome.error,
+            modelId: plan.modelId,
+            serverCount: plan.serverCount,
+            candidateCount: candidates.length,
+          });
+        }
       }
-      if (token.isCancellationRequested) {
-        this.deps.onRequestEnd?.(false, undefined, i);
-        return;
-      }
-      const client = plan.clientByRoute.get(cand.routeId);
-      if (!client) {
-        lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
-        continue;
-      }
-      const outcome = await this.tryCandidate({
-        cand,
-        client,
-        i,
-        request,
-        inputTokens,
-        progress,
-        token,
-        abort,
-        log: this.deps.log,
-        routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
-        retriesPerServer: plan.retriesPerServer,
-        admissionRetries: plan.admissionRetries,
-      });
-      if (outcome.kind === "succeeded") return;
-      if (outcome.kind === "cancelled") return;
-      lastError = outcome.error;
-      if (i === lastIndex) {
+      if (lastError !== undefined) {
+        requestSettled = true;
         this.reportChatFailure({
-          routeId: cand.routeId,
-          fallbacksUsed: i,
-          err: outcome.error,
+          routeId: candidates[0]?.routeId,
+          fallbacksUsed: candidates.length - 1,
+          err: lastError,
           modelId: plan.modelId,
           serverCount: plan.serverCount,
           candidateCount: candidates.length,
         });
       }
-    }
-    if (lastError !== undefined) {
+      requestSettled = true;
       this.reportChatFailure({
         routeId: candidates[0]?.routeId,
-        fallbacksUsed: candidates.length - 1,
-        err: lastError,
+        fallbacksUsed: candidates.length,
+        err: new OmniRouteError("No configured route served this model", undefined),
         modelId: plan.modelId,
         serverCount: plan.serverCount,
         candidateCount: candidates.length,
       });
+    } catch (err) {
+      if (!requestSettled) {
+        requestSettled = true;
+        this.deps.onRequestEnd?.(false, describeFetchError(err), 0);
+      }
+      throw err;
     }
-    throw new OmniRouteError("No configured route served this model", undefined);
-  }
-
-  /** True while a route's circuit breaker is cooling down and it isn't the
-   * last resort — the last candidate is never skipped. */
-  private isCandidateCoolingDown(routeId: string, i: number, lastIndex: number): boolean {
-    return this.isRouteCoolingDown(routeId) && i < lastIndex;
   }
 
   /** Retries one candidate until it succeeds, cancels, stalls, or exhausts
    * its attempts. Fatal errors (mid-stream or non-transient) propagate. */
   private async tryCandidate(ctx: ChatCandidateContext): Promise<CandidateOutcome> {
-    const { cand, i, token, log, retriesPerServer, admissionRetries } = ctx;
+    const { cand, token, log, retriesPerServer } = ctx;
     let attempted = 0;
     let candError: unknown;
-    // Start with the configured limit; upgraded to admissionRetries if we
-    // see 503/429 (the upstream is healthy, just temporarily full).
-    let effectiveRetries = retriesPerServer;
 
-    for (; attempted < effectiveRetries; attempted++) {
+    for (; attempted < retriesPerServer; attempted++) {
       if (token.isCancellationRequested) {
-        this.deps.onRequestEnd?.(false, undefined, i);
         return { kind: "cancelled" };
       }
       const attempt = await this.streamAttempt(ctx);
       if (attempt.kind === "completed") {
         this.reportUsage(cand, attempt, ctx);
-        this.recordRouteSuccess(cand.routeId);
         this.deps.onActivity?.(true, cand.routeId);
-        this.deps.onRequestEnd?.(true, undefined, i);
         return { kind: "succeeded" };
       }
       if (attempt.kind === "cancelled") return { kind: "cancelled" };
       candError = attempt.error;
       log.warn(
-        `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${effectiveRetries} failed (${formatErrorValue(candError)})`
+        `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${formatErrorValue(candError)})`
       );
-      // A stall means the upstream is alive and already processing the same
-      // request; re-sending it would burn tokens a second time. Move to the
-      // next candidate instead.
       if (attempt.stall) {
         this.deps.onStall?.(cand.routeId);
         break;
       }
-      // 503/429/concurrency/saturation = upstream is healthy but temporarily
-      // full. Escalate to more retries with longer backoff — this usually
-      // resolves in a few seconds, just like direct JSON / Copilot does.
-      if (attempt.throttle) {
-        effectiveRetries = Math.max(effectiveRetries, admissionRetries);
-      }
-      if (attempted + 1 < effectiveRetries) {
+      if (attempted + 1 < retriesPerServer) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
       }
     }
 
-    this.recordCandFailure(cand.routeId, candError);
     log.warn(
       `Server ${cand.routeId} gave up after ${attempted} attempt(s) (${formatErrorValue(candError)}); next server`
     );
@@ -814,19 +797,19 @@ export class OmniRouteChatProvider
   /** One stream attempt: consumes events, reports parts, and classifies the
    * outcome. Cancellation is honored at every checkpoint. */
   private async streamAttempt(ctx: ChatCandidateContext): Promise<StreamAttemptOutcome> {
-    const { cand, i, client, request, progress, token, abort, log } = ctx;
+    const { cand, client, request, progress, token, abort, log } = ctx;
     let streamed = "";
     let reportedAny = false;
     const startedAt = Date.now();
     let firstTokenAt: number | undefined;
-    this.deps.onRequestStart?.(cand.routeId, cand.modelId);
     try {
       const consumed = await this.consumeStream(
         client,
         { ...request, model: cand.modelId },
         abort,
         progress,
-        token
+        token,
+        cand.transport
       );
       streamed = consumed.streamed;
       reportedAny = consumed.reportedAny;
@@ -838,7 +821,6 @@ export class OmniRouteChatProvider
       // User cancelled after the first tokens: the request did not complete —
       // don't count it as success or bill usage.
       if (token.isCancellationRequested) {
-        this.deps.onRequestEnd?.(false, undefined, i);
         return { kind: "cancelled" };
       }
       const finishedAt = Date.now();
@@ -858,12 +840,13 @@ export class OmniRouteChatProvider
     request: ChatRequest,
     abort: AbortController,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    transport: FallbackCandidate["transport"]
   ): Promise<{ streamed: string; reportedAny: boolean; firstTokenAt: number | undefined }> {
     let streamed = "";
     let reportedAny = false;
     let firstTokenAt: number | undefined;
-    for await (const event of client.streamChat(request, abort.signal)) {
+    for await (const event of client.streamModel(request, abort.signal, transport)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
         firstTokenAt ??= Date.now();
@@ -887,15 +870,13 @@ export class OmniRouteChatProvider
     reportedAny: boolean,
     ctx: ChatCandidateContext
   ): StreamAttemptOutcome {
-    const { cand, i, token, log } = ctx;
+    const { cand, token, log } = ctx;
     if (token.isCancellationRequested) {
-      this.deps.onRequestEnd?.(false, undefined, i);
       return { kind: "cancelled" };
     }
     if (reportedAny) {
       this.deps.onActivity?.(false, cand.routeId);
       log.error(`Chat request failed mid-stream: ${formatErrorValue(err)}`);
-      this.deps.onRequestEnd?.(false, describeFetchError(err), i);
       throw err;
     }
     const status = errorStatus(err);
@@ -905,7 +886,6 @@ export class OmniRouteChatProvider
     if (!transient) {
       this.deps.onActivity?.(false, cand.routeId);
       log.error(`Chat request failed: ${formatErrorValue(err)}`);
-      this.deps.onRequestEnd?.(false, describeFetchError(err), i);
       throw err;
     }
     return {
@@ -916,16 +896,7 @@ export class OmniRouteChatProvider
     };
   }
 
-  /** Records a circuit-breaker failure — except 503/429/saturation, which are
-   * upstream throttling, not route failures. */
-  private recordCandFailure(routeId: string, err: unknown): void {
-    const status = errorStatus(err);
-    if (status !== 503 && status !== 429 && !isThrottleError(err)) {
-      this.recordRouteFailure(routeId);
-    }
-  }
-
-  /** Surfaces the final failure: status bar, error message, and throw. */
+  /** Reports the final failure to extension state, then lets VS Code surface it. */
   private reportChatFailure(args: {
     routeId: string | undefined;
     fallbacksUsed: number;
@@ -934,11 +905,10 @@ export class OmniRouteChatProvider
     serverCount: number;
     candidateCount: number;
   }): never {
-    const { routeId, fallbacksUsed, err, modelId, serverCount, candidateCount } = args;
+    const { routeId, fallbacksUsed, err, candidateCount } = args;
     this.deps.onActivity?.(false, routeId);
     this.deps.log.error(`Chat request failed after ${candidateCount} model(s): ${formatErrorValue(err)}`);
     this.deps.onRequestEnd?.(false, describeFetchError(err), fallbacksUsed);
-    void vscode.window.showErrorMessage(describeFinalFailure(modelId, serverCount, err));
     throw err;
   }
 

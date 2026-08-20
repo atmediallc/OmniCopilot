@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildCatalog, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, vendorForRoute, SECRET_PREFIX } from "../src/routes";
+import { buildCatalog, getClientForRoute, invalidateRouteCache, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, vendorForRoute, SECRET_PREFIX } from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
 import { secretStore, configValues, configUpdates, createMockContext } from "./vscode.mock";
 
@@ -67,9 +67,9 @@ describe("pickFallbackCandidates", () => {
 
   it("pone primero el mismo modelo en otra ruta, luego familia en la misma ruta", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false);
-    expect(got[0]).toEqual({ routeId: "r2", modelId: "openai/gpt-4o" });
+    expect(got[0]).toEqual({ routeId: "r2", modelId: "openai/gpt-4o", transport: "responses" });
     // las tool_calling:false no importan sin tools; familia misma ruta → gpt-4o-mini
-    expect(got[1]).toEqual({ routeId: "r1", modelId: "openai/gpt-4o-mini" });
+    expect(got[1]).toEqual({ routeId: "r1", modelId: "openai/gpt-4o-mini", transport: "responses" });
   });
   it("excluye modelos sin tool_calling cuando se requieren tools", () => {
     const got = pickFallbackCandidates(gpt4o, cat, true);
@@ -85,7 +85,7 @@ describe("pickFallbackCandidates", () => {
   });
   it("mode sameModel solo reintenta el mismo modelo en otra ruta", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false, "sameModel");
-    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o" }]);
+    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o", transport: "responses" }]);
   });
   it("mode sameFamily excluye modelos de otra ruta que no son el mismo modelo", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false, "sameFamily");
@@ -167,5 +167,43 @@ describe("saveRoutes", () => {
     const saved = configUpdates.find((u) => u.key === "routes")?.value as unknown[];
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ id: "route-1", baseUrl: "http://a/v1" });
+  });
+});
+
+describe("getClientForRoute", () => {
+  beforeEach(() => {
+    invalidateRouteCache();
+  });
+
+  it("reutiliza el cliente si las opciones coinciden", () => {
+    const route = { id: "r1", name: "A", baseUrl: "http://localhost:20128/v1", apiKey: "key-1" };
+    const c1 = getClientForRoute(route, undefined, 5000);
+    const c2 = getClientForRoute(route, undefined, 5000);
+    expect(c1).toBe(c2);
+  });
+
+  it("crea un nuevo cliente si cambia el timeout de primer byte", () => {
+    const route = { id: "r1", name: "A", baseUrl: "http://localhost:20128/v1", apiKey: "key-1" };
+    const c1 = getClientForRoute(route, undefined, 5000);
+    const c2 = getClientForRoute(route, undefined, 10000);
+    expect(c1).not.toBe(c2);
+    expect(c2.options.streamFirstByteTimeoutMs).toBe(10000);
+  });
+
+  it("crea un nuevo cliente si cambia la apiKey o baseUrl", () => {
+    const route1 = { id: "r1", name: "A", baseUrl: "http://localhost:20128/v1", apiKey: "key-1" };
+    const route2 = { id: "r1", name: "A", baseUrl: "http://localhost:20128/v1", apiKey: "key-2" };
+    const c1 = getClientForRoute(route1);
+    const c2 = getClientForRoute(route2);
+    expect(c1).not.toBe(c2);
+    expect(c2.options.apiKey).toBe("key-2");
+  });
+
+  it("limpia el pool al llamar invalidateRouteCache", () => {
+    const route = { id: "r1", name: "A", baseUrl: "http://localhost:20128/v1" };
+    const c1 = getClientForRoute(route);
+    invalidateRouteCache();
+    const c2 = getClientForRoute(route);
+    expect(c1).not.toBe(c2);
   });
 });

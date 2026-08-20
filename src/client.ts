@@ -2,8 +2,12 @@ import * as crypto from "node:crypto";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
+  ModelTransport,
   ModelsResponse,
   OmniRouteModel,
+  ResponsesInputItem,
+  ResponsesRequest,
+  ResponsesStreamEvent,
   StreamChunk,
   StreamDelta,
   StreamEvent,
@@ -49,7 +53,6 @@ const USER_AGENT = "OmniCopilot-VSCode";
 function headers(apiKey: string | undefined, json: boolean, isStream = false): Record<string, string> {
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
-    "Connection": "keep-alive",
     "Accept": isStream ? "text/event-stream, application/json" : "application/json",
   };
   if (json) h["Content-Type"] = "application/json";
@@ -225,25 +228,13 @@ function retryDelayMs(res: Response | undefined, attempt: number, policy: Requir
   return Math.min(policy.maxMs, base + jitter);
 }
 
-/** @deprecated Superseded by `pickFallbackCandidates` in routes.ts for multi-route fallback.
- * Kept for backward-compatible test coverage. */
-export function pickFallbackModels(
-  primaryId: string,
-  models: OmniRouteModel[],
-  needsTools: boolean,
-  max = 2
-): OmniRouteModel[] {
-  const family = primaryId.split("/")[0];
-  const compatible = (m: OmniRouteModel) =>
-    m.id !== primaryId && (!needsTools || m.capabilities?.tool_calling !== false);
-  const sameFamily = models.filter((m) => compatible(m) && m.id.split("/")[0] === family);
-  const pool = sameFamily.length > 0 ? sameFamily : models.filter(compatible);
-  return pool.slice(0, max);
-}
-
 /** Thin HTTP client for an OmniRoute (or any OpenAI-compatible) server. */
 export class OmniRouteClient {
   constructor(private readonly opts: ClientOptions) {}
+
+  get options(): Readonly<ClientOptions> {
+    return this.opts;
+  }
 
   get baseUrl(): string {
     return normalizeBaseUrl(this.opts.baseUrl);
@@ -259,14 +250,12 @@ export class OmniRouteClient {
         method: "HEAD",
         headers: headers(this.opts.apiKey, false),
         signal: ctrl.signal,
-        keepalive: true,
       });
       if (res.status === 405 || res.status === 404 || res.status === 501) {
         res = await fetch(`${this.baseUrl}/models`, {
           method: "GET",
           headers: headers(this.opts.apiKey, false),
           signal: ctrl.signal,
-          keepalive: true,
         });
       }
       const ok = res.ok || (res.status >= 400 && res.status < 500);
@@ -436,11 +425,121 @@ export class OmniRouteClient {
     try {
       const res = await this.fetchChatStream(request, session);
       if (!res.ok || !res.body) {
-        throw await chatStreamError(res);
+        throw await streamError(res);
       }
       yield* this.consumeStream(res.body, session);
     } finally {
       session.dispose();
+    }
+  }
+
+  /** Streams through the model's preferred protocol. Responses falls back to
+   * Chat Completions only when the endpoint is clearly unsupported and no
+   * user-visible event has been emitted. */
+  async *streamModel(
+    request: ChatRequest,
+    signal: AbortSignal,
+    transport: ModelTransport
+  ): AsyncGenerator<StreamEvent> {
+    if (transport === "chatCompletions") {
+      yield* this.streamChat(request, signal);
+      return;
+    }
+    let emitted = false;
+    try {
+      for await (const event of this.streamResponses(request, signal)) {
+        emitted = true;
+        yield event;
+      }
+    } catch (err) {
+      if (emitted || !isResponsesIncompatibility(err)) throw err;
+      this.opts.log?.warn(`[RESPONSES] Unsupported by ${this.baseUrl}; falling back to /chat/completions`);
+      yield* this.streamChat(request, signal);
+    }
+  }
+
+  /** POST /responses with stream:true, normalized to the same events as Chat
+   * Completions. Every invocation owns its session and tool assembler. */
+  async *streamResponses(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const session = new StreamSession(
+      signal,
+      this.opts.streamFirstByteTimeoutMs ?? 120_000,
+      this.opts.streamIdleTimeoutMs ?? 30_000,
+      "/responses"
+    );
+    try {
+      let res: Response;
+      try {
+        res = await this.fetchWithRetry(
+          `${this.baseUrl}/responses`,
+          {
+            method: "POST",
+            headers: headers(this.opts.apiKey, true, true),
+            body: JSON.stringify(toResponsesRequest(request)),
+            signal: session.ctrl.signal,
+          },
+          this.opts.chatMaxAttempts
+        );
+      } finally {
+        session.clearFirstByteTimer();
+      }
+      if (!res.ok || !res.body) throw await streamError(res, "/responses");
+      yield* this.consumeResponsesStream(res.body, session);
+    } finally {
+      session.dispose();
+    }
+  }
+
+  private async *consumeResponsesStream(
+    stream: ReadableStream<Uint8Array>,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
+    const assembler = new ResponsesToolCallAssembler();
+    const reasoningFilter = new EncryptedReasoningFilter();
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    session.setReader(reader);
+    session.armWatchdog();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+          buffer = buffer.slice(newlineIdx + 1);
+          const { events, alive } = handleResponsesSseLine(line, assembler);
+          if (alive) session.poke();
+          for (const event of events) {
+            if (event.kind === "text") yield* emitFilteredText(reasoningFilter, event.text);
+            else {
+              yield* flushFilteredText(reasoningFilter);
+              yield event;
+            }
+          }
+        }
+      }
+      if (buffer) {
+        const { events, alive } = handleResponsesSseLine(buffer.replace(/\r$/, ""), assembler);
+        if (alive) session.poke();
+        for (const event of events) {
+          if (event.kind === "text") yield* emitFilteredText(reasoningFilter, event.text);
+          else {
+            yield* flushFilteredText(reasoningFilter);
+            yield event;
+          }
+        }
+      }
+      session.throwIfAborted();
+      yield* flushFilteredText(reasoningFilter);
+      yield* assembler.flush();
+    } catch (err) {
+      throw session.unwrapError(err);
     }
   }
 
@@ -455,7 +554,6 @@ export class OmniRouteClient {
           headers: headers(this.opts.apiKey, true, true),
           body: JSON.stringify(request),
           signal: session.ctrl.signal,
-          keepalive: true,
         },
         this.opts.chatMaxAttempts
       );
@@ -480,7 +578,10 @@ export class OmniRouteClient {
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
         buffer += decoder.decode(value, { stream: true });
 
         let newlineIdx: number;
@@ -489,6 +590,9 @@ export class OmniRouteClient {
           buffer = buffer.slice(newlineIdx + 1);
           yield* this.emitSseLine(line, assembler, reasoningFilter, session);
         }
+      }
+      if (buffer) {
+        yield* this.emitSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
       }
       session.throwIfAborted();
       yield* flushFilteredText(reasoningFilter);
@@ -563,10 +667,7 @@ export class OmniRouteClient {
     const alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
 
     const events: StreamEvent[] = [];
-    // Filter out OmniRoute encrypted/private reasoning placeholder messages.
-    if (reasoning && !isEncryptedReasoningNotice(reasoning)) {
-      events.push({ kind: "text", text: reasoning });
-    }
+    // Reasoning is transport metadata, not user-visible assistant output.
     if (delta?.content) {
       events.push({ kind: "text", text: delta.content });
     }
@@ -594,7 +695,8 @@ class StreamSession {
   constructor(
     private readonly signal: AbortSignal,
     private readonly firstByteMs: number,
-    private readonly idleMs: number
+    private readonly idleMs: number,
+    private readonly endpoint = "/chat/completions"
   ) {
     this.relay = () => this.ctrl.abort(this.signal.reason);
     if (this.signal.aborted) {
@@ -614,7 +716,7 @@ class StreamSession {
           408,
           true,
           "connect",
-          "/chat/completions"
+          this.endpoint
         )
       );
     }, this.firstByteMs);
@@ -661,7 +763,7 @@ class StreamSession {
     if (this.ctrl.signal.aborted) {
       const reason = this.ctrl.signal.reason;
       if (reason instanceof OmniRouteError) throw reason;
-      throw new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", "/chat/completions");
+      throw new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", this.endpoint);
     }
   }
 
@@ -671,7 +773,7 @@ class StreamSession {
     if (this.ctrl.signal.aborted) {
       const reason = this.ctrl.signal.reason;
       if (reason instanceof OmniRouteError) return reason;
-      return new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", "/chat/completions");
+      return new OmniRouteError(formatErrorValue(reason), undefined, true, "stream", this.endpoint);
     }
     return err;
   }
@@ -704,7 +806,7 @@ class StreamSession {
     const message = !this.hasRealEvent
       ? `OmniRoute did not start responding within ${ms / 1000}s`
       : `OmniRoute went silent for ${ms / 1000}s`;
-    return new OmniRouteError(message, 408, true, "stream", "/chat/completions");
+    return new OmniRouteError(message, 408, true, "stream", this.endpoint);
   }
 }
 
@@ -732,13 +834,147 @@ class ToolCallAssembler {
   }
 }
 
+function toResponsesRequest(request: ChatRequest): ResponsesRequest {
+  const input: ResponsesInputItem[] = [];
+  for (const message of request.messages) {
+    if (message.role === "tool") {
+      input.push({
+        type: "function_call_output",
+        call_id: message.tool_call_id ?? "",
+        output: contentText(message.content),
+      });
+      continue;
+    }
+    const content = typeof message.content === "string"
+      ? message.content ? [{ type: "input_text" as const, text: message.content }] : []
+      : (message.content ?? []).map((part) => part.type === "text"
+        ? { type: "input_text" as const, text: part.text }
+        : { type: "input_image" as const, image_url: part.image_url.url });
+    if (content.length) input.push({ type: "message", role: message.role, content });
+    for (const call of message.tool_calls ?? []) {
+      input.push({
+        type: "function_call",
+        call_id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments,
+      });
+    }
+  }
+  return {
+    model: request.model,
+    input,
+    stream: true,
+    tools: request.tools?.map((tool) => ({ type: "function", ...tool.function })),
+    tool_choice: request.tool_choice,
+    temperature: request.temperature,
+    max_output_tokens: request.max_tokens,
+    reasoning: request.reasoning_effort ? { effort: request.reasoning_effort } : undefined,
+  };
+}
+
+function contentText(content: ChatRequest["messages"][number]["content"]): string {
+  if (typeof content === "string") return content;
+  return (content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+}
+
+class ResponsesToolCallAssembler {
+  private readonly pending = new Map<string, { id: string; name: string; args: string }>();
+
+  accept(key: string, id?: string, name?: string, args?: string): void {
+    const call = this.pending.get(key) ?? { id: "", name: "", args: "" };
+    if (id) call.id = id;
+    if (name) call.name = name;
+    if (args) call.args += args;
+    this.pending.set(key, call);
+  }
+  setArgs(key: string, args: string): void {
+    const call = this.pending.get(key) ?? { id: "", name: "", args: "" };
+    call.args = args;
+    this.pending.set(key, call);
+  }
+
+  *finish(key: string): Generator<StreamEvent> {
+    const call = this.pending.get(key);
+    if (call?.id && call.name) {
+      yield { kind: "toolCall", id: call.id, name: call.name, args: call.args || "{}" };
+    }
+    this.pending.delete(key);
+  }
+
+  *flush(): Generator<StreamEvent> {
+    for (const key of [...this.pending.keys()]) yield* this.finish(key);
+  }
+}
+
+function handleResponsesSseLine(
+  line: string,
+  assembler: ResponsesToolCallAssembler
+): { events: StreamEvent[]; alive: boolean } {
+  if (!line.startsWith("data:")) return { events: [], alive: false };
+  const payload = line.slice(5).trim();
+  if (!payload || payload === "[DONE]") return { events: [], alive: false };
+  let event: ResponsesStreamEvent;
+  try {
+    event = JSON.parse(payload) as ResponsesStreamEvent;
+  } catch {
+    return { events: [], alive: false };
+  }
+  if (event.type === "error" || event.type === "response.failed") {
+    throw responsesSseError(event.error?.message ?? event.response?.error?.message ?? "Responses stream failed");
+  }
+  if (event.type === "response.reasoning_summary_text.delta") {
+    return { events: [], alive: Boolean(event.delta) };
+  }
+  if (event.type === "response.output_text.delta") {
+    return { events: event.delta ? [{ kind: "text", text: event.delta }] : [], alive: Boolean(event.delta) };
+  }
+  const item = event.item;
+  const key = event.item_id ?? item?.id ?? event.call_id ?? item?.call_id;
+  if (item?.type === "function_call" && key) {
+    assembler.accept(key, item.call_id, item.name);
+    if (item.arguments) assembler.setArgs(key, item.arguments);
+  } else if (event.type === "response.function_call_arguments.delta" && key) {
+    assembler.accept(key, event.call_id, event.name, event.delta);
+  } else if (event.type === "response.function_call_arguments.done" && key && event.arguments) {
+    assembler.setArgs(key, event.arguments);
+  }
+  if (event.type === "response.output_item.done" && key) {
+    return { events: [...assembler.finish(key)], alive: true };
+  }
+  if (event.type === "response.completed") {
+    return { events: [...assembler.flush()], alive: true };
+  }
+  return { events: [], alive: Boolean(event.type) };
+}
+
+function responsesSseError(message: string): OmniRouteError {
+  const match = /^\[(\d{3})\]:\s*/.exec(message);
+  return new OmniRouteError(message, match ? Number(match[1]) : undefined, false, "stream", "/responses");
+}
+
+function isResponsesIncompatibility(err: unknown): boolean {
+  if (!(err instanceof OmniRouteError) || err.endpoint !== "/responses") return false;
+  if (err.status === 404 || err.status === 405 || err.status === 501) return true;
+  if (err.status !== 400 && err.status !== 415 && err.status !== 422) return false;
+  return /(?:unsupported|unknown|invalid|not found).{0,40}(?:endpoint|route|url)|(?:responses).{0,40}(?:unsupported|not supported)/i.test(err.message);
+}
+
 /** Filters out OmniRoute encrypted/private reasoning notice messages,
  * even when streamed across multiple incremental SSE text chunks. */
 export class EncryptedReasoningFilter {
   private buffer = "";
+  private static readonly NOTICE =
+    "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.";
+  private static readonly REQUEST_NOTICE = "omniroute: got req, sending to provider";
+  private static readonly NOTICE_VARIANT =
+    "codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover the plaintext.";
+  private static readonly REQUEST_NOTICE_VARIANT = "omniroute: got request, sending to provider";
 
   private static readonly KNOWN_PATTERNS = [
     "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.",
+    "codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover the plaintext.",
+    "omniroute: got req, sending to provider",
+    "omniroute: got request, sending to provider",
     "upstream responses api exposed this reasoning block only as encrypted private reasoning",
     "encrypted private reasoning. omniroute cannot recover plaintext",
     "omniroute cannot recover plaintext",
@@ -748,26 +984,50 @@ export class EncryptedReasoningFilter {
   public push(chunk: string): string[] {
     if (!chunk) return [];
     this.buffer += chunk;
-    const normalized = this.buffer.trim().toLowerCase().replace(/\s+/g, " ");
+    const normalized = this.buffer.toLowerCase();
+    const noticeIndex = normalized.indexOf(EncryptedReasoningFilter.NOTICE);
+    if (noticeIndex !== -1) {
+      const before = this.buffer.slice(0, noticeIndex);
+      this.buffer = this.buffer.slice(noticeIndex + EncryptedReasoningFilter.NOTICE.length);
+      return [before, ...this.push("")].filter(Boolean);
+    }
 
-    for (const pattern of EncryptedReasoningFilter.KNOWN_PATTERNS) {
-      if (normalized.includes(pattern)) {
-        this.buffer = "";
-        return [];
+    const requestNoticeIndex = normalized.indexOf(EncryptedReasoningFilter.REQUEST_NOTICE);
+    if (requestNoticeIndex !== -1) {
+      const before = this.buffer.slice(0, requestNoticeIndex);
+      this.buffer = this.buffer.slice(requestNoticeIndex + EncryptedReasoningFilter.REQUEST_NOTICE.length);
+      return [before, ...this.push("")].filter(Boolean);
+    }
+
+    for (const notice of [EncryptedReasoningFilter.NOTICE_VARIANT, EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT]) {
+      const index = normalized.indexOf(notice);
+      if (index !== -1) {
+        const before = this.buffer.slice(0, index);
+        this.buffer = this.buffer.slice(index + notice.length);
+        return [before, ...this.push("")].filter(Boolean);
       }
     }
 
-    const isNoticePrefix = EncryptedReasoningFilter.KNOWN_PATTERNS.some((pattern) =>
-      pattern.startsWith(normalized) || normalized.startsWith(pattern.slice(0, Math.min(pattern.length, normalized.length)))
+    let prefixLength = 0;
+    const maxNoticeLength = Math.max(
+      EncryptedReasoningFilter.NOTICE.length,
+      EncryptedReasoningFilter.NOTICE_VARIANT.length
     );
-
-    if (isNoticePrefix && this.buffer.length < 250) {
-      return [];
+    for (let length = Math.min(maxNoticeLength - 1, normalized.length); length >= 5; length--) {
+      if (normalized.endsWith(EncryptedReasoningFilter.NOTICE.slice(0, length)) ||
+          normalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE.slice(0, length)) ||
+          normalized.endsWith(EncryptedReasoningFilter.NOTICE_VARIANT.slice(0, length)) ||
+          normalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT.slice(0, length))) {
+        prefixLength = length;
+        break;
+      }
     }
 
-    const out = this.buffer;
-    this.buffer = "";
-    return [out];
+    const emitLength = this.buffer.length - prefixLength;
+    if (!emitLength) return [];
+    const out = this.buffer.slice(0, emitLength);
+    this.buffer = this.buffer.slice(emitLength);
+    return out ? [out] : [];
   }
 
   public flush(): string[] {
@@ -803,12 +1063,6 @@ function extractReasoning(delta: StreamDelta | undefined): string | undefined {
 
 /** True when the text is OmniRoute's encrypted/private reasoning notice,
  * which must be filtered out rather than shown to the user. */
-function isEncryptedReasoningNotice(reasoning: string): boolean {
-  return (
-    reasoning.includes("encrypted private reasoning") &&
-    reasoning.includes("OmniRoute cannot recover plaintext")
-  );
-}
 
 async function safeErrorDetail(res: Response): Promise<string> {
   try {
@@ -851,7 +1105,7 @@ function sseError(message: string): OmniRouteError {
 
 /** Non-OK / bodyless chat response: surface the upstream detail plus any
  * Retry-After hint so the caller's backoff can honor it instead of guessing. */
-async function chatStreamError(res: Response): Promise<OmniRouteError> {
+async function streamError(res: Response, endpoint = "/chat/completions"): Promise<OmniRouteError> {
   const detail = await safeErrorDetail(res);
   const retryAfter = res.headers.get("retry-after");
   const retryAfterMs =
@@ -862,7 +1116,7 @@ async function chatStreamError(res: Response): Promise<OmniRouteError> {
     res.status,
     false,
     "headers",
-    "/chat/completions",
+    endpoint,
     undefined,
     retryAfterMs
   );

@@ -22,6 +22,13 @@ function sseResponse(lines: string[]): Response {
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
+function unterminatedSseResponse(line: string): Response {
+  return new Response(new TextEncoder().encode(line), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 async function collect(client: OmniRouteClient): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   const ctrl = new AbortController();
@@ -33,6 +40,136 @@ async function collect(client: OmniRouteClient): Promise<StreamEvent[]> {
   }
   return events;
 }
+
+async function collectModel(client: OmniRouteClient): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = [];
+  for await (const event of client.streamModel(
+    { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+    new AbortController().signal,
+    "responses"
+  )) events.push(event);
+  return events;
+}
+
+describe("OmniRouteClient.streamModel Responses transport", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("parses text and assembled function calls", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"Hi"}',
+      'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":""}}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"item-1","delta":"{\\"city\\":"}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"item-1","delta":"\\"Madrid\\"}"}',
+      'data: {"type":"response.output_item.done","item_id":"item-1"}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Hi" },
+      { kind: "toolCall", id: "call-1", name: "weather", args: '{"city":"Madrid"}' },
+    ]);
+  });
+
+  it("preserves filtered text before a following tool call", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"OmniRoute: got req, sending to providerAnswer"}',
+      'data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"run","arguments":"{}"}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Answer" },
+      { kind: "toolCall", id: "call-1", name: "run", args: "{}" },
+    ]);
+  });
+
+  it("parses a final Responses event without a trailing newline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unterminatedSseResponse(
+      'data: {"type":"response.output_text.delta","delta":"final"}'
+    )));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "final" },
+    ]);
+  });
+
+  it("uses the call id and final function arguments without duplicating deltas", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":""}}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"item-1","delta":"{\\"city\\":\\"Mad"}',
+      'data: {"type":"response.function_call_arguments.done","item_id":"item-1","arguments":"{\\"city\\":\\"Madrid\\"}"}',
+      'data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":"{\\"city\\":\\"Madrid\\"}"}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "toolCall", id: "call-1", name: "weather", args: '{"city":"Madrid"}' },
+    ]);
+  });
+
+  it("filters a fragmented encrypted reasoning notice from output text while preserving adjacent text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"Before. Codex is reasoning, but upstream "}',
+      'data: {"type":"response.output_text.delta","delta":"Responses API exposed this reasoning block only as encrypted private reasoning. "}',
+      'data: {"type":"response.output_text.delta","delta":"OmniRoute cannot recover plaintext. After."}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Before. " },
+      { kind: "text", text: " After." },
+    ]);
+  });
+
+  it("filters fragmented OmniRoute request diagnostics from output text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"OmniRoute: got req, "}',
+      'data: {"type":"response.output_text.delta","delta":"sending to providerAnswer"}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Answer" },
+    ]);
+  });
+
+  it("filters the diagnostic variants observed in chat", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"OmniRoute: got request, sending to provider"}',
+      'data: {"type":"response.output_text.delta","delta":"Codex is reasoning, but the upstream Responses API exposed this reasoning block only as encrypted private reasoning. "}',
+      'data: {"type":"response.output_text.delta","delta":"OmniRoute cannot recover the plaintext.Answer"}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Answer" },
+    ]);
+  });
+
+  it("does not expose Responses reasoning summaries", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.reasoning_summary_text.delta","delta":"Analyzing implementation"}',
+      'data: {"type":"response.output_text.delta","delta":"Answer"}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Answer" },
+    ]);
+  });
+
+  it("falls back once on pre-output endpoint incompatibility", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Not found"}}', { status: 404 }))
+      .mockResolvedValueOnce(sseResponse(['data: {"choices":[{"delta":{"content":"fallback"}}]}', "data: [DONE]"]));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 })))
+      .resolves.toEqual([{ kind: "text", text: "fallback" }]);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses", "http://x/v1/chat/completions"]);
+  });
+
+  it.each([429, 503])("does not protocol-switch on HTTP %s", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("failed", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 }))).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not protocol-switch after visible output", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"partial"}',
+      'data: {"type":"error","error":{"message":"[404]: route not found"}}',
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 }))).rejects.toThrow("route not found");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("OmniRouteClient.streamChat", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -52,6 +189,15 @@ describe("OmniRouteClient.streamChat", () => {
     expect(events).toEqual([
       { kind: "text", text: "Hel" },
       { kind: "text", text: "lo" },
+    ]);
+  });
+
+  it("parses a final Chat event without a trailing newline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unterminatedSseResponse(
+      'data: {"choices":[{"delta":{"content":"final"}}]}'
+    )));
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "final" },
     ]);
   });
 
@@ -355,9 +501,6 @@ describe("OmniRouteClient retry behavior", () => {
       events.push(ev);
     }
     expect(events).toEqual([
-      { kind: "text", text: "pi" },
-      { kind: "text", text: "ng" },
-      { kind: "text", text: "po" },
       { kind: "text", text: "hola" },
     ]);
   });
@@ -385,7 +528,6 @@ describe("OmniRouteClient retry behavior", () => {
       events.push(ev);
     }
     expect(events).toEqual([
-      { kind: "text", text: "Thinking about answer..." },
       { kind: "text", text: "Here is the answer" },
     ]);
   });

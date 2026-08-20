@@ -124,9 +124,18 @@ function mergeSystemMessages(system: ChatMessage[]): ChatMessage {
       systemParts.push(...message.content);
     }
   }
+  if (systemParts.length === 0) {
+    return {
+      role: "system",
+      content: systemText.join("\n\n"),
+    };
+  }
+  if (systemText.length > 0) {
+    systemParts.unshift({ type: "text", text: systemText.join("\n\n") });
+  }
   return {
     role: "system",
-    content: systemParts.length > 0 ? systemParts : systemText.join("\n\n"),
+    content: systemParts,
   };
 }
 

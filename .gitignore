@@ -5,6 +5,7 @@ scripts/
 *.vsix
 *.log
 .DS_Store
+.testagent
 
 # Secrets — never commit (publish tokens live here)
 .env
