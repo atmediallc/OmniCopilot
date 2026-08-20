@@ -513,33 +513,37 @@ export class OmniRouteClient {
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
           buffer = buffer.slice(newlineIdx + 1);
-          const { events, alive } = handleResponsesSseLine(line, assembler);
-          if (alive) session.poke();
-          for (const event of events) {
-            if (event.kind === "text") yield* emitFilteredText(reasoningFilter, event.text);
-            else {
-              yield* flushFilteredText(reasoningFilter);
-              yield event;
-            }
-          }
+          yield* this.emitResponsesSseLine(line, assembler, reasoningFilter, session);
         }
       }
       if (buffer) {
-        const { events, alive } = handleResponsesSseLine(buffer.replace(/\r$/, ""), assembler);
-        if (alive) session.poke();
-        for (const event of events) {
-          if (event.kind === "text") yield* emitFilteredText(reasoningFilter, event.text);
-          else {
-            yield* flushFilteredText(reasoningFilter);
-            yield event;
-          }
-        }
+        yield* this.emitResponsesSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
       }
       session.throwIfAborted();
       yield* flushFilteredText(reasoningFilter);
       yield* assembler.flush();
     } catch (err) {
       throw session.unwrapError(err);
+    }
+  }
+
+  /** Handles one Responses SSE line and preserves text/tool ordering while
+   * keeping the stream watchdog alive on protocol progress. */
+  private async *emitResponsesSseLine(
+    line: string,
+    assembler: ResponsesToolCallAssembler,
+    reasoningFilter: EncryptedReasoningFilter,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
+    const { events, alive } = handleResponsesSseLine(line, assembler);
+    if (alive) session.poke();
+    for (const event of events) {
+      if (event.kind === "text") {
+        yield* emitFilteredText(reasoningFilter, event.text);
+        continue;
+      }
+      yield* flushFilteredText(reasoningFilter);
+      yield event;
     }
   }
 
@@ -845,11 +849,19 @@ function toResponsesRequest(request: ChatRequest): ResponsesRequest {
       });
       continue;
     }
-    const content = typeof message.content === "string"
-      ? message.content ? [{ type: "input_text" as const, text: message.content }] : []
-      : (message.content ?? []).map((part) => part.type === "text"
-        ? { type: "input_text" as const, text: part.text }
-        : { type: "input_image" as const, image_url: part.image_url.url });
+    const contentParts = [] as Extract<ResponsesInputItem, { type: "message" }>["content"];
+    if (typeof message.content === "string") {
+      if (message.content) contentParts.push({ type: "input_text", text: message.content });
+    } else {
+      for (const part of message.content ?? []) {
+        if (part.type === "text") {
+          contentParts.push({ type: "input_text", text: part.text });
+        } else {
+          contentParts.push({ type: "input_image", image_url: part.image_url.url });
+        }
+      }
+    }
+    const content = contentParts;
     if (content.length) input.push({ type: "message", role: message.role, content });
     for (const call of message.tool_calls ?? []) {
       input.push({
@@ -902,7 +914,7 @@ class ResponsesToolCallAssembler {
   }
 
   *flush(): Generator<StreamEvent> {
-    for (const key of [...this.pending.keys()]) yield* this.finish(key);
+    for (const key of this.pending.keys()) yield* this.finish(key);
   }
 }
 
@@ -928,6 +940,13 @@ function handleResponsesSseLine(
   if (event.type === "response.output_text.delta") {
     return { events: event.delta ? [{ kind: "text", text: event.delta }] : [], alive: Boolean(event.delta) };
   }
+  return handleResponsesToolEvent(event, assembler);
+}
+
+function handleResponsesToolEvent(
+  event: ResponsesStreamEvent,
+  assembler: ResponsesToolCallAssembler
+): { events: StreamEvent[]; alive: boolean } {
   const item = event.item;
   const key = event.item_id ?? item?.id ?? event.call_id ?? item?.call_id;
   if (item?.type === "function_call" && key) {

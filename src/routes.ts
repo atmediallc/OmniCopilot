@@ -140,8 +140,7 @@ const _clientPool = new Map<string, OmniRouteClient>();
 export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByteTimeoutMs?: number): OmniRouteClient {
   const existing = _clientPool.get(route.id);
   if (
-    existing &&
-    existing.baseUrl === normalizeBaseUrl(route.baseUrl) &&
+    existing?.baseUrl === normalizeBaseUrl(route.baseUrl) &&
     existing.options.apiKey === route.apiKey &&
     existing.options.streamFirstByteTimeoutMs === streamFirstByteTimeoutMs &&
     existing.options.log === log

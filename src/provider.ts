@@ -644,7 +644,6 @@ export class OmniRouteChatProvider
     abort: AbortController
   ): Promise<void> {
     const candidates = plan.candidates;
-    const lastIndex = candidates.length - 1;
     let lastError: unknown;
 
     this.deps.onRequestStart?.(candidates[0]?.routeId, plan.modelId);
@@ -687,20 +686,8 @@ export class OmniRouteChatProvider
           return;
         }
         lastError = outcome.error;
-        const status = errorStatus(outcome.error);
-        const isThrottle = status === 503 || status === 429 || isThrottleError(outcome.error);
-        if (isThrottle) {
-          // If this server route is admission-saturated (503/429), trying other models
-          // on the same route will hit the same 503. Skip same-route candidates and move to another route.
-          const currentRouteId = cand.routeId;
-          while (i + 1 < candidates.length && candidates[i + 1].routeId === currentRouteId) {
-            this.deps.log.info(
-              `Skipping fallback ${candidates[i + 1].modelId} @${currentRouteId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
-            );
-            i++;
-          }
-        }
-        if (i === lastIndex || i >= candidates.length - 1) {
+        i = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
+        if (i >= candidates.length - 1) {
           requestSettled = true;
           this.reportChatFailure({
             routeId: cand.routeId,
@@ -739,6 +726,39 @@ export class OmniRouteChatProvider
       }
       throw err;
     }
+  }
+
+  /** Skips redundant same-route fallbacks after admission throttling. */
+  private advanceAfterCandidateFailure(
+    plan: ChatPlan,
+    candidate: FallbackCandidate,
+    error: unknown,
+    index: number
+  ): number {
+    const status = errorStatus(error);
+    const isThrottle = status === 503 || status === 429 || isThrottleError(error);
+    let nextIndex = index;
+    if (isThrottle) {
+      nextIndex = this.skipSaturatedRouteCandidates(plan.candidates, candidate.routeId, nextIndex, status);
+    }
+    return nextIndex;
+  }
+
+  /** Skips other models on a route that has already rejected admission. */
+  private skipSaturatedRouteCandidates(
+    candidates: FallbackCandidate[],
+    routeId: string,
+    index: number,
+    status: number | undefined
+  ): number {
+    let nextIndex = index;
+    while (nextIndex + 1 < candidates.length && candidates[nextIndex + 1].routeId === routeId) {
+      this.deps.log.info(
+        `Skipping fallback ${candidates[nextIndex + 1].modelId} @${routeId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
+      );
+      nextIndex++;
+    }
+    return nextIndex;
   }
 
   /** Retries one candidate until it succeeds, cancels, stalls, or exhausts
