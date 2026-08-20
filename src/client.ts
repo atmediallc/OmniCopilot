@@ -839,42 +839,9 @@ class ToolCallAssembler {
 }
 
 function toResponsesRequest(request: ChatRequest): ResponsesRequest {
-  const input: ResponsesInputItem[] = [];
-  for (const message of request.messages) {
-    if (message.role === "tool") {
-      input.push({
-        type: "function_call_output",
-        call_id: message.tool_call_id ?? "",
-        output: contentText(message.content),
-      });
-      continue;
-    }
-    const contentParts = [] as Extract<ResponsesInputItem, { type: "message" }>["content"];
-    if (typeof message.content === "string") {
-      if (message.content) contentParts.push({ type: "input_text", text: message.content });
-    } else {
-      for (const part of message.content ?? []) {
-        if (part.type === "text") {
-          contentParts.push({ type: "input_text", text: part.text });
-        } else {
-          contentParts.push({ type: "input_image", image_url: part.image_url.url });
-        }
-      }
-    }
-    const content = contentParts;
-    if (content.length) input.push({ type: "message", role: message.role, content });
-    for (const call of message.tool_calls ?? []) {
-      input.push({
-        type: "function_call",
-        call_id: call.id,
-        name: call.function.name,
-        arguments: call.function.arguments,
-      });
-    }
-  }
   return {
     model: request.model,
-    input,
+    input: request.messages.flatMap(toResponsesInputItems),
     stream: true,
     tools: request.tools?.map((tool) => ({ type: "function", ...tool.function })),
     tool_choice: request.tool_choice,
@@ -882,6 +849,49 @@ function toResponsesRequest(request: ChatRequest): ResponsesRequest {
     max_output_tokens: request.max_tokens,
     reasoning: request.reasoning_effort ? { effort: request.reasoning_effort } : undefined,
   };
+}
+
+function toResponsesInputItems(
+  message: ChatRequest["messages"][number]
+): ResponsesInputItem[] {
+  if (message.role === "tool") {
+    return [{
+      type: "function_call_output",
+      call_id: message.tool_call_id ?? "",
+      output: contentText(message.content),
+    }];
+  }
+
+  const items: ResponsesInputItem[] = [];
+  const content = toResponsesContent(message.content);
+  if (content.length) items.push({ type: "message", role: message.role, content });
+  for (const call of message.tool_calls ?? []) {
+    items.push({
+      type: "function_call",
+      call_id: call.id,
+      name: call.function.name,
+      arguments: call.function.arguments,
+    });
+  }
+  return items;
+}
+
+function toResponsesContent(
+  content: ChatRequest["messages"][number]["content"]
+): Extract<ResponsesInputItem, { type: "message" }>["content"] {
+  if (typeof content === "string") {
+    return content ? [{ type: "input_text", text: content }] : [];
+  }
+
+  const contentParts = [] as Extract<ResponsesInputItem, { type: "message" }>["content"];
+  for (const part of content ?? []) {
+    if (part.type === "text") {
+      contentParts.push({ type: "input_text", text: part.text });
+    } else {
+      contentParts.push({ type: "input_image", image_url: part.image_url.url });
+    }
+  }
+  return contentParts;
 }
 
 function contentText(content: ChatRequest["messages"][number]["content"]): string {

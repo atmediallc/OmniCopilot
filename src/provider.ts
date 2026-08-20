@@ -650,7 +650,7 @@ export class OmniRouteChatProvider
     let requestSettled = false;
 
     try {
-      for (let i = 0; i < candidates.length; i++) {
+      for (let i = 0; i < candidates.length;) {
         const cand = candidates[i];
         if (token.isCancellationRequested) {
           requestSettled = true;
@@ -660,6 +660,7 @@ export class OmniRouteChatProvider
         const client = plan.clientByRoute.get(cand.routeId);
         if (!client) {
           lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+          i++;
           continue;
         }
         const outcome = await this.tryCandidate({
@@ -686,18 +687,19 @@ export class OmniRouteChatProvider
           return;
         }
         lastError = outcome.error;
-        i = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
-        if (i >= candidates.length - 1) {
+        const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
+        if (lastAttemptedIndex >= candidates.length - 1) {
           requestSettled = true;
           this.reportChatFailure({
             routeId: cand.routeId,
-            fallbacksUsed: i,
+            fallbacksUsed: lastAttemptedIndex,
             err: outcome.error,
             modelId: plan.modelId,
             serverCount: plan.serverCount,
             candidateCount: candidates.length,
           });
         }
+        i = lastAttemptedIndex + 1;
       }
       if (lastError !== undefined) {
         requestSettled = true;
