@@ -280,8 +280,9 @@ export class OmniRouteClient {
       });
       if (!res.ok) {
         const detail = (await res.text().catch(() => "")).trim();
+        const detailSuffix = detail ? `: ${detail}` : "";
         throw new OmniRouteError(
-          `OmniRoute ${endpoint} returned HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+          `OmniRoute ${endpoint} returned HTTP ${res.status}${detailSuffix}`,
           res.status,
           false,
           "headers",
@@ -1340,12 +1341,14 @@ function responsesSseError(message: string): OmniRouteError {
   return new OmniRouteError(message, match ? Number(match[1]) : undefined, false, "stream", "/responses");
 }
 
+const TRANSPORT_ENDPOINTS: Record<ModelTransport, string> = {
+  responses: "/responses",
+  messages: "/messages",
+  chatCompletions: "/chat/completions",
+};
+
 function isTransportIncompatibility(err: unknown, transport: ModelTransport): boolean {
-  const endpoint = transport === "responses"
-    ? "/responses"
-    : transport === "messages"
-      ? "/messages"
-      : "/chat/completions";
+  const endpoint = TRANSPORT_ENDPOINTS[transport];
   if (!(err instanceof OmniRouteError) || err.endpoint !== endpoint) return false;
   if (err.status === 404 || err.status === 405 || err.status === 501) return true;
   if (err.status !== 400 && err.status !== 415 && err.status !== 422) return false;

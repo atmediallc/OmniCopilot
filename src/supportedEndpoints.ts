@@ -57,11 +57,14 @@ export function normalizeSupportedEndpoint(raw: unknown): string {
     return "";
   }
 
-  value = value.split(/[?#]/, 1)[0].replace(/\\/g, "/");
-  value = `/${value}`.replace(/\/{2,}/g, "/").replace(/\/+$/, "").toLowerCase();
-  if (value === "/v1") return "/";
-  if (value.startsWith("/v1/")) value = value.slice(3);
-  return value || "/";
+  const cleanPath = value.split(/[?#]/, 1)[0].replaceAll("\\", "/");
+  const segments = cleanPath.split("/").filter(Boolean);
+  if (segments.length > 0 && segments[0].toLowerCase() === "v1") {
+    segments.shift();
+  }
+  return segments.length > 0
+    ? `/${segments.join("/").toLowerCase()}`
+    : "/";
 }
 
 /** Classify only exact, known canonical endpoints. */

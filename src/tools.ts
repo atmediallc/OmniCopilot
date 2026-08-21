@@ -136,7 +136,8 @@ async function candidatesFor(
   throwIfCancelled(token);
   const candidates = discovered.flat();
   if (candidates.length === 0 && modelOverride) {
-    throw new Error(`Model override "${modelOverride}" does not support ${endpoint}${routeId ? ` on route "${routeId}"` : ""}`);
+    const routeSuffix = routeId ? ` on route "${routeId}"` : "";
+    throw new Error(`Model override "${modelOverride}" does not support ${endpoint}${routeSuffix}`);
   }
   if (candidates.length === 0) throw new Error(`No configured OmniRoute model supports ${endpoint}`);
   return candidates;
