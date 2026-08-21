@@ -28,6 +28,8 @@ export interface ChatUsage {
   modelName: string;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens?: number;
+  isEstimated?: boolean;
 }
 
 /** After this idle period without new usage the token readout is cleared. */
@@ -157,7 +159,9 @@ export class ConnectionStatusBar implements vscode.Disposable {
         usage.baseUrl ?? "",
         usage.modelName,
         usage.inputTokens,
-        usage.outputTokens
+        usage.outputTokens,
+        usage.cachedTokens ?? 0,
+        usage.isEstimated ?? false
       );
     }
     if (this.usageTimer) clearTimeout(this.usageTimer);

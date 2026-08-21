@@ -62,6 +62,40 @@ describe("MetricsTracker", () => {
     expect(metrics.servers["route-1"].name).toBe("Primary Server");
   });
 
+  it("records cached and estimated tokens accurately", async () => {
+    await tracker.recordUsage(
+      "route-1",
+      "Primary Server",
+      "http://localhost:8080",
+      "claude-sonnet-4-6",
+      200,
+      100,
+      150,
+      false
+    );
+    await tracker.recordUsage(
+      "route-1",
+      "Primary Server",
+      "http://localhost:8080",
+      "fallback-model",
+      50,
+      25,
+      0,
+      true
+    );
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.totalTokens).toBe(375);
+    expect(metrics.totalInputTokens).toBe(250);
+    expect(metrics.totalOutputTokens).toBe(125);
+    expect(metrics.totalCachedTokens).toBe(150);
+    expect(metrics.totalEstimatedTokens).toBe(75);
+
+    const server = metrics.servers["route-1"];
+    expect(server.cachedTokens).toBe(150);
+    expect(server.estimatedTokens).toBe(75);
+  });
+
   it("resets metrics correctly", async () => {
     await tracker.recordUsage("route-1", "Primary Server", "http://localhost:8080", "gpt-4o", 100, 50);
     await tracker.resetMetrics();

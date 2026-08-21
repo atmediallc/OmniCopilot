@@ -6,8 +6,17 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { containsVisibleText } from "./visibleText";
-import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates, transportPlanForModel } from "./routes";
-import type { ChatRequest, OmniRouteModel } from "./types";
+import {
+  buildCatalog,
+  cachedLoadRoutes,
+  clearRouteCooldown,
+  getClientForRoute,
+  isRouteInCooldown,
+  markRouteCooldown,
+  pickFallbackCandidates,
+  transportPlanForModel,
+} from "./routes";
+import type { ChatRequest, ChatUsageInfo, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
@@ -25,7 +34,16 @@ export interface ProviderDeps {
    * feeds the status bar without extra polling. */
   onActivity?: (ok: boolean, routeId?: string) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
-  onUsage?: (usage: { routeId?: string; baseUrl?: string; serverName: string; modelName: string; inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: {
+    routeId?: string;
+    baseUrl?: string;
+    serverName: string;
+    modelName: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens?: number;
+    isEstimated?: boolean;
+  }) => void;
   /** A chat request started streaming (status-bar live "responding" state). */
   onRequestStart?: (routeId: string | undefined, modelName: string) => void;
   /** A chat request settled. `error` is the surfaced failure message;
@@ -42,6 +60,16 @@ function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot");
 }
 
+function formatContextLength(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const m = tokens / 1_000_000;
+    return `${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}k`;
+  }
+  return `${tokens}`;
+}
 
 /** Compiles the user's model filter regex. A malformed or overly long pattern
  * falls back to a safe literal substring match so the picker still works. */
@@ -134,7 +162,13 @@ interface ChatCandidateContext {
 
 /** Outcome of a single stream attempt. */
 type StreamAttemptOutcome =
-  | { kind: "completed"; streamed: string; startedAt: number; firstTokenAt: number | undefined }
+  | {
+      kind: "completed";
+      streamed: string;
+      startedAt: number;
+      firstTokenAt: number | undefined;
+      reportedUsage?: ChatUsageInfo;
+    }
   | { kind: "cancelled" }
   | { kind: "failed"; error: unknown; stall: boolean; throttle: boolean };
 
@@ -434,15 +468,21 @@ export class OmniRouteChatProvider
       ? `${displayName} (${c.entry.routeName})`
       : displayName;
 
+    const ctxTag = `${formatContextLength(contextLength)} ctx`;
+    const capsTags: string[] = [ctxTag];
+    if (supportsReasoning) capsTags.push("extended thinking");
+    if (caps.vision === true) capsTags.push("vision");
+
+    const routeLabel = c.entry.routeName || "OmniRoute";
+    const tooltip = `${routeLabel} · ${model.id} (${capsTags.join(" · ")})`;
+
     return {
       id: c.entry.prefixedId,
       name,
       family: model.owned_by || "omniroute",
       version: "1.0.0",
       detail: isCombo ? "combo" : (c.entry.routeName || model.owned_by),
-      tooltip: supportsReasoning
-        ? `${c.entry.routeName} · ${model.id} · extended thinking`
-        : `${c.entry.routeName} · ${model.id}`,
+      tooltip,
       maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
       maxOutputTokens,
       capabilities: {
@@ -511,6 +551,7 @@ export class OmniRouteChatProvider
       model: model.omniModelId,
       messages: toOpenAiMessages(messages),
       stream: true,
+      stream_options: { include_usage: true },
       tools: this.capTools(options.tools, log),
     };
     if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
@@ -558,11 +599,13 @@ export class OmniRouteChatProvider
     options: vscode.ProvideLanguageModelChatResponseOptions,
     log: vscode.LogOutputChannel
   ): Promise<ChatPlan> {
+    const cfg = getConfig();
     const routes = await cachedLoadRoutes(this.deps.context);
     const firstByteTimeoutMs =
-      getConfig().get<number>("firstByteTimeoutSeconds", 120) * 1000;
+      cfg.get<number>("firstByteTimeoutSeconds", 120) * 1000;
+    const compressionOverride = cfg.get<string>("compressionOverride", "serverDefault");
     const clientByRoute = new Map(
-      routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs)])
+      routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs, compressionOverride)])
     );
     const nameByRoute = new Map(routes.map((r) => [r.id, r.name]));
 
@@ -603,17 +646,20 @@ export class OmniRouteChatProvider
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, catalog: ${this.cachedModels.length} models)`
     );
 
-    // Prioritize online servers over offline servers so unreachable secondary
-    // servers are tried after known-healthy ones without being dropped entirely.
+    // Prioritize online and non-cooling servers over offline/cooling servers
+    // so unreachable secondary servers are tried after known-healthy ones.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
-    const fallbacksByHealth =
-      knownOnline.size > 0
-        ? [...fallbacks].sort((a, b) => {
-            const aOnline = knownOnline.has(a.routeId) ? 0 : 1;
-            const bOnline = knownOnline.has(b.routeId) ? 0 : 1;
-            return aOnline - bOnline;
-          })
-        : fallbacks;
+    const fallbacksByHealth = [...fallbacks].sort((a, b) => {
+      const aCooling = isRouteInCooldown(a.routeId) ? 1 : 0;
+      const bCooling = isRouteInCooldown(b.routeId) ? 1 : 0;
+      if (aCooling !== bCooling) return aCooling - bCooling;
+      if (knownOnline.size > 0) {
+        const aOnline = knownOnline.has(a.routeId) ? 0 : 1;
+        const bOnline = knownOnline.has(b.routeId) ? 0 : 1;
+        return aOnline - bOnline;
+      }
+      return 0;
+    });
 
     const candidates = [primary, ...fallbacksByHealth];
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
@@ -781,6 +827,7 @@ export class OmniRouteChatProvider
       }
       const attempt = await this.streamAttempt(ctx);
       if (attempt.kind === "completed") {
+        clearRouteCooldown(cand.routeId);
         this.reportUsage(cand, attempt, ctx);
         this.deps.onActivity?.(true, cand.routeId);
         return { kind: "succeeded" };
@@ -791,8 +838,15 @@ export class OmniRouteChatProvider
         `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${formatErrorValue(candError)})`
       );
       if (attempt.stall) {
+        markRouteCooldown(cand.routeId, 15_000, 408, "Stream stall");
         this.deps.onStall?.(cand.routeId);
         break;
+      }
+      if (attempt.throttle) {
+        const delayMs = computeBackoffMs(attempt.error, true, attempted);
+        markRouteCooldown(cand.routeId, delayMs, errorStatus(attempt.error) ?? 429, "Admission throttle");
+      } else if (candError instanceof OmniRouteError && candError.phase === "connect") {
+        markRouteCooldown(cand.routeId, 10_000, undefined, "Connection failure");
       }
       if (attempted + 1 < retriesPerServer) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
@@ -811,13 +865,21 @@ export class OmniRouteChatProvider
     attempt: Extract<StreamAttemptOutcome, { kind: "completed" }>,
     ctx: ChatCandidateContext
   ): void {
+    const inputTokens = attempt.reportedUsage?.inputTokens ?? ctx.inputTokens;
+    const outputTokens = attempt.reportedUsage?.outputTokens ?? estimateTokens(attempt.streamed);
+    const cachedTokens = attempt.reportedUsage?.cachedTokens;
+    const isEstimated =
+      attempt.reportedUsage?.inputTokens === undefined || attempt.reportedUsage?.outputTokens === undefined;
+
     this.deps.onUsage?.({
       routeId: cand.routeId,
       baseUrl: ctx.client?.baseUrl ?? "",
       serverName: ctx.routeName,
       modelName: cand.modelId,
-      inputTokens: ctx.inputTokens,
-      outputTokens: estimateTokens(attempt.streamed),
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      isEstimated,
     });
   }
 
@@ -857,10 +919,14 @@ export class OmniRouteChatProvider
         progress.report(new vscode.LanguageModelTextPart(toolCallSummary(consumed.toolNames)));
       }
       const finishedAt = Date.now();
+      const outputCount = consumed.reportedUsage?.outputTokens ?? estimateTokens(streamed);
+      const cachedSuffix = consumed.reportedUsage?.cachedTokens
+        ? `, cached: ${consumed.reportedUsage.cachedTokens}`
+        : "";
       log.info(
-        `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${estimateTokens(streamed)} tokens)`
+        `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${outputCount} tokens${cachedSuffix})`
       );
-      return { kind: "completed", streamed, startedAt, firstTokenAt };
+      return { kind: "completed", streamed, startedAt, firstTokenAt, reportedUsage: consumed.reportedUsage };
     } catch (err) {
       return this.concludeStreamFailure(err, reportedAny, ctx);
     }
@@ -882,12 +948,14 @@ export class OmniRouteChatProvider
     firstTokenAt: number | undefined;
     hasVisibleText: boolean;
     toolNames: string[];
+    reportedUsage?: ChatUsageInfo;
   }> {
     let streamed = "";
     let reportedAny = false;
     let firstTokenAt: number | undefined;
     let hasVisibleText = false;
     const toolNames: string[] = [];
+    let reportedUsage: ChatUsageInfo | undefined;
     for await (const event of client.streamModel(request, abort.signal, transportPlan)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
@@ -897,16 +965,29 @@ export class OmniRouteChatProvider
         reportedAny = true;
         onReported();
         progress.report(new vscode.LanguageModelTextPart(event.text));
+      } else if (event.kind === "usage") {
+        reportedUsage = {
+          ...reportedUsage,
+          ...event.usage,
+          inputTokens: event.usage.inputTokens ?? reportedUsage?.inputTokens,
+          outputTokens: event.usage.outputTokens ?? reportedUsage?.outputTokens,
+          cachedTokens: event.usage.cachedTokens ?? reportedUsage?.cachedTokens,
+          reasoningTokens: event.usage.reasoningTokens ?? reportedUsage?.reasoningTokens,
+          totalTokens: event.usage.totalTokens ?? reportedUsage?.totalTokens,
+        };
       } else {
-        if (!toolNames.includes(event.name)) toolNames.push(event.name);
-        reportedAny = true;
-        onReported();
-        progress.report(
-          new vscode.LanguageModelToolCallPart(event.id, event.name, parseToolCallArgs(event, this.deps.log))
-        );
+        const toolEvent = event as { id: string; name: string; args: string };
+        if (toolEvent.name) {
+          if (!toolNames.includes(toolEvent.name)) toolNames.push(toolEvent.name);
+          reportedAny = true;
+          onReported();
+          progress.report(
+            new vscode.LanguageModelToolCallPart(toolEvent.id, toolEvent.name, parseToolCallArgs(toolEvent, this.deps.log))
+          );
+        }
       }
     }
-    return { streamed, reportedAny, firstTokenAt, hasVisibleText, toolNames };
+    return { streamed, reportedAny, firstTokenAt, hasVisibleText, toolNames, reportedUsage };
   }
 
   /** Classifies a failed attempt: cancellation, mid-stream/fatal → throw,

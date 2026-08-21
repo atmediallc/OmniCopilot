@@ -64,8 +64,16 @@ async function doSyncProviders(
     context,
     log,
     onActivity: (ok: boolean, routeId?: string) => statusBar?.reportActivity(ok, routeId),
-    onUsage: (usage: { routeId?: string; baseUrl?: string; serverName: string; modelName: string; inputTokens: number; outputTokens: number }) =>
-      statusBar?.reportUsage(usage),
+    onUsage: (usage: {
+      routeId?: string;
+      baseUrl?: string;
+      serverName: string;
+      modelName: string;
+      inputTokens: number;
+      outputTokens: number;
+      cachedTokens?: number;
+      isEstimated?: boolean;
+    }) => statusBar?.reportUsage(usage),
     onRequestStart: (routeId: string | undefined, modelName: string) =>
       statusBar?.reportRequestStart(routeId, modelName),
     onRequestEnd: (ok: boolean, error: string | undefined, fallbacksUsed: number) =>

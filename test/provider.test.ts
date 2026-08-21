@@ -32,7 +32,10 @@ const mockLog = {
   trace: () => {},
 } as unknown as vscode.LogOutputChannel;
 
-const dummyToken = {} as unknown as vscode.CancellationToken;
+const dummyToken = {
+  isCancellationRequested: false,
+  onCancellationRequested: () => ({ dispose: () => {} }),
+} as unknown as vscode.CancellationToken;
 
 describe("OmniRouteChatProvider", () => {
   it("can be instantiated with dependencies", () => {
@@ -291,5 +294,68 @@ describe("OmniRouteChatProvider", () => {
     expect(infos).toEqual([]);
     // Nothing was invented out of thin air.
     expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
+  });
+
+  it("forwards reported usage and cached tokens to onUsage callback", async () => {
+    const context = mockContext();
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+      onUsage,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "Hello world answer" };
+        yield {
+          kind: "usage",
+          usage: {
+            inputTokens: 110,
+            outputTokens: 40,
+            cachedTokens: 75,
+            totalTokens: 150,
+          },
+        };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    const progress = { report: vi.fn() };
+    const model = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+      name: "GPT-4o",
+      family: "openai",
+      version: "1.0.0",
+      maxInputTokens: 10000,
+      maxOutputTokens: 4096,
+      capabilities: {},
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as never,
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    expect(onUsage).toHaveBeenCalledWith({
+      routeId: "route-1",
+      baseUrl: "http://localhost:8080/v1",
+      serverName: "Server 1",
+      modelName: "openai/gpt-4o",
+      inputTokens: 110,
+      outputTokens: 40,
+      cachedTokens: 75,
+      isEstimated: false,
+    });
   });
 });

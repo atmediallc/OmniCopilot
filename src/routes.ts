@@ -120,10 +120,62 @@ export function newRouteId(routes: Route[]): string {
 let _cachedRoutes: Route[] | undefined;
 let _cacheContext: vscode.ExtensionContext | undefined;
 
+// ── Ephemeral Route Cooldowns ──────────────────────────────────────────
+export interface RouteCooldown {
+  routeId: string;
+  cooldownUntil: number;
+  status?: number;
+  reason?: string;
+}
+
+const _routeCooldowns = new Map<string, RouteCooldown>();
+
+export function markRouteCooldown(
+  routeId: string,
+  durationMs: number,
+  status?: number,
+  reason?: string
+): void {
+  if (!routeId || durationMs <= 0) return;
+  const cooldownUntil = Date.now() + Math.min(durationMs, 60_000);
+  _routeCooldowns.set(routeId, {
+    routeId,
+    cooldownUntil,
+    status,
+    reason,
+  });
+}
+
+export function isRouteInCooldown(routeId: string): boolean {
+  const cd = _routeCooldowns.get(routeId);
+  if (!cd) return false;
+  if (Date.now() >= cd.cooldownUntil) {
+    _routeCooldowns.delete(routeId);
+    return false;
+  }
+  return true;
+}
+
+export function clearRouteCooldown(routeId: string): void {
+  _routeCooldowns.delete(routeId);
+}
+
+export function getRouteCooldown(routeId: string): RouteCooldown | undefined {
+  if (isRouteInCooldown(routeId)) {
+    return _routeCooldowns.get(routeId);
+  }
+  return undefined;
+}
+
+export function resetAllCooldowns(): void {
+  _routeCooldowns.clear();
+}
+
 /** Invalidate the route cache. Call on config change or after `saveRoutes`. */
 export function invalidateRouteCache(): void {
   _cachedRoutes = undefined;
   _clientPool.clear();
+  resetAllCooldowns();
 }
 
 /** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */
@@ -138,17 +190,23 @@ export async function cachedLoadRoutes(context: vscode.ExtensionContext): Promis
 const _clientPool = new Map<string, OmniRouteClient>();
 
 /** Reusable client for a route. Keyed by `routeId`; invalidated with routes. */
-export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByteTimeoutMs?: number): OmniRouteClient {
+export function getClientForRoute(
+  route: Route,
+  log?: OmniLogger,
+  streamFirstByteTimeoutMs?: number,
+  compressionOverride?: string
+): OmniRouteClient {
   const existing = _clientPool.get(route.id);
   if (
     existing?.baseUrl === normalizeBaseUrl(route.baseUrl) &&
     existing.options.apiKey === route.apiKey &&
     existing.options.streamFirstByteTimeoutMs === streamFirstByteTimeoutMs &&
+    existing.options.compressionOverride === compressionOverride &&
     existing.options.log === log
   ) {
     return existing;
   }
-  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs);
+  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs, compressionOverride);
   _clientPool.set(route.id, client);
   return client;
 }
@@ -158,13 +216,15 @@ export function getClientForRoute(route: Route, log?: OmniLogger, streamFirstByt
 export function makeClientForRoute(
   route: Route,
   log?: OmniLogger,
-  streamFirstByteTimeoutMs?: number
+  streamFirstByteTimeoutMs?: number,
+  compressionOverride?: string
 ): OmniRouteClient {
   return new OmniRouteClient({
     baseUrl: route.baseUrl,
     apiKey: route.apiKey,
     chatMaxAttempts: 1,
     streamFirstByteTimeoutMs,
+    compressionOverride,
     log,
   });
 }

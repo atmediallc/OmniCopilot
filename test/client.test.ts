@@ -400,6 +400,25 @@ describe("OmniRouteClient.streamChat", () => {
     headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
   });
+
+  it("sends x-omniroute-compression only when an override is configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(["data: [DONE]"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await collect(
+      new OmniRouteClient({ baseUrl: "http://x/v1", compressionOverride: "engine:rtk" })
+    );
+    let headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["x-omniroute-compression"]).toBe("engine:rtk");
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(sseResponse(["data: [DONE]"]));
+    await collect(
+      new OmniRouteClient({ baseUrl: "http://x/v1", compressionOverride: "serverDefault" })
+    );
+    headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["x-omniroute-compression"]).toBeUndefined();
+  });
 });
 
 describe("OmniRouteClient retry behavior", () => {
@@ -795,5 +814,83 @@ describe("OmniRouteClient.listModels", () => {
   it("throws with the status when the catalog call fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 401 })));
     await expect(new OmniRouteClient({ baseUrl: "http://x" }).listModels()).rejects.toThrow("401");
+  });
+});
+
+describe("OmniRouteClient token usage parsing", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("parses Chat Completions trailing usage chunk", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}',
+          'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":45,"total_tokens":165,"prompt_tokens_details":{"cached_tokens":80},"completion_tokens_details":{"reasoning_tokens":15}}}',
+          "data: [DONE]",
+        ])
+      )
+    );
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const events = await collect(client);
+
+    expect(events).toEqual([
+      { kind: "text", text: "Hello" },
+      {
+        kind: "usage",
+        usage: {
+          inputTokens: 120,
+          outputTokens: 45,
+          totalTokens: 165,
+          cachedTokens: 80,
+          reasoningTokens: 15,
+        },
+      },
+    ]);
+  });
+
+  it("parses Responses API completed usage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"type":"response.output_text.delta","delta":"Responses answer"}',
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":200,"output_tokens":80,"total_tokens":280,"input_tokens_details":{"cached_tokens":150}}}}',
+        ])
+      )
+    );
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const events = await collectModel(client, ["responses"]);
+
+    expect(events).toEqual([
+      { kind: "text", text: "Responses answer" },
+      {
+        kind: "usage",
+        usage: {
+          inputTokens: 200,
+          outputTokens: 80,
+          totalTokens: 280,
+          cachedTokens: 150,
+          reasoningTokens: undefined,
+        },
+      },
+    ]);
+  });
+
+  it("aborts when a runaway stream emits too much unbuffered data without newlines", async () => {
+    const hugeUnbrokenData = "x".repeat(3 * 1024 * 1024);
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(hugeUnbrokenData));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    await expect(collect(client)).rejects.toThrow(/exceeded maximum buffer limit/i);
   });
 });

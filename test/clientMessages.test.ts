@@ -256,4 +256,41 @@ describe("OmniRouteClient Messages transport", () => {
     expect((err as OmniRouteError).endpoint).toBe("/messages");
     expect((err as OmniRouteError).message).toContain("did not start responding");
   });
+
+  it("parses Messages usage events from message_start and message_delta", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":150,"cache_creation_input_tokens":20,"cache_read_input_tokens":80,"output_tokens":1}}}',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude says hi"}}',
+          'data: {"type":"message_delta","usage":{"output_tokens":42}}',
+          'data: {"type":"message_stop"}',
+        ])
+      )
+    );
+
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    const events = await collectMessages(client);
+
+    expect(events).toEqual([
+      {
+        kind: "usage",
+        usage: {
+          inputTokens: 150,
+          outputTokens: 1,
+          cachedTokens: 100,
+        },
+      },
+      { kind: "text", text: "Claude says hi" },
+      {
+        kind: "usage",
+        usage: {
+          inputTokens: undefined,
+          outputTokens: 42,
+          cachedTokens: undefined,
+        },
+      },
+    ]);
+  });
 });

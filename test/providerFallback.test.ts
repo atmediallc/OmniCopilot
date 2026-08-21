@@ -346,4 +346,73 @@ describe("full fallback at the request level", () => {
     expect(onRequestEnd).toHaveBeenCalledTimes(12);
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 0);
   });
+
+  it("prioritizes non-cooling fallback routes over routes currently in cooldown", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+
+    const context = mockContext();
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog, onRequestEnd });
+
+    // Mark server B in cooldown
+    routesModule.markRouteCooldown("B", 30_000, 429, "Throttled");
+
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("Server A failed", undefined);
+      }),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("from B")),
+    };
+    const clientC = {
+      baseUrl: "http://server-c.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("from C")),
+    };
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+      { id: "C", name: "Server C", baseUrl: "http://server-c.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => {
+        if (route.id === "A") return clientA;
+        if (route.id === "B") return clientB;
+        return clientC;
+      }) as unknown as typeof routesModule.getClientForRoute
+    );
+
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      progress as unknown as vscode.Progress<unknown>,
+      dummyToken
+    );
+
+    // Primary (A) failed, then healthy non-cooling Server C was chosen before cooling Server B!
+    expect(clientA.streamModel).toHaveBeenCalled();
+    expect(clientC.streamModel).toHaveBeenCalled();
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "from C" })
+    );
+  });
 });

@@ -1,5 +1,21 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { buildCatalog, getClientForRoute, invalidateRouteCache, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, transportPlanForModel, vendorForRoute, SECRET_PREFIX } from "../src/routes";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildCatalog,
+  clearRouteCooldown,
+  getClientForRoute,
+  getRouteCooldown,
+  invalidateRouteCache,
+  isRouteInCooldown,
+  markRouteCooldown,
+  newRouteId,
+  pickFallbackCandidates,
+  prefixedId,
+  resetAllCooldowns,
+  saveRoutes,
+  transportPlanForModel,
+  vendorForRoute,
+  SECRET_PREFIX,
+} from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
 import { secretStore, configValues, configUpdates, createMockContext } from "./vscode.mock";
 
@@ -232,5 +248,49 @@ describe("getClientForRoute", () => {
     invalidateRouteCache();
     const c2 = getClientForRoute(route);
     expect(c1).not.toBe(c2);
+  });
+});
+
+describe("Route Cooldowns", () => {
+  beforeEach(() => {
+    resetAllCooldowns();
+  });
+
+  it("marks route in cooldown and respects duration", () => {
+    markRouteCooldown("route-1", 10_000, 429, "Throttled");
+    expect(isRouteInCooldown("route-1")).toBe(true);
+
+    const info = getRouteCooldown("route-1");
+    expect(info).toBeDefined();
+    expect(info?.routeId).toBe("route-1");
+    expect(info?.status).toBe(429);
+    expect(info?.reason).toBe("Throttled");
+    expect(info?.cooldownUntil).toBeGreaterThan(Date.now());
+  });
+
+  it("expires cooldown when time has elapsed", () => {
+    vi.useFakeTimers();
+    try {
+      markRouteCooldown("route-1", 5_000, 503, "Service unavailable");
+      expect(isRouteInCooldown("route-1")).toBe(true);
+
+      vi.advanceTimersByTime(5_001);
+      expect(isRouteInCooldown("route-1")).toBe(false);
+      expect(getRouteCooldown("route-1")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears cooldown on explicit clear or cache invalidation", () => {
+    markRouteCooldown("route-1", 10_000, 429);
+    markRouteCooldown("route-2", 10_000, 503);
+
+    clearRouteCooldown("route-1");
+    expect(isRouteInCooldown("route-1")).toBe(false);
+    expect(isRouteInCooldown("route-2")).toBe(true);
+
+    invalidateRouteCache();
+    expect(isRouteInCooldown("route-2")).toBe(false);
   });
 });

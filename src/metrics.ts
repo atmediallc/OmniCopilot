@@ -9,6 +9,8 @@ export interface ServerMetric {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
+  estimatedTokens?: number;
   requestCount: number;
   successCount: number;
   errorCount: number;
@@ -22,6 +24,8 @@ export interface SessionMetrics {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalTokens: number;
+  totalCachedTokens?: number;
+  totalEstimatedTokens?: number;
   totalRequests: number;
   totalStalls: number;
   servers: Record<string, ServerMetric>;
@@ -97,12 +101,20 @@ export class MetricsTracker {
     baseUrl: string,
     modelName: string,
     inputTokens: number,
-    outputTokens: number
+    outputTokens: number,
+    cachedTokens = 0,
+    isEstimated = false
   ): Promise<void> {
     const total = inputTokens + outputTokens;
     this.metrics.totalInputTokens += inputTokens;
     this.metrics.totalOutputTokens += outputTokens;
     this.metrics.totalTokens += total;
+    if (cachedTokens > 0) {
+      this.metrics.totalCachedTokens = (this.metrics.totalCachedTokens ?? 0) + cachedTokens;
+    }
+    if (isEstimated) {
+      this.metrics.totalEstimatedTokens = (this.metrics.totalEstimatedTokens ?? 0) + total;
+    }
     this.metrics.totalRequests += 1;
 
     let server = this.metrics.servers[routeId];
@@ -115,6 +127,8 @@ export class MetricsTracker {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
+        cachedTokens: 0,
+        estimatedTokens: 0,
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
@@ -128,6 +142,12 @@ export class MetricsTracker {
     server.inputTokens += inputTokens;
     server.outputTokens += outputTokens;
     server.totalTokens += total;
+    if (cachedTokens > 0) {
+      server.cachedTokens = (server.cachedTokens ?? 0) + cachedTokens;
+    }
+    if (isEstimated) {
+      server.estimatedTokens = (server.estimatedTokens ?? 0) + total;
+    }
     server.requestCount += 1;
     server.successCount += 1;
     server.lastUsedModel = modelName;

@@ -52,11 +52,18 @@ export interface ClientOptions {
   /** Abort a streaming response that sends no further data for this long (ms)
    * once streaming has started. Default 30000. */
   streamIdleTimeoutMs?: number;
+  /** Prompt compression override for OmniRoute servers ('off' | 'default' | 'engine:rtk' | 'engine:caveman'). */
+  compressionOverride?: string;
 }
 
 const USER_AGENT = "OmniCopilot-VSCode";
 
-function headers(apiKey: string | undefined, json: boolean, isStream = false): Record<string, string> {
+function headers(
+  apiKey: string | undefined,
+  json: boolean,
+  isStream = false,
+  compressionOverride?: string
+): Record<string, string> {
   const h: Record<string, string> = {
     "User-Agent": USER_AGENT,
     "Accept": isStream ? "text/event-stream, application/json" : "application/json",
@@ -65,6 +72,9 @@ function headers(apiKey: string | undefined, json: boolean, isStream = false): R
   if (apiKey) {
     const cleanKey = apiKey.replace(/[\r\n]/g, "").trim();
     if (cleanKey) h["Authorization"] = `Bearer ${cleanKey}`;
+  }
+  if (compressionOverride && compressionOverride !== "serverDefault") {
+    h["x-omniroute-compression"] = compressionOverride;
   }
   return h;
 }
@@ -550,7 +560,7 @@ export class OmniRouteClient {
           `${this.baseUrl}/messages`,
           {
             method: "POST",
-            headers: headers(this.opts.apiKey, true, true),
+            headers: headers(this.opts.apiKey, true, true, this.opts.compressionOverride),
             body: JSON.stringify(toMessagesRequest(request)),
             signal: session.ctrl.signal,
           },
@@ -572,35 +582,11 @@ export class OmniRouteClient {
   ): AsyncGenerator<StreamEvent> {
     const assembler = new MessagesToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    session.setReader(reader);
-    session.armWatchdog();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode();
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
-          buffer = buffer.slice(newlineIdx + 1);
-          yield* this.emitMessagesSseLine(line, assembler, reasoningFilter, session);
-        }
-      }
-      if (buffer) {
-        yield* this.emitMessagesSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
-      }
-      session.throwIfAborted();
-      yield* flushFilteredText(reasoningFilter);
-      yield* assembler.flush();
-    } catch (err) {
-      throw session.unwrapError(err);
+    for await (const line of readSseLines(stream, session, "/messages")) {
+      yield* this.emitMessagesSseLine(line, assembler, reasoningFilter, session);
     }
+    yield* flushFilteredText(reasoningFilter);
+    yield* assembler.flush();
   }
 
   private async *emitMessagesSseLine(
@@ -637,7 +623,7 @@ export class OmniRouteClient {
           `${this.baseUrl}/responses`,
           {
             method: "POST",
-            headers: headers(this.opts.apiKey, true, true),
+            headers: headers(this.opts.apiKey, true, true, this.opts.compressionOverride),
             body: JSON.stringify(toResponsesRequest(request)),
             signal: session.ctrl.signal,
           },
@@ -659,35 +645,11 @@ export class OmniRouteClient {
   ): AsyncGenerator<StreamEvent> {
     const assembler = new ResponsesToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    session.setReader(reader);
-    session.armWatchdog();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode();
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
-          buffer = buffer.slice(newlineIdx + 1);
-          yield* this.emitResponsesSseLine(line, assembler, reasoningFilter, session);
-        }
-      }
-      if (buffer) {
-        yield* this.emitResponsesSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
-      }
-      session.throwIfAborted();
-      yield* flushFilteredText(reasoningFilter);
-      yield* assembler.flush();
-    } catch (err) {
-      throw session.unwrapError(err);
+    for await (const line of readSseLines(stream, session, "/responses")) {
+      yield* this.emitResponsesSseLine(line, assembler, reasoningFilter, session);
     }
+    yield* flushFilteredText(reasoningFilter);
+    yield* assembler.flush();
   }
 
   /** Handles one Responses SSE line and preserves text/tool ordering while
@@ -718,7 +680,7 @@ export class OmniRouteClient {
         `${this.baseUrl}/chat/completions`,
         {
           method: "POST",
-          headers: headers(this.opts.apiKey, true, true),
+          headers: headers(this.opts.apiKey, true, true, this.opts.compressionOverride),
           body: JSON.stringify(request),
           signal: session.ctrl.signal,
         },
@@ -737,38 +699,13 @@ export class OmniRouteClient {
   ): AsyncGenerator<StreamEvent> {
     const assembler = new ToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    session.setReader(reader);
-    session.armWatchdog();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode();
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
-          buffer = buffer.slice(newlineIdx + 1);
-          yield* this.emitSseLine(line, assembler, reasoningFilter, session);
-        }
-      }
-      if (buffer) {
-        yield* this.emitSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
-      }
-      session.throwIfAborted();
-      yield* flushFilteredText(reasoningFilter);
-      // Flush any tool calls still being assembled when the stream ends
-      // without an explicit finish_reason line.
-      yield* assembler.flush();
-    } catch (err) {
-      throw session.unwrapError(err);
+    for await (const line of readSseLines(stream, session, "/chat/completions")) {
+      yield* this.emitSseLine(line, assembler, reasoningFilter, session);
     }
+    yield* flushFilteredText(reasoningFilter);
+    // Flush any tool calls still being assembled when the stream ends
+    // without an explicit finish_reason line.
+    yield* assembler.flush();
   }
 
   /** Handles one SSE line: normalizes events and keeps the stall watchdog
@@ -812,9 +749,31 @@ export class OmniRouteClient {
       throw sseError(chunk.error.message);
     }
 
+    const events: StreamEvent[] = [];
+    let alive = false;
+
+    if (chunk.usage) {
+      events.push({
+        kind: "usage",
+        usage: {
+          inputTokens: chunk.usage.prompt_tokens,
+          outputTokens: chunk.usage.completion_tokens,
+          totalTokens: chunk.usage.total_tokens,
+          cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens,
+          reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens,
+        },
+      });
+      alive = true;
+    }
+
     const choice = chunk.choices?.[0];
-    if (!choice) return { events: [], alive: false };
-    return this.processChoice(choice, assembler);
+    if (choice) {
+      const choiceResult = this.processChoice(choice, assembler);
+      events.push(...choiceResult.events);
+      alive = alive || choiceResult.alive;
+    }
+
+    return { events, alive };
   }
 
   /** Normalizes one `choices[0]` delta into user-visible events. `alive` is
@@ -845,6 +804,51 @@ export class OmniRouteClient {
       events.push(...assembler.flush());
     }
     return { events, alive };
+  }
+}
+
+const MAX_SSE_BUFFER_BYTES = 2 * 1024 * 1024; // 2MB line buffer safeguard against runaway streams
+
+async function* readSseLines(
+  stream: ReadableStream<Uint8Array>,
+  session: StreamSession,
+  endpoint: string
+): AsyncGenerator<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  session.setReader(reader);
+  session.armWatchdog();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > MAX_SSE_BUFFER_BYTES) {
+        throw new OmniRouteError(
+          "SSE stream exceeded maximum buffer limit without newlines",
+          undefined,
+          false,
+          "stream",
+          endpoint
+        );
+      }
+      let newlineIdx: number;
+      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+        buffer = buffer.slice(newlineIdx + 1);
+        yield line;
+      }
+    }
+    if (buffer) {
+      yield buffer.replace(/\r$/, "");
+    }
+    session.throwIfAborted();
+  } catch (err) {
+    throw session.unwrapError(err);
   }
 }
 
@@ -1247,6 +1251,40 @@ function handleMessagesSseLine(
   if (event.type === "error") {
     throw messagesSseError(event.error?.message ?? "Messages stream failed", event.error?.type);
   }
+  if (event.type === "message_start" && event.message?.usage) {
+    const u = event.message.usage;
+    const cached = (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) || undefined;
+    return {
+      events: [
+        {
+          kind: "usage",
+          usage: {
+            inputTokens: u.input_tokens,
+            outputTokens: u.output_tokens,
+            cachedTokens: cached,
+          },
+        },
+      ],
+      alive: true,
+    };
+  }
+  if (event.type === "message_delta" && event.usage) {
+    const u = event.usage;
+    const cached = (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) || undefined;
+    return {
+      events: [
+        {
+          kind: "usage",
+          usage: {
+            inputTokens: u.input_tokens,
+            outputTokens: u.output_tokens,
+            cachedTokens: cached,
+          },
+        },
+      ],
+      alive: true,
+    };
+  }
   if (event.type === "content_block_start" && event.index !== undefined && event.content_block?.type === "tool_use") {
     assembler.start(
       event.index,
@@ -1331,7 +1369,22 @@ function handleResponsesToolEvent(
     return { events: [...assembler.finish(key)], alive: true };
   }
   if (event.type === "response.completed") {
-    return { events: [...assembler.flush()], alive: true };
+    const u = event.response?.usage ?? event.usage;
+    const usageEvents: StreamEvent[] = u
+      ? [
+          {
+            kind: "usage",
+            usage: {
+              inputTokens: u.input_tokens,
+              outputTokens: u.output_tokens,
+              totalTokens: u.total_tokens,
+              cachedTokens: u.input_tokens_details?.cached_tokens,
+              reasoningTokens: u.output_tokens_details?.reasoning_tokens,
+            },
+          },
+        ]
+      : [];
+    return { events: [...assembler.flush(), ...usageEvents], alive: true };
   }
   return { events: [], alive: Boolean(event.type) };
 }
