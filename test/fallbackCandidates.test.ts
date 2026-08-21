@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickFallbackCandidates } from "../src/routes";
+import { pickFallbackCandidates, transportPlanForModel } from "../src/routes";
 import type { CatalogEntry, CatalogModel } from "../src/routes";
 
 /**
@@ -50,7 +50,7 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // other family ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "sameModel")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
@@ -63,8 +63,8 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // other route+family ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "sameFamily")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
-      { routeId: "A", modelId: "openai/gpt-4o-mini", transport: "responses" },
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "A", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
@@ -77,10 +77,10 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"), // tier 3: anything
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "full")).toEqual([
-      { routeId: "B", modelId: "openai/gpt-4o", transport: "responses" },
-      { routeId: "A", modelId: "openai/gpt-4o-mini", transport: "responses" },
-      { routeId: "A", modelId: "anthropic/claude-3-5-sonnet", transport: "responses" },
-      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "A", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "A", modelId: "anthropic/claude-3-5-sonnet", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
@@ -93,8 +93,8 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("C", "Server C", "mistral/mistral-7b"), // no capabilities field → treated as compatible ✓
     ];
     expect(pickFallbackCandidates(primary, catalog, true, "full")).toEqual([
-      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
-      { routeId: "C", modelId: "mistral/mistral-7b", transport: "responses" },
+      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "C", modelId: "mistral/mistral-7b", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
@@ -124,7 +124,27 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("B", "Server B", "kimi/k2"),
     ];
     expect(pickFallbackCandidates(primary, catalog, false)).toEqual([
-      { routeId: "B", modelId: "kimi/k2", transport: "responses" },
+      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
     ]);
+  });
+});
+
+describe("transportPlanForModel", () => {
+  it.each([
+    [undefined, ["responses", "chatCompletions"]],
+    [[], ["responses", "chatCompletions"]],
+    [["future/protocol"], ["responses", "chatCompletions"]],
+    [["responses"], ["responses"]],
+    [["responses", "chat/completions"], ["responses", "chatCompletions"]],
+    [["responses", "messages"], ["responses", "messages"]],
+    [["chat/completions"], ["chatCompletions"]],
+    [["messages"], ["messages"]],
+    [["completions"], []],
+    [["search", "/messages/count_tokens"], []],
+  ] as const)("derives %j as the exact pre-output plan %j", (supported_endpoints, expected) => {
+    const source = supported_endpoints === undefined
+      ? { id: "m" }
+      : { id: "m", supported_endpoints: [...supported_endpoints] };
+    expect(transportPlanForModel(source)).toEqual(expected);
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildCatalog, getClientForRoute, invalidateRouteCache, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, vendorForRoute, SECRET_PREFIX } from "../src/routes";
+import { buildCatalog, getClientForRoute, invalidateRouteCache, newRouteId, pickFallbackCandidates, prefixedId, saveRoutes, transportPlanForModel, vendorForRoute, SECRET_PREFIX } from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
 import { secretStore, configValues, configUpdates, createMockContext } from "./vscode.mock";
 
@@ -58,6 +58,33 @@ describe("buildCatalog", () => {
   });
 });
 
+describe("transportPlanForModel", () => {
+  it("orders Responses before explicit Chat Completions or Messages compatibility surfaces", () => {
+    expect(transportPlanForModel({ id: "mixed-chat", supported_endpoints: ["chat/completions", "responses"] })).toEqual(["responses", "chatCompletions"]);
+    expect(transportPlanForModel({ id: "mixed-messages", supported_endpoints: ["messages", "POST /v1/responses"] })).toEqual(["responses", "messages"]);
+  });
+
+  it.each([
+    [" CHAT/COMPLETIONS "],
+    ["POST ///v1//chat/completions/?stream=true#sse"],
+    ["https://api.example.test/v1/chat/completions"],
+  ])("selects Chat Completions for chat-only metadata %j", (endpoint) => {
+    expect(transportPlanForModel({ id: "chat", supported_endpoints: [endpoint] })).toEqual(["chatCompletions"]);
+  });
+
+  it("selects Messages for Messages-only metadata", () => {
+    expect(transportPlanForModel({ id: "messages", supported_endpoints: ["POST /v1/messages"] })).toEqual(["messages"]);
+  });
+
+  it("uses compatibility fallback for absent, empty, unknown, and deceptive metadata but none for legacy-only", () => {
+    expect(transportPlanForModel(undefined)).toEqual(["responses", "chatCompletions"]);
+    expect(transportPlanForModel({ id: "empty", supported_endpoints: [] })).toEqual(["responses", "chatCompletions"]);
+    expect(transportPlanForModel({ id: "unknown", supported_endpoints: ["future/generate"] })).toEqual(["responses", "chatCompletions"]);
+    expect(transportPlanForModel({ id: "deceptive", supported_endpoints: ["chat/completions-preview"] })).toEqual(["responses", "chatCompletions"]);
+    expect(transportPlanForModel({ id: "legacy", supported_endpoints: ["completions"] })).toEqual([]);
+  });
+});
+
 describe("pickFallbackCandidates", () => {
   const cat = buildCatalog([
     { routeId: "r1", name: "A", models: [model("openai/gpt-4o", true), model("openai/gpt-4o-mini", false)] },
@@ -67,9 +94,9 @@ describe("pickFallbackCandidates", () => {
 
   it("pone primero el mismo modelo en otra ruta, luego familia en la misma ruta", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false);
-    expect(got[0]).toEqual({ routeId: "r2", modelId: "openai/gpt-4o", transport: "responses" });
+    expect(got[0]).toEqual({ routeId: "r2", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] });
     // las tool_calling:false no importan sin tools; familia misma ruta → gpt-4o-mini
-    expect(got[1]).toEqual({ routeId: "r1", modelId: "openai/gpt-4o-mini", transport: "responses" });
+    expect(got[1]).toEqual({ routeId: "r1", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] });
   });
   it("excluye modelos sin tool_calling cuando se requieren tools", () => {
     const got = pickFallbackCandidates(gpt4o, cat, true);
@@ -85,7 +112,7 @@ describe("pickFallbackCandidates", () => {
   });
   it("mode sameModel solo reintenta el mismo modelo en otra ruta", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false, "sameModel");
-    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o", transport: "responses" }]);
+    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] }]);
   });
   it("mode sameFamily excluye modelos de otra ruta que no son el mismo modelo", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false, "sameFamily");

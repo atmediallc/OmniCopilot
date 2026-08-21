@@ -7,6 +7,7 @@ import { SECRET_PREFIX, cachedLoadRoutes, invalidateRouteCache, getClientForRout
 import { ConnectionStatusBar } from "./statusBar";
 import { MetricsTracker } from "./metrics";
 import { OmniStatusPopup } from "./statusPopup";
+import { registerFixedTools } from "./tools";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
 const VENDOR = "omniroute";
@@ -112,6 +113,8 @@ export function activate(context: vscode.ExtensionContext): void {
   OmniRouteChatProvider.loadPersistentCache(context);
 
   metricsTracker = new MetricsTracker(context);
+
+  registerFixedTools(context, log);
 
   statusBar = new ConnectionStatusBar(
     async () => {

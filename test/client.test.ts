@@ -46,7 +46,7 @@ async function collectModel(client: OmniRouteClient): Promise<StreamEvent[]> {
   for await (const event of client.streamModel(
     { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
     new AbortController().signal,
-    "responses"
+    ["responses", "chatCompletions"]
   )) events.push(event);
   return events;
 }
@@ -151,6 +151,44 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 })))
       .resolves.toEqual([{ kind: "text", text: "fallback" }]);
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses", "http://x/v1/chat/completions"]);
+  });
+
+  it("uses the metadata-derived Responses then Messages plan without trying Chat", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Not found"}}', { status: 404 }))
+      .mockResolvedValueOnce(sseResponse([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"messages fallback"}}',
+      ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 });
+    const events: StreamEvent[] = [];
+    for await (const event of client.streamModel(
+      { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+      new AbortController().signal,
+      ["responses", "messages"]
+    )) events.push(event);
+    expect(events).toEqual([{ kind: "text", text: "messages fallback" }]);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "http://x/v1/responses",
+      "http://x/v1/messages",
+    ]);
+  });
+
+  it("does not switch an explicit Responses-only plan on incompatibility", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"error":{"message":"Not found"}}', { status: 404 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 });
+    const run = async () => {
+      for await (const _event of client.streamModel(
+        { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+        new AbortController().signal,
+        ["responses"]
+      )) { /* no output expected */ }
+    };
+    await expect(run()).rejects.toThrow("Not found");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses"]);
   });
 
   it.each([429, 503])("does not protocol-switch on HTTP %s", async (status) => {

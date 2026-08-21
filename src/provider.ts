@@ -5,7 +5,7 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
 import { selectChatModels } from "./catalogFilter";
 import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
-import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates, transportForModel } from "./routes";
+import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates, transportPlanForModel } from "./routes";
 import type { ChatRequest, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 
@@ -590,9 +590,13 @@ export class OmniRouteChatProvider
       ? {
           routeId: primaryEntry.routeId,
           modelId: primaryEntry.modelId,
-          transport: transportForModel(primaryCatalogModel?.model),
+          transportPlan: transportPlanForModel(primaryCatalogModel?.model),
         }
-      : { routeId: model.routeId!, modelId: model.omniModelId!, transport: "responses" };
+      : {
+          routeId: model.routeId!,
+          modelId: model.omniModelId!,
+          transportPlan: ["responses", "chatCompletions"],
+        };
 
     log.info(
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, catalog: ${this.cachedModels.length} models)`
@@ -831,7 +835,10 @@ export class OmniRouteChatProvider
         abort,
         progress,
         token,
-        cand.transport
+        cand.transportPlan,
+        () => {
+          reportedAny = true;
+        }
       );
       streamed = consumed.streamed;
       reportedAny = consumed.reportedAny;
@@ -863,20 +870,23 @@ export class OmniRouteChatProvider
     abort: AbortController,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
-    transport: FallbackCandidate["transport"]
+    transportPlan: FallbackCandidate["transportPlan"],
+    onReported: () => void
   ): Promise<{ streamed: string; reportedAny: boolean; firstTokenAt: number | undefined }> {
     let streamed = "";
     let reportedAny = false;
     let firstTokenAt: number | undefined;
-    for await (const event of client.streamModel(request, abort.signal, transport)) {
+    for await (const event of client.streamModel(request, abort.signal, transportPlan)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
         firstTokenAt ??= Date.now();
         streamed += event.text;
         reportedAny = true;
+        onReported();
         progress.report(new vscode.LanguageModelTextPart(event.text));
       } else {
         reportedAny = true;
+        onReported();
         progress.report(
           new vscode.LanguageModelToolCallPart(event.id, event.name, parseToolCallArgs(event, this.deps.log))
         );

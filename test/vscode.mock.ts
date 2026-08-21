@@ -11,6 +11,10 @@ export class LanguageModelTextPart {
   constructor(public value: string) {}
 }
 
+export class LanguageModelToolResult {
+  constructor(public content: unknown[]) {}
+}
+
 export class LanguageModelToolCallPart {
   constructor(
     public callId: string,
@@ -95,6 +99,16 @@ export const workspace = {
         return Promise.resolve();
       },
     };
+  },
+};
+
+export const registeredTools: Array<{ name: string; tool: unknown; disposed: boolean }> = [];
+
+export const lm = {
+  registerTool: (name: string, tool: unknown) => {
+    const registration = { name, tool, disposed: false };
+    registeredTools.push(registration);
+    return { dispose: () => { registration.disposed = true; } };
   },
 };
 
