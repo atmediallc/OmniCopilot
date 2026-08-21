@@ -44,15 +44,66 @@ export interface ImprovementSuggestion {
 
 const GLOBAL_STATE_KEY = "omnicopilot.tokenMetrics.v1";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonNegativeNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function normalizeServerMetric(routeId: string, saved: Record<string, unknown>): ServerMetric {
+  const metric: ServerMetric = {
+    routeId,
+    name: typeof saved.name === "string" ? saved.name : routeId,
+    baseUrl: typeof saved.baseUrl === "string" ? saved.baseUrl : "",
+    online: typeof saved.online === "boolean" ? saved.online : false,
+    inputTokens: nonNegativeNumber(saved.inputTokens),
+    outputTokens: nonNegativeNumber(saved.outputTokens),
+    totalTokens: nonNegativeNumber(saved.totalTokens),
+    cachedTokens: nonNegativeNumber(saved.cachedTokens),
+    estimatedTokens: nonNegativeNumber(saved.estimatedTokens),
+    requestCount: nonNegativeNumber(saved.requestCount),
+    successCount: nonNegativeNumber(saved.successCount),
+    errorCount: nonNegativeNumber(saved.errorCount),
+    stallCount: nonNegativeNumber(saved.stallCount),
+  };
+  if (typeof saved.lastUsedModel === "string") metric.lastUsedModel = saved.lastUsedModel;
+  const lastActiveTimestamp = nonNegativeNumber(saved.lastActiveTimestamp, -1);
+  if (lastActiveTimestamp >= 0) metric.lastActiveTimestamp = lastActiveTimestamp;
+  return metric;
+}
+
+function normalizeMetrics(saved: Record<string, unknown>): SessionMetrics {
+  const savedServers = isRecord(saved.servers) ? saved.servers : {};
+  const servers = Object.fromEntries(
+    Object.entries(savedServers).map(([routeId, server]) => [
+      routeId,
+      normalizeServerMetric(routeId, isRecord(server) ? server : {}),
+    ])
+  );
+  return {
+    sessionStartTime: nonNegativeNumber(saved.sessionStartTime, Date.now()),
+    totalInputTokens: nonNegativeNumber(saved.totalInputTokens),
+    totalOutputTokens: nonNegativeNumber(saved.totalOutputTokens),
+    totalTokens: nonNegativeNumber(saved.totalTokens),
+    totalCachedTokens: nonNegativeNumber(saved.totalCachedTokens),
+    totalEstimatedTokens: nonNegativeNumber(saved.totalEstimatedTokens),
+    totalRequests: nonNegativeNumber(saved.totalRequests),
+    totalStalls: nonNegativeNumber(saved.totalStalls),
+    servers,
+  };
+}
+
 export class MetricsTracker {
   private metrics: SessionMetrics;
   private readonly _onDidChangeMetrics = new vscode.EventEmitter<void>();
   readonly onDidChangeMetrics = this._onDidChangeMetrics.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    const saved = this.context.globalState.get<SessionMetrics>(GLOBAL_STATE_KEY);
-    if (saved && typeof saved.totalTokens === "number" && saved.servers) {
-      this.metrics = saved;
+    const saved = this.context.globalState.get<unknown>(GLOBAL_STATE_KEY);
+    if (isRecord(saved)) {
+      this.metrics = normalizeMetrics(saved);
     } else {
       this.metrics = this.createEmptyMetrics();
     }

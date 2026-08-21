@@ -29,6 +29,18 @@ function unterminatedSseResponse(line: string): Response {
   });
 }
 
+function coalescedSseResponse(payload: string): Response {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(payload));
+      controller.close();
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 async function collect(client: OmniRouteClient): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   const ctrl = new AbortController();
@@ -237,6 +249,35 @@ describe("OmniRouteClient.streamChat", () => {
     await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
       { kind: "text", text: "final" },
     ]);
+  });
+
+  it("drains a coalesced chunk larger than 2 MiB when it contains short newline-delimited SSE records", async () => {
+    const progressRecord = 'data: {"choices":[{"delta":{}}]}\n';
+    const coalesced = `${progressRecord.repeat(70_000)}data: {"choices":[{"delta":{"content":"final"}}]}\ndata: [DONE]\n`;
+    expect(new TextEncoder().encode(coalesced).byteLength).toBeGreaterThan(2 * 1024 * 1024);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(coalescedSseResponse(coalesced)));
+
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "final" },
+    ]);
+  });
+
+  it("rejects one unterminated SSE line larger than 2 MiB", async () => {
+    const oversizedLine = `data: ${"x".repeat(2 * 1024 * 1024)}`;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unterminatedSseResponse(oversizedLine)));
+
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(
+      "SSE stream exceeded maximum buffer limit without newlines"
+    );
+  });
+
+  it.each(["\n", "\r\n"])("rejects one oversized newline-terminated SSE line (%j)", async (ending) => {
+    const oversizedLine = `data: ${"x".repeat(2 * 1024 * 1024)}${ending}`;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(coalescedSseResponse(oversizedLine)));
+
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(
+      "SSE stream exceeded maximum buffer limit without newlines"
+    );
   });
 
   it("filters out multi-chunk encrypted reasoning notices", async () => {

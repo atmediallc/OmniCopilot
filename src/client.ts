@@ -809,6 +809,23 @@ export class OmniRouteClient {
 
 const MAX_SSE_BUFFER_BYTES = 2 * 1024 * 1024; // 2MB line buffer safeguard against runaway streams
 
+function assertSseLineWithinLimit(line: string, endpoint: string): void {
+  // UTF-8 uses at most three bytes per UTF-16 code unit (surrogate pairs use
+  // four bytes for two units). Skip the exact measurement for small records.
+  if (
+    line.length > Math.floor(MAX_SSE_BUFFER_BYTES / 3) &&
+    Buffer.byteLength(line, "utf8") > MAX_SSE_BUFFER_BYTES
+  ) {
+    throw new OmniRouteError(
+      "SSE stream exceeded maximum buffer limit without newlines",
+      undefined,
+      false,
+      "stream",
+      endpoint
+    );
+  }
+}
+
 async function* readSseLines(
   stream: ReadableStream<Uint8Array>,
   session: StreamSession,
@@ -827,23 +844,17 @@ async function* readSseLines(
         break;
       }
       buffer += decoder.decode(value, { stream: true });
-      if (buffer.length > MAX_SSE_BUFFER_BYTES) {
-        throw new OmniRouteError(
-          "SSE stream exceeded maximum buffer limit without newlines",
-          undefined,
-          false,
-          "stream",
-          endpoint
-        );
-      }
       let newlineIdx: number;
       while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+        const rawLine = buffer.slice(0, newlineIdx);
         buffer = buffer.slice(newlineIdx + 1);
-        yield line;
+        assertSseLineWithinLimit(rawLine, endpoint);
+        yield rawLine.replace(/\r$/, "");
       }
+      assertSseLineWithinLimit(buffer, endpoint);
     }
     if (buffer) {
+      assertSseLineWithinLimit(buffer, endpoint);
       yield buffer.replace(/\r$/, "");
     }
     session.throwIfAborted();

@@ -3,8 +3,11 @@ import { MetricsTracker, fmtTokens } from "../src/metrics";
 import { estimateTokens } from "../src/convert";
 import type { Route } from "../src/routes";
 
-function mockContext() {
+function mockContext(initialMetrics?: unknown) {
   const store = new Map<string, unknown>();
+  if (initialMetrics !== undefined) {
+    store.set("omnicopilot.tokenMetrics.v1", initialMetrics);
+  }
   return {
     globalState: {
       get: <T>(key: string): T | undefined => store.get(key) as T | undefined,
@@ -39,6 +42,110 @@ describe("MetricsTracker", () => {
   beforeEach(() => {
     context = mockContext();
     tracker = new MetricsTracker(context);
+  });
+
+  it("hydrates omitted legacy counters before recording stalls and usage", async () => {
+    const legacyMetrics = {
+      sessionStartTime: 1_700_000_000_000,
+      totalTokens: 30,
+      totalRequests: 1,
+      servers: {
+        "route-1": {
+          routeId: "route-1",
+          name: "Legacy Server",
+          baseUrl: "http://legacy.local/v1",
+          online: true,
+          totalTokens: 30,
+          requestCount: 1,
+        },
+      },
+    };
+    tracker = new MetricsTracker(mockContext(legacyMetrics));
+
+    const hydrated = tracker.getMetrics();
+    expect(hydrated).toMatchObject({
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 30,
+      totalRequests: 1,
+      totalStalls: 0,
+    });
+    expect(hydrated.servers["route-1"]).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 30,
+      requestCount: 1,
+      successCount: 0,
+      errorCount: 0,
+      stallCount: 0,
+    });
+
+    await tracker.recordStall("route-1", "Legacy Server", "http://legacy.local/v1");
+    await tracker.recordUsage(
+      "route-1",
+      "Legacy Server",
+      "http://legacy.local/v1",
+      "openai/gpt-4o",
+      12,
+      8
+    );
+
+    const metrics = tracker.getMetrics();
+    expect(metrics).toMatchObject({
+      sessionStartTime: 1_700_000_000_000,
+      totalInputTokens: 12,
+      totalOutputTokens: 8,
+      totalTokens: 50,
+      totalRequests: 2,
+      totalStalls: 1,
+    });
+    expect(metrics.servers["route-1"]).toMatchObject({
+      inputTokens: 12,
+      outputTokens: 8,
+      totalTokens: 50,
+      requestCount: 2,
+      successCount: 1,
+      errorCount: 0,
+      stallCount: 1,
+      lastUsedModel: "openai/gpt-4o",
+    });
+    expect([
+      metrics.totalInputTokens,
+      metrics.totalOutputTokens,
+      metrics.totalTokens,
+      metrics.totalRequests,
+      metrics.totalStalls,
+      metrics.servers["route-1"].inputTokens,
+      metrics.servers["route-1"].outputTokens,
+      metrics.servers["route-1"].totalTokens,
+      metrics.servers["route-1"].requestCount,
+      metrics.servers["route-1"].successCount,
+      metrics.servers["route-1"].errorCount,
+      metrics.servers["route-1"].stallCount,
+    ].every(Number.isFinite)).toBe(true);
+  });
+
+  it("discards malformed containers and clamps invalid cumulative counters", () => {
+    tracker = new MetricsTracker(mockContext({
+      sessionStartTime: Number.POSITIVE_INFINITY,
+      totalInputTokens: -1,
+      totalOutputTokens: Number.NaN,
+      totalTokens: 20,
+      totalRequests: -4,
+      totalStalls: Number.NEGATIVE_INFINITY,
+      servers: [
+        { routeId: "fake-array-route", totalTokens: 99 },
+      ],
+    }));
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.totalInputTokens).toBe(0);
+    expect(metrics.totalOutputTokens).toBe(0);
+    expect(metrics.totalTokens).toBe(20);
+    expect(metrics.totalRequests).toBe(0);
+    expect(metrics.totalStalls).toBe(0);
+    expect(Number.isFinite(metrics.sessionStartTime)).toBe(true);
+    expect(metrics.servers).toEqual({});
   });
 
   it("records usage and activity while preserving server names", async () => {

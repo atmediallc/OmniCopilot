@@ -646,10 +646,19 @@ export class OmniRouteChatProvider
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, catalog: ${this.cachedModels.length} models)`
     );
 
-    // Prioritize online and non-cooling servers over offline/cooling servers
-    // so unreachable secondary servers are tried after known-healthy ones.
+    // Preserve fallback quality tiers while applying health within each tier.
+    // An exact same-model route may bypass a cooling primary; same-family and
+    // arbitrary substitutions never run before the selected model tier.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
-    const fallbacksByHealth = [...fallbacks].sort((a, b) => {
+    const primaryFamily = primary.modelId.split("/")[0];
+    const qualityTier = (candidate: FallbackCandidate): number => {
+      if (candidate.modelId === primary.modelId) return 0;
+      if (candidate.modelId.split("/")[0] === primaryFamily) return 1;
+      return 2;
+    };
+    const candidates = [primary, ...fallbacks].sort((a, b) => {
+      const tierDifference = qualityTier(a) - qualityTier(b);
+      if (tierDifference !== 0) return tierDifference;
       const aCooling = isRouteInCooldown(a.routeId) ? 1 : 0;
       const bCooling = isRouteInCooldown(b.routeId) ? 1 : 0;
       if (aCooling !== bCooling) return aCooling - bCooling;
@@ -661,12 +670,11 @@ export class OmniRouteChatProvider
       return 0;
     });
 
-    const candidates = [primary, ...fallbacksByHealth];
     const serverCount = new Set(candidates.map((c) => c.routeId)).size;
 
     // Pre-compute the fallback chain readout: building it inline would nest a
     // template literal inside another one (Sonar S4624).
-    const fallbackSummary = fallbacksByHealth.map((f) => `${f.routeId}:${f.modelId}`).join(", ");
+    const fallbackSummary = candidates.slice(1).map((f) => `${f.routeId}:${f.modelId}`).join(", ");
     log.info(
       `Chat → ${primary.modelId} @${primary.routeId} (${request.messages.length} messages, ${request.tools?.length ?? 0} tools)` +
         (fallbacks.length ? `, fallbacks: ${fallbackSummary}` : "")
@@ -696,6 +704,7 @@ export class OmniRouteChatProvider
   ): Promise<void> {
     const candidates = plan.candidates;
     let lastError: unknown;
+    const saturatedRoutes = new Set<string>();
 
     this.deps.onRequestStart?.(candidates[0]?.routeId, plan.modelId);
     let requestSettled = false;
@@ -707,6 +716,13 @@ export class OmniRouteChatProvider
           requestSettled = true;
           this.deps.onRequestEnd?.(false, undefined, i);
           return;
+        }
+        if (saturatedRoutes.has(cand.routeId)) {
+          this.deps.log.info(
+            `Skipping fallback ${cand.modelId} @${cand.routeId}: route rejected admission earlier in this request`
+          );
+          i++;
+          continue;
         }
         const client = plan.clientByRoute.get(cand.routeId);
         if (!client) {
@@ -738,6 +754,10 @@ export class OmniRouteChatProvider
           return;
         }
         lastError = outcome.error;
+        const status = errorStatus(outcome.error);
+        if (status === 429 || status === 503 || isThrottleError(outcome.error)) {
+          saturatedRoutes.add(cand.routeId);
+        }
         const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
         if (lastAttemptedIndex >= candidates.length - 1) {
           requestSettled = true;
@@ -818,10 +838,11 @@ export class OmniRouteChatProvider
    * its attempts. Fatal errors (mid-stream or non-transient) propagate. */
   private async tryCandidate(ctx: ChatCandidateContext): Promise<CandidateOutcome> {
     const { cand, token, log, retriesPerServer } = ctx;
+    const maxAttempts = Math.max(1, retriesPerServer + 1);
     let attempted = 0;
     let candError: unknown;
 
-    for (; attempted < retriesPerServer; attempted++) {
+    for (; attempted < maxAttempts; attempted++) {
       if (token.isCancellationRequested) {
         return { kind: "cancelled" };
       }
@@ -835,7 +856,7 @@ export class OmniRouteChatProvider
       if (attempt.kind === "cancelled") return { kind: "cancelled" };
       candError = attempt.error;
       log.warn(
-        `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${retriesPerServer} failed (${formatErrorValue(candError)})`
+        `Model ${cand.modelId} @${cand.routeId} attempt ${attempted + 1}/${maxAttempts} failed (${formatErrorValue(candError)})`
       );
       if (attempt.stall) {
         markRouteCooldown(cand.routeId, 15_000, 408, "Stream stall");
@@ -848,7 +869,7 @@ export class OmniRouteChatProvider
       } else if (candError instanceof OmniRouteError && candError.phase === "connect") {
         markRouteCooldown(cand.routeId, 10_000, undefined, "Connection failure");
       }
-      if (attempted + 1 < retriesPerServer) {
+      if (attempted + 1 < maxAttempts) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
       }
     }
