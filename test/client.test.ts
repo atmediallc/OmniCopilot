@@ -276,6 +276,45 @@ describe("OmniRouteClient.streamChat", () => {
       expect(p1).toEqual([]);
       expect(p2).toEqual(["Codex is writing code for you."]);
     });
+
+    it("preserves legitimate text immediately adjacent to an encrypted reasoning notice", () => {
+      const filter = new EncryptedReasoningFilter();
+      const notice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+
+      const visible = [...filter.push(`Before.${notice}After.`), ...filter.flush()].join("");
+
+      expect(visible).toBe("Before.After.");
+    });
+
+    it("removes multiple notices from one buffered sequence without losing legitimate text", () => {
+      const filter = new EncryptedReasoningFilter();
+      const encryptedNotice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+      const requestNotice = "OmniRoute: got req, sending to provider";
+
+      const visible = [
+        ...filter.push(`Before.${encryptedNotice}Between.${requestNotice}After.`),
+        ...filter.flush(),
+      ].join("");
+
+      expect(visible).toBe("Before.Between.After.");
+    });
+
+    it("removes 20,000 repeated encrypted and request notices without overflowing the stack", () => {
+      const filter = new EncryptedReasoningFilter();
+      const encryptedNotice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+      const requestNotice = "OmniRoute: got req, sending to provider";
+      const repeatedNotices = `${encryptedNotice}${requestNotice}`.repeat(20_000);
+      let visible = "";
+
+      expect(() => {
+        visible = [
+          ...filter.push(`VISIBLE-BEGIN|${repeatedNotices}|VISIBLE-END`),
+          ...filter.flush(),
+        ].join("");
+      }).not.toThrow(RangeError);
+
+      expect(visible).toBe("VISIBLE-BEGIN||VISIBLE-END");
+    });
   });
 
   it("reassembles fragmented tool calls and flushes on finish_reason", async () => {

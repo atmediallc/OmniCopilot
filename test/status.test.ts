@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as vscode from "vscode";
 import { ConnectionStatusBar } from "../src/statusBar";
+import { OmniStatusPopup } from "../src/statusPopup";
 import {
   renderStatusText,
   statusColorTokens,
@@ -115,5 +117,66 @@ describe("ConnectionStatusBar concurrency tracking", () => {
     expect(bar.getSnapshot().status).not.toBe("streaming");
 
     bar.dispose();
+  });
+});
+
+describe("OmniStatusPopup command handling", () => {
+  type RunCommand = (value: unknown) => Promise<void>;
+  const handleRunCommand = (
+    OmniStatusPopup.prototype as unknown as { handleRunCommand: RunCommand }
+  ).handleRunCommand;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("allows opening a specific setting and forwards its argument", async () => {
+    const executeCommand = vi.spyOn(vscode.commands, "executeCommand");
+
+    await handleRunCommand.call({}, {
+      cmd: "workbench.action.openSettings",
+      args: ["omnicopilot.fallbackMode"],
+    });
+
+    expect(executeCommand).toHaveBeenCalledTimes(1);
+    expect(executeCommand).toHaveBeenCalledWith(
+      "workbench.action.openSettings",
+      "omnicopilot.fallbackMode"
+    );
+  });
+
+  it("rejects unrelated commands without forwarding their arguments", async () => {
+    const executeCommand = vi.spyOn(vscode.commands, "executeCommand");
+
+    await handleRunCommand.call({}, {
+      cmd: "workbench.action.closeWindow",
+      args: ["must-not-be-forwarded"],
+    });
+
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe("OmniStatusPopup online status rendering", () => {
+  type GetHtml = () => string;
+  const getHtml = (
+    OmniStatusPopup.prototype as unknown as { getHtmlForWebview: GetHtml }
+  ).getHtmlForWebview;
+  const html = getHtml.call({});
+  const latencyExpression = html.match(/\$\{(s\.online \?[^}]+: "Offline")\}/)?.[1];
+
+  if (!latencyExpression) {
+    throw new Error("Unable to locate the server latency expression in the status popup HTML.");
+  }
+
+  const renderLatency = new Function("s", `return (${latencyExpression});`) as (
+    server: { online: boolean; latencyMs?: number }
+  ) => string;
+
+  it.each([
+    { label: "undefined latency", server: { online: true }, expected: "Online" },
+    { label: "zero latency", server: { online: true, latencyMs: 0 }, expected: "0ms" },
+    { label: "positive latency", server: { online: true, latencyMs: 37 }, expected: "37ms" },
+    { label: "offline", server: { online: false, latencyMs: 37 }, expected: "Offline" },
+  ])("renders $expected for $label", ({ server, expected }) => {
+    expect(renderLatency(server)).toBe(expected);
   });
 });

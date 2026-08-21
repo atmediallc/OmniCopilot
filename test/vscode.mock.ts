@@ -102,6 +102,10 @@ export const workspace = {
   },
 };
 
+export const commands = {
+  executeCommand: async (_command: string, ..._args: unknown[]): Promise<unknown> => undefined,
+};
+
 export const registeredTools: Array<{ name: string; tool: unknown; disposed: boolean }> = [];
 
 export const lm = {

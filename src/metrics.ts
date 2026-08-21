@@ -300,7 +300,7 @@ export class MetricsTracker {
         description: `Servers with stalled streams: ${names}. Consider increasing streamFirstByteTimeoutMs or checking server load.`,
         impact: "High",
         actionLabel: "Check Server Health",
-        actionCommand: "omnicopilot.showDashboard",
+        actionCommand: "omnicopilot.openDashboard",
       });
     }
 
