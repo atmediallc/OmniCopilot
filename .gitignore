@@ -6,6 +6,10 @@ scripts/
 *.log
 .DS_Store
 .testagent
+.serena
+.superpowers
+.qodo
+.vscode
 
 # Secrets — never commit (publish tokens live here)
 .env
