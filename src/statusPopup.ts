@@ -178,6 +178,7 @@ export class OmniStatusPopup {
       "omnicopilot.checkConnection",
       "omnicopilot.installOmniRoute",
       "omnicopilot.openGitHub",
+      "workbench.action.openSettings",
     ]);
     if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) return;
     if (payload.args && payload.args.length > 0) {
@@ -879,7 +880,7 @@ export class OmniStatusPopup {
                     <span class="dot \${s.online ? "dot-online" : "dot-offline"}"></span>
                     <strong>\${escapeHtml(s.name)}</strong>
                     <span class="badge \${s.online ? "badge-success" : "badge-danger"}">
-                      \${s.online ? s.latencyMs + "ms" : "Offline"}
+                      \${s.online ? (s.latencyMs === undefined ? "Online" : s.latencyMs + "ms") : "Offline"}
                     </span>
                     \${serverSharePct > 0 ? \`<span class="badge" style="background:rgba(88,166,255,0.15);color:#58a6ff;">\${serverSharePct}% share</span>\` : ""}
                   </div>

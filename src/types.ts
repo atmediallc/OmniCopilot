@@ -36,6 +36,21 @@ export interface ModelsResponse {
   data: OmniRouteModel[];
 }
 
+export interface SearchRequest {
+  query: string;
+  provider?: string;
+  max_results: number;
+  search_type: "web" | "news";
+}
+
+export interface RerankRequest {
+  model: string;
+  query: string;
+  documents: string[];
+  top_n?: number;
+  return_documents?: boolean;
+}
+
 /** One configured server entry (URLs live in config; the API key in secrets). */
 export interface RouteConfig {
   id: string;
@@ -87,8 +102,12 @@ export interface ChatRequest {
 }
 
 /** Wire protocol used for one model request. Responses is preferred unless
- * catalog metadata explicitly limits a model to Chat Completions. */
-export type ModelTransport = "responses" | "chatCompletions";
+ * catalog metadata explicitly limits a model to Chat Completions or Messages. */
+export type ModelTransport = "responses" | "chatCompletions" | "messages";
+
+/** Ordered protocols that may be tried for one model before any output is
+ * emitted. This never includes legacy `/completions`. */
+export type ModelTransportPlan = readonly ModelTransport[];
 
 export interface ResponsesFunctionTool {
   type: "function";
@@ -134,6 +153,45 @@ export interface ResponsesRequest {
   temperature?: number;
   max_output_tokens?: number;
   reasoning?: { effort: string };
+}
+
+export type MessagesContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string } }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+export interface MessagesRequest {
+  model: string;
+  system?: string;
+  messages: Array<{ role: "user" | "assistant"; content: MessagesContentBlock[] }>;
+  stream: true;
+  max_tokens: number;
+  tools?: Array<{
+    name: string;
+    description?: string;
+    input_schema: Record<string, unknown>;
+  }>;
+  tool_choice?: { type: "auto" | "any" };
+  temperature?: number;
+}
+
+/** Minimal Anthropic Messages streaming event subset consumed by the client. */
+export interface MessagesStreamEvent {
+  type?: string;
+  index?: number;
+  delta?: {
+    type?: string;
+    text?: string;
+    partial_json?: string;
+  };
+  content_block?: {
+    type?: string;
+    id?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  };
+  error?: { type?: string; message?: string };
 }
 
 /** Minimal subset of Responses streaming events consumed by the extension. */

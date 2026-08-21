@@ -78,4 +78,18 @@ describe("MetricsTracker", () => {
 
     expect(suggestions.some((s) => s.id === "single_route")).toBe(true);
   });
+
+  it("opens the dashboard from the stream stalls suggestion", async () => {
+    await tracker.recordStall("route-1", "Primary Server", "http://localhost:8080");
+
+    const suggestion = tracker
+      .generateSuggestions([], new Set())
+      .find((candidate) => candidate.id === "stream_stalls");
+
+    expect(suggestion).toMatchObject({
+      id: "stream_stalls",
+      actionLabel: "Check Server Health",
+      actionCommand: "omnicopilot.openDashboard",
+    });
+  });
 });

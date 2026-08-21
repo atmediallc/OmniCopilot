@@ -46,7 +46,7 @@ async function collectModel(client: OmniRouteClient): Promise<StreamEvent[]> {
   for await (const event of client.streamModel(
     { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
     new AbortController().signal,
-    "responses"
+    ["responses", "chatCompletions"]
   )) events.push(event);
   return events;
 }
@@ -153,6 +153,44 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses", "http://x/v1/chat/completions"]);
   });
 
+  it("uses the metadata-derived Responses then Messages plan without trying Chat", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Not found"}}', { status: 404 }))
+      .mockResolvedValueOnce(sseResponse([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"messages fallback"}}',
+      ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 });
+    const events: StreamEvent[] = [];
+    for await (const event of client.streamModel(
+      { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+      new AbortController().signal,
+      ["responses", "messages"]
+    )) events.push(event);
+    expect(events).toEqual([{ kind: "text", text: "messages fallback" }]);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "http://x/v1/responses",
+      "http://x/v1/messages",
+    ]);
+  });
+
+  it("does not switch an explicit Responses-only plan on incompatibility", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"error":{"message":"Not found"}}', { status: 404 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 });
+    const run = async () => {
+      for await (const _event of client.streamModel(
+        { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+        new AbortController().signal,
+        ["responses"]
+      )) { /* no output expected */ }
+    };
+    await expect(run()).rejects.toThrow("Not found");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses"]);
+  });
+
   it.each([429, 503])("does not protocol-switch on HTTP %s", async (status) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("failed", { status }));
     vi.stubGlobal("fetch", fetchMock);
@@ -237,6 +275,45 @@ describe("OmniRouteClient.streamChat", () => {
       const p2 = filter.push("writing code for you.");
       expect(p1).toEqual([]);
       expect(p2).toEqual(["Codex is writing code for you."]);
+    });
+
+    it("preserves legitimate text immediately adjacent to an encrypted reasoning notice", () => {
+      const filter = new EncryptedReasoningFilter();
+      const notice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+
+      const visible = [...filter.push(`Before.${notice}After.`), ...filter.flush()].join("");
+
+      expect(visible).toBe("Before.After.");
+    });
+
+    it("removes multiple notices from one buffered sequence without losing legitimate text", () => {
+      const filter = new EncryptedReasoningFilter();
+      const encryptedNotice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+      const requestNotice = "OmniRoute: got req, sending to provider";
+
+      const visible = [
+        ...filter.push(`Before.${encryptedNotice}Between.${requestNotice}After.`),
+        ...filter.flush(),
+      ].join("");
+
+      expect(visible).toBe("Before.Between.After.");
+    });
+
+    it("removes 20,000 repeated encrypted and request notices without overflowing the stack", () => {
+      const filter = new EncryptedReasoningFilter();
+      const encryptedNotice = "Codex is reasoning, but upstream Responses API exposed this reasoning block only as encrypted private reasoning. OmniRoute cannot recover plaintext.";
+      const requestNotice = "OmniRoute: got req, sending to provider";
+      const repeatedNotices = `${encryptedNotice}${requestNotice}`.repeat(20_000);
+      let visible = "";
+
+      expect(() => {
+        visible = [
+          ...filter.push(`VISIBLE-BEGIN|${repeatedNotices}|VISIBLE-END`),
+          ...filter.flush(),
+        ].join("");
+      }).not.toThrow(RangeError);
+
+      expect(visible).toBe("VISIBLE-BEGIN||VISIBLE-END");
     });
   });
 

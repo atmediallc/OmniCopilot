@@ -17,6 +17,7 @@
  */
 
 import type { OmniRouteModel } from "./types";
+import { classifySupportedEndpoints } from "./supportedEndpoints";
 
 /** Type strings that unambiguously name a non-chat registry. An unknown type
  * (e.g. `"llm"` on some builds) or an absent one is treated as conversational:
@@ -30,22 +31,14 @@ const SPECIALTY_TYPES = new Set([
   "moderation",
   "tts",
   "stt",
-]);
-
-/** Endpoint strings that unambiguously name a non-chat surface. */
-const SPECIALTY_ENDPOINTS = new Set([
-  "embeddings",
-  "embedding",
-  "rerank",
-  "audio",
-  "image",
-  "video",
-  "moderation",
-  "tts",
-  "stt",
-  "speech",
+  "search",
+  "searches",
   "transcription",
+  "transcriptions",
   "translation",
+  "translations",
+  "speech",
+  "speeches",
 ]);
 
 /**
@@ -53,10 +46,10 @@ const SPECIALTY_ENDPOINTS = new Set([
  * server rejects those outright ("… is an image-generation model and cannot be
  * used on /v1/chat/completions", HTTP 400).
  *
- * Only KNOWN specialty types are dropped. `supported_endpoints` is consulted as
- * a backstop for rows that declare no conversational surface at all — but any
- * surface containing "chat" (e.g. `chat/completions`) or `responses` counts, so
- * filtering on "does not include chat" never wrongly drops usable models.
+ * Only KNOWN specialty types are dropped. Exact normalized endpoint classes
+ * are consulted as a backstop. Unknown values remain eligible for forward
+ * compatibility, but known specialty-only and legacy-Completions-only rows
+ * are excluded because this extension has no transport for those surfaces.
  */
 export function isChatModel(model: OmniRouteModel): boolean {
   const type = (model.type ?? "").trim().toLowerCase();
@@ -64,9 +57,15 @@ export function isChatModel(model: OmniRouteModel): boolean {
 
   const endpoints = model.supported_endpoints;
   if (Array.isArray(endpoints) && endpoints.length > 0) {
-    const names = endpoints.map((e) => String(e).trim().toLowerCase());
-    if (names.some((e) => e === "responses" || e.includes("chat"))) return true;
-    return !names.every((e) => SPECIALTY_ENDPOINTS.has(e));
+    const classes = classifySupportedEndpoints(endpoints);
+    if (
+      classes.has("responses") ||
+      classes.has("chatCompletions") ||
+      classes.has("messages")
+    ) {
+      return true;
+    }
+    return classes.size === 1 && classes.has("unknown");
   }
   return true;
 }

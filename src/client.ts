@@ -2,12 +2,18 @@ import * as crypto from "node:crypto";
 import { isFramingAllowed } from "./embed";
 import type {
   ChatRequest,
+  MessagesContentBlock,
+  MessagesRequest,
+  MessagesStreamEvent,
   ModelTransport,
+  ModelTransportPlan,
   ModelsResponse,
   OmniRouteModel,
   ResponsesInputItem,
   ResponsesRequest,
   ResponsesStreamEvent,
+  RerankRequest,
+  SearchRequest,
   StreamChunk,
   StreamDelta,
   StreamEvent,
@@ -240,6 +246,62 @@ export class OmniRouteClient {
     return normalizeBaseUrl(this.opts.baseUrl);
   }
 
+  /** Non-streaming Search endpoint. The caller owns route/model selection;
+   * this method owns HTTP retry, timeout, authentication, and cancellation. */
+  search(request: SearchRequest, signal: AbortSignal, timeoutMs = 30_000): Promise<unknown> {
+    return this.postJson("/search", request, signal, timeoutMs);
+  }
+
+  /** Non-streaming Rerank endpoint with the same request-local behavior. */
+  rerank(request: RerankRequest, signal: AbortSignal, timeoutMs = 30_000): Promise<unknown> {
+    return this.postJson("/rerank", request, signal, timeoutMs);
+  }
+
+  private async postJson(
+    endpoint: "/search" | "/rerank",
+    request: SearchRequest | RerankRequest,
+    signal: AbortSignal,
+    timeoutMs: number
+  ): Promise<unknown> {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort(signal.reason ?? new Error("The operation was cancelled"));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(
+      () => ctrl.abort(new Error(`Timeout calling OmniRoute ${endpoint} after ${timeoutMs}ms`)),
+      Math.max(1, timeoutMs)
+    );
+    try {
+      const res = await this.fetchWithRetry(`${this.baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: headers(this.opts.apiKey, true),
+        body: JSON.stringify(request),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const detail = (await res.text().catch(() => "")).trim();
+        throw new OmniRouteError(
+          `OmniRoute ${endpoint} returned HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+          res.status,
+          false,
+          "headers",
+          endpoint
+        );
+      }
+      return await res.json() as unknown;
+    } catch (err) {
+      if (ctrl.signal.aborted) {
+        const reason = abortReason(ctrl.signal);
+        if (signal.aborted) throw reason;
+        throw new OmniRouteError(reason.message, undefined, false, "connect", endpoint);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
   /** Fast availability probe. OmniRoute serves HEAD /v1/models explicitly. */
   async ping(timeoutMs = 3000): Promise<boolean> {
     const ctrl = new AbortController();
@@ -439,22 +501,122 @@ export class OmniRouteClient {
   async *streamModel(
     request: ChatRequest,
     signal: AbortSignal,
+    transportPlan: ModelTransportPlan
+  ): AsyncGenerator<StreamEvent> {
+    for (let index = 0; index < transportPlan.length; index++) {
+      const transport = transportPlan[index];
+      let emitted = false;
+      try {
+        const stream = this.streamForTransport(request, signal, transport);
+        for await (const event of stream) {
+          emitted = true;
+          yield event;
+        }
+        return;
+      } catch (err) {
+        const next = transportPlan[index + 1];
+        if (emitted || !next || !isTransportIncompatibility(err, transport)) throw err;
+        this.opts.log?.warn(
+          `[TRANSPORT] ${transport} unsupported by ${this.baseUrl}; falling back to ${next}`
+        );
+      }
+    }
+  }
+
+  private streamForTransport(
+    request: ChatRequest,
+    signal: AbortSignal,
     transport: ModelTransport
   ): AsyncGenerator<StreamEvent> {
-    if (transport === "chatCompletions") {
-      yield* this.streamChat(request, signal);
-      return;
-    }
-    let emitted = false;
+    if (transport === "chatCompletions") return this.streamChat(request, signal);
+    if (transport === "messages") return this.streamMessages(request, signal);
+    return this.streamResponses(request, signal);
+  }
+
+  /** POST /messages using the Anthropic Messages wire format. Catalog
+   * selection is authoritative, so this transport never protocol-falls back. */
+  async *streamMessages(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const session = new StreamSession(
+      signal,
+      this.opts.streamFirstByteTimeoutMs ?? 120_000,
+      this.opts.streamIdleTimeoutMs ?? 30_000,
+      "/messages"
+    );
     try {
-      for await (const event of this.streamResponses(request, signal)) {
-        emitted = true;
+      let res: Response;
+      try {
+        res = await this.fetchWithRetry(
+          `${this.baseUrl}/messages`,
+          {
+            method: "POST",
+            headers: headers(this.opts.apiKey, true, true),
+            body: JSON.stringify(toMessagesRequest(request)),
+            signal: session.ctrl.signal,
+          },
+          this.opts.chatMaxAttempts
+        );
+      } finally {
+        session.clearFirstByteTimer();
+      }
+      if (!res.ok || !res.body) throw await streamError(res, "/messages");
+      yield* this.consumeMessagesStream(res.body, session);
+    } finally {
+      session.dispose();
+    }
+  }
+
+  private async *consumeMessagesStream(
+    stream: ReadableStream<Uint8Array>,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
+    const assembler = new MessagesToolCallAssembler();
+    const reasoningFilter = new EncryptedReasoningFilter();
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    session.setReader(reader);
+    session.armWatchdog();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+          buffer = buffer.slice(newlineIdx + 1);
+          yield* this.emitMessagesSseLine(line, assembler, reasoningFilter, session);
+        }
+      }
+      if (buffer) {
+        yield* this.emitMessagesSseLine(buffer.replace(/\r$/, ""), assembler, reasoningFilter, session);
+      }
+      session.throwIfAborted();
+      yield* flushFilteredText(reasoningFilter);
+      yield* assembler.flush();
+    } catch (err) {
+      throw session.unwrapError(err);
+    }
+  }
+
+  private async *emitMessagesSseLine(
+    line: string,
+    assembler: MessagesToolCallAssembler,
+    reasoningFilter: EncryptedReasoningFilter,
+    session: StreamSession
+  ): AsyncGenerator<StreamEvent> {
+    const { events, alive } = handleMessagesSseLine(line, assembler);
+    if (alive) session.poke();
+    for (const event of events) {
+      if (event.kind === "text") {
+        yield* emitFilteredText(reasoningFilter, event.text);
+      } else {
+        yield* flushFilteredText(reasoningFilter);
         yield event;
       }
-    } catch (err) {
-      if (emitted || !isResponsesIncompatibility(err)) throw err;
-      this.opts.log?.warn(`[RESPONSES] Unsupported by ${this.baseUrl}; falling back to /chat/completions`);
-      yield* this.streamChat(request, signal);
     }
   }
 
@@ -899,6 +1061,89 @@ function contentText(content: ChatRequest["messages"][number]["content"]): strin
   return (content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
 }
 
+const MESSAGES_DEFAULT_MAX_TOKENS = 4096;
+
+function toMessagesRequest(request: ChatRequest): MessagesRequest {
+  const system = request.messages
+    .filter((message) => message.role === "system")
+    .map((message) => contentText(message.content))
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    model: request.model,
+    system: system || undefined,
+    messages: request.messages
+      .filter((message) => message.role !== "system")
+      .map(toMessagesMessage)
+      .filter((message) => message.content.length > 0),
+    stream: true,
+    max_tokens: request.max_tokens && request.max_tokens > 0
+      ? request.max_tokens
+      : MESSAGES_DEFAULT_MAX_TOKENS,
+    tools: request.tools?.map((tool) => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: tool.function.parameters ?? { type: "object", properties: {} },
+    })),
+    tool_choice: request.tool_choice
+      ? { type: request.tool_choice === "required" ? "any" : "auto" }
+      : undefined,
+    temperature: request.temperature,
+  };
+}
+
+function toMessagesMessage(
+  message: ChatRequest["messages"][number]
+): MessagesRequest["messages"][number] {
+  if (message.role === "tool") {
+    return {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: message.tool_call_id ?? "",
+        content: contentText(message.content),
+      }],
+    };
+  }
+  const content = toMessagesContent(message.content);
+  for (const call of message.tool_calls ?? []) {
+    content.push({
+      type: "tool_use",
+      id: call.id,
+      name: call.function.name,
+      input: parseToolInput(call.function.arguments),
+    });
+  }
+  return { role: message.role === "assistant" ? "assistant" : "user", content };
+}
+
+function toMessagesContent(content: ChatRequest["messages"][number]["content"]): MessagesContentBlock[] {
+  if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
+  const blocks: MessagesContentBlock[] = [];
+  for (const part of content ?? []) {
+    if (part.type === "text") {
+      blocks.push({ type: "text", text: part.text });
+      continue;
+    }
+    const data = /^data:([^;,]+);base64,(.*)$/s.exec(part.image_url.url);
+    blocks.push(data
+      ? { type: "image", source: { type: "base64", media_type: data[1], data: data[2] } }
+      : { type: "image", source: { type: "url", url: part.image_url.url } });
+  }
+  return blocks;
+}
+
+function parseToolInput(argumentsJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(argumentsJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 class ResponsesToolCallAssembler {
   private readonly pending = new Map<string, { id: string; name: string; args: string }>();
 
@@ -926,6 +1171,120 @@ class ResponsesToolCallAssembler {
   *flush(): Generator<StreamEvent> {
     for (const key of this.pending.keys()) yield* this.finish(key);
   }
+}
+
+class MessagesToolCallAssembler {
+  private readonly pending = new Map<number, {
+    id: string;
+    name: string;
+    args: string;
+    receivedDelta: boolean;
+  }>();
+
+  start(index: number, id: string, name: string, input: unknown): void {
+    this.pending.set(index, {
+      id,
+      name,
+      args: JSON.stringify(input === undefined ? {} : input),
+      receivedDelta: false,
+    });
+  }
+
+  accept(index: number, partialJson: string): void {
+    const call = this.pending.get(index);
+    if (!call) return;
+    if (!call.receivedDelta) call.args = "";
+    call.receivedDelta = true;
+    call.args += partialJson;
+  }
+
+  *finish(index: number): Generator<StreamEvent> {
+    const call = this.pending.get(index);
+    if (call?.id && call.name) {
+      validateMessagesToolArgs(call.args, call.name);
+      yield { kind: "toolCall", id: call.id, name: call.name, args: call.args };
+    }
+    this.pending.delete(index);
+  }
+
+  *flush(): Generator<StreamEvent> {
+    for (const index of [...this.pending.keys()].sort((a, b) => a - b)) {
+      yield* this.finish(index);
+    }
+  }
+}
+
+function validateMessagesToolArgs(args: string, name: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(args);
+  } catch {
+    throw messagesProtocolError(`Messages tool arguments for "${name}" are not valid JSON`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw messagesProtocolError(`Messages tool arguments for "${name}" must be a JSON object`);
+  }
+}
+
+function messagesProtocolError(message: string): OmniRouteError {
+  return new OmniRouteError(message, undefined, false, "stream", "/messages");
+}
+
+function handleMessagesSseLine(
+  line: string,
+  assembler: MessagesToolCallAssembler
+): { events: StreamEvent[]; alive: boolean } {
+  if (!line.startsWith("data:")) return { events: [], alive: false };
+  const payload = line.slice(5).trim();
+  if (!payload || payload === "[DONE]") return { events: [], alive: false };
+  let event: MessagesStreamEvent;
+  try {
+    event = JSON.parse(payload) as MessagesStreamEvent;
+  } catch {
+    return { events: [], alive: false };
+  }
+  if (event.type === "error") {
+    throw messagesSseError(event.error?.message ?? "Messages stream failed", event.error?.type);
+  }
+  if (event.type === "content_block_start" && event.index !== undefined && event.content_block?.type === "tool_use") {
+    assembler.start(
+      event.index,
+      event.content_block.id ?? "",
+      event.content_block.name ?? "",
+      event.content_block.input
+    );
+    return { events: [], alive: true };
+  }
+  if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+    return {
+      events: event.delta.text ? [{ kind: "text", text: event.delta.text }] : [],
+      alive: Boolean(event.delta.text),
+    };
+  }
+  if (
+    event.type === "content_block_delta" &&
+    event.index !== undefined &&
+    event.delta?.type === "input_json_delta"
+  ) {
+    assembler.accept(event.index, event.delta.partial_json ?? "");
+    return { events: [], alive: Boolean(event.delta.partial_json) };
+  }
+  if (event.type === "content_block_stop" && event.index !== undefined) {
+    return { events: [...assembler.finish(event.index)], alive: true };
+  }
+  if (event.type === "message_stop") {
+    return { events: [...assembler.flush()], alive: true };
+  }
+  return { events: [], alive: Boolean(event.type) };
+}
+
+function messagesSseError(message: string, type?: string): OmniRouteError {
+  const prefixed = /^\[(\d{3})\]:\s*/.exec(message);
+  let status = prefixed ? Number(prefixed[1]) : undefined;
+  const normalized = `${type ?? ""} ${message}`.toLowerCase();
+  if (status === undefined && /rate.?limit|quota|too many requests/.test(normalized)) status = 429;
+  if (status === undefined && /overload|capacity|busy|service unavailable/.test(normalized)) status = 503;
+  return new OmniRouteError(message, status, false, "stream", "/messages");
 }
 
 function handleResponsesSseLine(
@@ -981,11 +1340,16 @@ function responsesSseError(message: string): OmniRouteError {
   return new OmniRouteError(message, match ? Number(match[1]) : undefined, false, "stream", "/responses");
 }
 
-function isResponsesIncompatibility(err: unknown): boolean {
-  if (!(err instanceof OmniRouteError) || err.endpoint !== "/responses") return false;
+function isTransportIncompatibility(err: unknown, transport: ModelTransport): boolean {
+  const endpoint = transport === "responses"
+    ? "/responses"
+    : transport === "messages"
+      ? "/messages"
+      : "/chat/completions";
+  if (!(err instanceof OmniRouteError) || err.endpoint !== endpoint) return false;
   if (err.status === 404 || err.status === 405 || err.status === 501) return true;
   if (err.status !== 400 && err.status !== 415 && err.status !== 422) return false;
-  return /(?:unsupported|unknown|invalid|not found).{0,40}(?:endpoint|route|url)|(?:responses).{0,40}(?:unsupported|not supported)/i.test(err.message);
+  return /(?:unsupported|unknown|invalid|not found).{0,40}(?:endpoint|route|url)|(?:responses|messages|chat(?: completions)?).{0,40}(?:unsupported|not supported)/i.test(err.message);
 }
 
 /** Filters out OmniRoute encrypted/private reasoning notice messages,
@@ -998,6 +1362,7 @@ export class EncryptedReasoningFilter {
   private static readonly NOTICE_VARIANT =
     "codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover the plaintext.";
   private static readonly REQUEST_NOTICE_VARIANT = "omniroute: got request, sending to provider";
+  private static readonly COMPLETE_NOTICE_PATTERN = /codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning\. omniroute cannot recover plaintext\.|omniroute: got req, sending to provider|codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning\. omniroute cannot recover the plaintext\.|omniroute: got request, sending to provider/g;
 
   private static readonly KNOWN_PATTERNS = [
     "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.",
@@ -1011,52 +1376,39 @@ export class EncryptedReasoningFilter {
   ];
 
   public push(chunk: string): string[] {
-    if (!chunk) return [];
+    if (!chunk && !this.buffer) return [];
     this.buffer += chunk;
     const normalized = this.buffer.toLowerCase();
-    const noticeIndex = normalized.indexOf(EncryptedReasoningFilter.NOTICE);
-    if (noticeIndex !== -1) {
-      const before = this.buffer.slice(0, noticeIndex);
-      this.buffer = this.buffer.slice(noticeIndex + EncryptedReasoningFilter.NOTICE.length);
-      return [before, ...this.push("")].filter(Boolean);
+    const output: string[] = [];
+    let cursor = 0;
+
+    for (const match of normalized.matchAll(EncryptedReasoningFilter.COMPLETE_NOTICE_PATTERN)) {
+      const matchIndex = match.index;
+      const before = this.buffer.slice(cursor, matchIndex);
+      if (before) output.push(before);
+      cursor = matchIndex + match[0].length;
     }
 
-    const requestNoticeIndex = normalized.indexOf(EncryptedReasoningFilter.REQUEST_NOTICE);
-    if (requestNoticeIndex !== -1) {
-      const before = this.buffer.slice(0, requestNoticeIndex);
-      this.buffer = this.buffer.slice(requestNoticeIndex + EncryptedReasoningFilter.REQUEST_NOTICE.length);
-      return [before, ...this.push("")].filter(Boolean);
-    }
-
-    for (const notice of [EncryptedReasoningFilter.NOTICE_VARIANT, EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT]) {
-      const index = normalized.indexOf(notice);
-      if (index !== -1) {
-        const before = this.buffer.slice(0, index);
-        this.buffer = this.buffer.slice(index + notice.length);
-        return [before, ...this.push("")].filter(Boolean);
-      }
-    }
-
+    const remainingNormalized = normalized.slice(cursor);
     let prefixLength = 0;
     const maxNoticeLength = Math.max(
       EncryptedReasoningFilter.NOTICE.length,
       EncryptedReasoningFilter.NOTICE_VARIANT.length
     );
-    for (let length = Math.min(maxNoticeLength - 1, normalized.length); length >= 5; length--) {
-      if (normalized.endsWith(EncryptedReasoningFilter.NOTICE.slice(0, length)) ||
-          normalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE.slice(0, length)) ||
-          normalized.endsWith(EncryptedReasoningFilter.NOTICE_VARIANT.slice(0, length)) ||
-          normalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT.slice(0, length))) {
+    for (let length = Math.min(maxNoticeLength - 1, remainingNormalized.length); length >= 5; length--) {
+      if (remainingNormalized.endsWith(EncryptedReasoningFilter.NOTICE.slice(0, length)) ||
+          remainingNormalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE.slice(0, length)) ||
+          remainingNormalized.endsWith(EncryptedReasoningFilter.NOTICE_VARIANT.slice(0, length)) ||
+          remainingNormalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT.slice(0, length))) {
         prefixLength = length;
         break;
       }
     }
 
-    const emitLength = this.buffer.length - prefixLength;
-    if (!emitLength) return [];
-    const out = this.buffer.slice(0, emitLength);
-    this.buffer = this.buffer.slice(emitLength);
-    return out ? [out] : [];
+    const emitEnd = this.buffer.length - prefixLength;
+    if (emitEnd > cursor) output.push(this.buffer.slice(cursor, emitEnd));
+    this.buffer = this.buffer.slice(emitEnd);
+    return output;
   }
 
   public flush(): string[] {

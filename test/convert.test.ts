@@ -77,6 +77,42 @@ describe("toOpenAiMessages", () => {
     ]);
   });
 
+  it("preserves assistant text that exactly matches a visible tool summary", () => {
+    const out = toOpenAiMessages([
+      msg(vscode.LanguageModelChatMessageRole.Assistant, [
+        new vscode.LanguageModelToolCallPart("call_1", "read_file", { path: "a.ts" }),
+        new vscode.LanguageModelTextPart("Tools requested: read_file"),
+      ]),
+    ]);
+
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: "Tools requested: read_file",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("normalizes whitespace-only assistant text beside tool calls to null", () => {
+    const out = toOpenAiMessages([
+      msg(vscode.LanguageModelChatMessageRole.Assistant, [
+        new vscode.LanguageModelToolCallPart("call_1", "read_file", {}),
+        new vscode.LanguageModelTextPart(" \t"),
+        new vscode.LanguageModelTextPart("\r\n  "),
+      ]),
+    ]);
+
+    expect(out[0].content).toBeNull();
+    expect(out[0].tool_calls?.[0].function.name).toBe("read_file");
+  });
+
   it("expands tool results into role:tool messages keeping callId", () => {
     const out = toOpenAiMessages([
       msg(vscode.LanguageModelChatMessageRole.User, [

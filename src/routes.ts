@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
 import { selectChatModels } from "./catalogFilter";
+import { classifySupportedEndpoints } from "./supportedEndpoints";
 import type { OmniLogger } from "./client";
-import type { ModelTransport, OmniRouteModel, RouteConfig } from "./types";
+import type { ModelTransport, ModelTransportPlan, OmniRouteModel, RouteConfig } from "./types";
 
 /** Legacy single-route secret (migrated into route-1). */
 export const SECRET_API_KEY = "omnicopilot.apiKey";
@@ -209,7 +210,7 @@ export interface CatalogModel {
 export interface FallbackCandidate {
   routeId: string;
   modelId: string;
-  transport: ModelTransport;
+  transportPlan: ModelTransportPlan;
 }
 
 export interface RouteCatalog {
@@ -251,19 +252,25 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
 
 export type FallbackMode = "none" | "sameModel" | "sameFamily" | "full";
 
-/** Responses-first transport selection. Only explicit chat-only catalog
- * metadata opts a model out of Responses API. */
-export function transportForModel(model: OmniRouteModel | undefined): ModelTransport {
+/** Derive the complete pre-output protocol plan from catalog metadata.
+ * Missing, empty, and wholly unknown metadata retain the compatibility plan;
+ * explicit metadata is authoritative. Legacy Completions and specialty-only
+ * models have no chat plan. */
+export function transportPlanForModel(model: OmniRouteModel | undefined): ModelTransportPlan {
   const endpoints = model?.supported_endpoints;
-  if (!Array.isArray(endpoints) || endpoints.length === 0) return "responses";
-  const normalized = endpoints.map((endpoint) => String(endpoint).trim().toLowerCase());
-  if (normalized.some((endpoint) => endpoint === "responses" || endpoint.endsWith("/responses"))) {
-    return "responses";
+  if (!Array.isArray(endpoints) || endpoints.length === 0) {
+    return ["responses", "chatCompletions"];
   }
-  const supportsChat = normalized.some(
-    (endpoint) => endpoint.includes("chat") || endpoint === "completions" || endpoint.endsWith("/completions")
-  );
-  return supportsChat ? "chatCompletions" : "responses";
+  const classes = classifySupportedEndpoints(endpoints);
+  const plan: ModelTransport[] = [];
+  if (classes.has("responses")) plan.push("responses");
+  if (classes.has("chatCompletions")) plan.push("chatCompletions");
+  if (classes.has("messages")) plan.push("messages");
+  if (plan.length > 0) return plan;
+  if (classes.size === 1 && classes.has("unknown")) {
+    return ["responses", "chatCompletions"];
+  }
+  return [];
 }
 
 /** Ordered cross-route fallback candidates for a failing chat request.
@@ -295,7 +302,7 @@ export function pickFallbackCandidates(
     out.push({
       routeId: c.entry.routeId,
       modelId: c.entry.modelId,
-      transport: transportForModel(c.model),
+      transportPlan: transportPlanForModel(c.model),
     });
   };
 
