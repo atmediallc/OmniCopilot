@@ -2,6 +2,28 @@ import * as vscode from "vscode";
 import { formatErrorValue } from "./client";
 import type { ChatContentPart, ChatMessage, ChatTool } from "./types";
 
+const MAX_SUMMARY_TOOL_NAMES = 8;
+const MAX_SUMMARY_TOOL_NAME_LENGTH = 64;
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/gu;
+// Preserve underscores because they are conventional in tool identifiers;
+// strip characters that can create Markdown structure or links.
+const MARKDOWN_META = /[\\*`#[\]()<>!|~]/gu;
+
+export function toolCallSummary(toolNames: readonly string[]): string {
+  const safeNames: string[] = [];
+  for (const rawName of toolNames) {
+    const normalizedName = rawName
+      .replace(CONTROL_OR_FORMAT, " ")
+      .replace(MARKDOWN_META, "")
+      .replace(/\s+/gu, " ")
+      .trim();
+    const safeName = Array.from(normalizedName).slice(0, MAX_SUMMARY_TOOL_NAME_LENGTH).join("") || "unnamed tool";
+    if (safeName && !safeNames.includes(safeName)) safeNames.push(safeName);
+    if (safeNames.length === MAX_SUMMARY_TOOL_NAMES) break;
+  }
+  return `Tools requested: ${safeNames.join(", ")}`;
+}
+
 /**
  * Convert VS Code chat request messages to OpenAI Chat Completions messages.
  *
@@ -90,8 +112,9 @@ function buildAssistantMessage(
     .join("");
   return {
     role: "assistant",
-    // OpenAI expects null content when tool_calls are present and no text
-    content: text || null,
+    // Preserve all visible assistant text, including a visible tool-request
+    // summary from the prior turn. Whitespace alone is not meaningful content.
+    content: text.trim().length > 0 ? text : null,
     tool_calls: toolCalls.map((tc) => ({
       id: tc.callId,
       type: "function" as const,

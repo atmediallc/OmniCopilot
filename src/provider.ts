@@ -4,7 +4,8 @@ import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, 
 import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
 import { selectChatModels } from "./catalogFilter";
-import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
+import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
+import { containsVisibleText } from "./visibleText";
 import { buildCatalog, cachedLoadRoutes, getClientForRoute, pickFallbackCandidates, transportPlanForModel } from "./routes";
 import type { ChatRequest, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
@@ -852,6 +853,9 @@ export class OmniRouteChatProvider
       if (token.isCancellationRequested) {
         return { kind: "cancelled" };
       }
+      if (!consumed.hasVisibleText && consumed.toolNames.length > 0) {
+        progress.report(new vscode.LanguageModelTextPart(toolCallSummary(consumed.toolNames)));
+      }
       const finishedAt = Date.now();
       log.info(
         `Chat ✓ ${cand.modelId} @${cand.routeId} (TTFT: ${firstTokenAt ? firstTokenAt - startedAt : "n/a"}ms, total: ${finishedAt - startedAt}ms, output: ${estimateTokens(streamed)} tokens)`
@@ -872,19 +876,29 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken,
     transportPlan: FallbackCandidate["transportPlan"],
     onReported: () => void
-  ): Promise<{ streamed: string; reportedAny: boolean; firstTokenAt: number | undefined }> {
+  ): Promise<{
+    streamed: string;
+    reportedAny: boolean;
+    firstTokenAt: number | undefined;
+    hasVisibleText: boolean;
+    toolNames: string[];
+  }> {
     let streamed = "";
     let reportedAny = false;
     let firstTokenAt: number | undefined;
+    let hasVisibleText = false;
+    const toolNames: string[] = [];
     for await (const event of client.streamModel(request, abort.signal, transportPlan)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
         firstTokenAt ??= Date.now();
         streamed += event.text;
+        hasVisibleText ||= containsVisibleText(event.text);
         reportedAny = true;
         onReported();
         progress.report(new vscode.LanguageModelTextPart(event.text));
       } else {
+        if (!toolNames.includes(event.name)) toolNames.push(event.name);
         reportedAny = true;
         onReported();
         progress.report(
@@ -892,7 +906,7 @@ export class OmniRouteChatProvider
         );
       }
     }
-    return { streamed, reportedAny, firstTokenAt };
+    return { streamed, reportedAny, firstTokenAt, hasVisibleText, toolNames };
   }
 
   /** Classifies a failed attempt: cancellation, mid-stream/fatal → throw,
