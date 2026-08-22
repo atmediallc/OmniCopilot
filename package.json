@@ -409,6 +409,25 @@
           "minimum": 1,
           "maximum": 1440,
           "description": "%cfg.modelCacheTtlMinutes%"
+        },
+        "omnicopilot.compressionOverride": {
+          "type": "string",
+          "default": "serverDefault",
+          "enum": [
+            "serverDefault",
+            "off",
+            "default",
+            "engine:rtk",
+            "engine:caveman"
+          ],
+          "enumDescriptions": [
+            "%cfg.compressionOverride.serverDefault%",
+            "%cfg.compressionOverride.off%",
+            "%cfg.compressionOverride.default%",
+            "%cfg.compressionOverride.rtk%",
+            "%cfg.compressionOverride.caveman%"
+          ],
+          "description": "%cfg.compressionOverride%"
         }
       }
     }

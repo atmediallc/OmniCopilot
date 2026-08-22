@@ -9,8 +9,9 @@ import {
   type StatusSnapshot,
 } from "./status/statusRenderer";
 import { buildStatusTooltip } from "./status/statusTooltip";
+import type { ResolvedChatUsage } from "./usage";
 
-
+export type ChatUsage = ResolvedChatUsage;
 type Status = StatusKind;
 
 interface ServerHealth {
@@ -18,16 +19,6 @@ interface ServerHealth {
   name: string;
   online: boolean;
   latencyMs?: number;
-}
-
-/** Live token snapshot for the most recent chat round-trip, fed by the provider. */
-export interface ChatUsage {
-  routeId?: string;
-  baseUrl?: string;
-  serverName: string;
-  modelName: string;
-  inputTokens: number;
-  outputTokens: number;
 }
 
 /** After this idle period without new usage the token readout is cleared. */
@@ -151,14 +142,11 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.disposed) return;
     this.usage = usage;
     if (usage.routeId) {
-      void this.metricsTracker?.recordUsage(
-        usage.routeId,
-        usage.serverName,
-        usage.baseUrl ?? "",
-        usage.modelName,
-        usage.inputTokens,
-        usage.outputTokens
-      );
+      void this.metricsTracker?.recordUsage({
+        ...usage,
+        routeId: usage.routeId,
+        baseUrl: usage.baseUrl ?? "",
+      });
     }
     if (this.usageTimer) clearTimeout(this.usageTimer);
     this.usageTimer = setTimeout(() => {
@@ -166,9 +154,6 @@ export class ConnectionStatusBar implements vscode.Disposable {
       if (!this.disposed) this.render();
     }, USAGE_STALE_MS);
     this.render();
-    // A chat round-trip just finished: re-probe servers right away so the
-    // dot reflects the real connection (latency + liveness) immediately
-    // instead of waiting for the next poll.
     this.scheduleRecheck();
   }
 
@@ -351,15 +336,20 @@ export class ConnectionStatusBar implements vscode.Disposable {
     this.item.color = tokens.color ? new vscode.ThemeColor(tokens.color) : undefined;
     this.item.backgroundColor = tokens.background ? new vscode.ThemeColor(tokens.background) : undefined;
 
+    const metrics = this.metricsTracker?.getMetrics();
     this.item.tooltip = buildStatusTooltip(
       snap,
       main,
-      this.metricsTracker
+      metrics
         ? {
-            totalTokens: this.metricsTracker.getMetrics().totalTokens,
-            totalInputTokens: this.metricsTracker.getMetrics().totalInputTokens,
-            totalOutputTokens: this.metricsTracker.getMetrics().totalOutputTokens,
-            totalRequests: this.metricsTracker.getMetrics().totalRequests,
+            totalTokens: metrics.totalTokens,
+            totalInputTokens: metrics.totalInputTokens,
+            totalOutputTokens: metrics.totalOutputTokens,
+            totalCachedTokens: metrics.totalCachedTokens ?? 0,
+            totalReasoningTokens: metrics.totalReasoningTokens ?? 0,
+            inputTokenProvenance: metrics.inputTokenProvenance,
+            outputTokenProvenance: metrics.outputTokenProvenance,
+            totalRequests: metrics.totalRequests,
           }
         : undefined
     );
@@ -384,6 +374,10 @@ export class ConnectionStatusBar implements vscode.Disposable {
             modelName: this.usage.modelName,
             inputTokens: this.usage.inputTokens,
             outputTokens: this.usage.outputTokens,
+            cachedTokens: this.usage.cachedTokens,
+            reasoningTokens: this.usage.reasoningTokens,
+            inputTokenProvenance: this.usage.inputTokenProvenance,
+            outputTokenProvenance: this.usage.outputTokenProvenance,
           }
         : undefined,
       lastError: this.lastError,

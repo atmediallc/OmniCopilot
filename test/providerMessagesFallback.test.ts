@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { OmniRouteError } from "../src/client";
 import { OmniRouteChatProvider } from "../src/provider";
@@ -53,6 +53,12 @@ async function prepare(primaryStream: () => AsyncGenerator<unknown>, fallbackStr
 }
 
 describe("Messages-aware provider fallback", () => {
+  afterEach(() => {
+    routesModule.resetAllCooldowns();
+    delete configValues["omnicopilot"];
+    vi.restoreAllMocks();
+  });
+
   it("dispatches a Messages-only primary and falls back cross-route before output", async () => {
     const { provider, model, clientA, clientB } = await prepare(
       async function* () { throw new OmniRouteError("messages unavailable", 503, false, "headers", "/messages"); },

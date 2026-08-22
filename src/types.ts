@@ -90,6 +90,9 @@ export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   stream: true;
+  stream_options?: {
+    include_usage?: boolean;
+  };
   tools?: ChatTool[];
   tool_choice?: "auto" | "required";
   temperature?: number;
@@ -185,6 +188,20 @@ export interface MessagesStreamEvent {
     text?: string;
     partial_json?: string;
   };
+  message?: {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
   content_block?: {
     type?: string;
     id?: string;
@@ -211,6 +228,28 @@ export interface ResponsesStreamEvent {
   };
   response?: {
     error?: { message?: string; code?: string };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      input_tokens_details?: {
+        cached_tokens?: number;
+      };
+      output_tokens_details?: {
+        reasoning_tokens?: number;
+      };
+    };
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    input_tokens_details?: {
+      cached_tokens?: number;
+    };
+    output_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
   error?: { message?: string; code?: string };
 }
@@ -236,10 +275,31 @@ export interface StreamChunk {
     delta?: StreamDelta;
     finish_reason?: string | null;
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
   error?: { message?: string };
+}
+
+/** Structured token usage returned by upstream streams. */
+export interface ChatUsageInfo {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
 }
 
 /** Normalized streaming events yielded by the client. */
 export type StreamEvent =
   | { kind: "text"; text: string }
-  | { kind: "toolCall"; id: string; name: string; args: string };
+  | { kind: "toolCall"; id: string; name: string; args: string }
+  | { kind: "usage"; usage: ChatUsageInfo };

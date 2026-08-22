@@ -79,6 +79,12 @@ describe("statusTooltip", () => {
     expect(text).toContain("Last Error");
     expect(text).toContain("ECONNREFUSED");
     expect(text).toContain("2 fallback server");
+    expect(text).not.toContain("Cached Input");
+    expect(text).not.toContain("Reasoning Output");
+    expect(text).toContain("Input Provenance");
+    expect(text).toContain("Output Provenance");
+    expect(text).toContain("reported");
+    expect(text).toContain("estimated");
   });
 
   it("omits optional sections when absent", () => {
@@ -90,6 +96,67 @@ describe("statusTooltip", () => {
     const text = md.value;
     expect(text).not.toContain("Last Error");
     expect(text).not.toContain("Connected Servers");
+  });
+
+  it("renders only positive cached and reasoning subset values", () => {
+    const cachedOnly = buildStatusTooltip(
+      { ...base, usage: {
+        serverName: "Alpha",
+        modelName: "gpt-4o",
+        inputTokens: 100,
+        outputTokens: 20,
+        cachedTokens: 25,
+        reasoningTokens: 0,
+        inputTokenProvenance: "reported",
+        outputTokenProvenance: "reported",
+      } },
+      "Online",
+      undefined
+    ).value;
+    expect(cachedOnly).toContain("Cached Input");
+    expect(cachedOnly).toContain("25");
+    expect(cachedOnly).not.toContain("Reasoning Output");
+
+    const reasoningOnly = buildStatusTooltip(
+      { ...base, usage: {
+        serverName: "Alpha",
+        modelName: "reasoning-model",
+        inputTokens: 40,
+        outputTokens: 12,
+        cachedTokens: 0,
+        reasoningTokens: 7,
+        inputTokenProvenance: "reported",
+        outputTokenProvenance: "reported",
+      } },
+      "Online",
+      undefined
+    ).value;
+    expect(reasoningOnly).not.toContain("Cached Input");
+    expect(reasoningOnly).toContain("Reasoning Output");
+    expect(reasoningOnly).toContain("7");
+  });
+});
+
+
+describe("OmniStatusPopup telemetry rendering", () => {
+  type GetHtml = () => string;
+  const getHtml = (
+    OmniStatusPopup.prototype as unknown as { getHtmlForWebview: GetHtml }
+  ).getHtmlForWebview;
+
+  it("renders conditional subset telemetry and per-side provenance metrics", () => {
+    const html = getHtml.call({});
+    expect(html).toContain('id="subset-tokens-row"');
+    expect(html).toContain("display:none");
+    expect(html).toContain("subsetTokensRow.style.display");
+    expect(html).toContain("'Cached Input: ' + fmtTokens(metrics.totalCachedTokens)");
+    expect(html).toContain("'Reasoning Output: ' + fmtTokens(metrics.totalReasoningTokens)");
+    expect(html).toContain("Input Provenance");
+    expect(html).toContain("Output Provenance");
+    expect(html).toContain("totalCachedTokens");
+    expect(html).toContain("totalReasoningTokens");
+    expect(html).toContain("inputTokenProvenance");
+    expect(html).toContain("outputTokenProvenance");
   });
 });
 

@@ -32,7 +32,10 @@ const mockLog = {
   trace: () => {},
 } as unknown as vscode.LogOutputChannel;
 
-const dummyToken = {} as unknown as vscode.CancellationToken;
+const dummyToken = {
+  isCancellationRequested: false,
+  onCancellationRequested: () => ({ dispose: () => {} }),
+} as unknown as vscode.CancellationToken;
 
 describe("OmniRouteChatProvider", () => {
   it("can be instantiated with dependencies", () => {
@@ -291,5 +294,199 @@ describe("OmniRouteChatProvider", () => {
     expect(infos).toEqual([]);
     // Nothing was invented out of thin air.
     expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
+  });
+
+  it("forwards reported usage and cached tokens to onUsage callback", async () => {
+    const context = mockContext();
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({
+      context,
+      log: mockLog,
+      onUsage,
+    });
+
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "Hello world answer" };
+        yield {
+          kind: "usage",
+          usage: {
+            inputTokens: 110,
+            outputTokens: 40,
+            cachedTokens: 75,
+            reasoningTokens: 12,
+            totalTokens: 150,
+          },
+        };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    const progress = { report: vi.fn() };
+    const model = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+      name: "GPT-4o",
+      family: "openai",
+      version: "1.0.0",
+      maxInputTokens: 10000,
+      maxOutputTokens: 4096,
+      capabilities: {},
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as never,
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    expect(onUsage).toHaveBeenCalledWith({
+      routeId: "route-1",
+      baseUrl: "http://localhost:8080/v1",
+      serverName: "Server 1",
+      modelName: "openai/gpt-4o",
+      inputTokens: 110,
+      outputTokens: 40,
+      cachedTokens: 75,
+      reasoningTokens: 12,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
+  });
+
+
+  it("derives mixed provenance and clamps reasoning to estimated output", async () => {
+    const context = mockContext();
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog, onUsage });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "estimated output" };
+        yield { kind: "usage", usage: { inputTokens: 110, cachedTokens: 75, reasoningTokens: 12 } };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.provideLanguageModelChatResponse(
+      {
+        id: "Server 1 · openai/gpt-4o",
+        omniModelId: "openai/gpt-4o",
+        routeId: "route-1",
+        name: "GPT-4o",
+        family: "openai",
+        version: "1.0.0",
+        maxInputTokens: 10000,
+        maxOutputTokens: 4096,
+        capabilities: {},
+      } as never,
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
+
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "estimated",
+      outputTokens: 4,
+      reasoningTokens: 4,
+    }));
+  });
+
+  it("falls back from invalid reported counts and marks the affected sides estimated", async () => {
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onUsage });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "abcd" };
+        yield {
+          kind: "usage",
+          usage: {
+            inputTokens: Number.NaN,
+            outputTokens: Number.POSITIVE_INFINITY,
+            cachedTokens: -1,
+            reasoningTokens: Number.NaN,
+          },
+        };
+      }),
+    } as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    await provider.provideLanguageModelChatResponse(
+      {
+        id: "Server 1 · openai/gpt-4o",
+        omniModelId: "openai/gpt-4o",
+        routeId: "route-1",
+      } as never,
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
+
+    const usage = onUsage.mock.calls[0][0];
+    expect(usage).toMatchObject({
+      inputTokenProvenance: "estimated",
+      outputTokenProvenance: "estimated",
+    });
+    expect(Number.isFinite(usage.inputTokens)).toBe(true);
+    expect(Number.isFinite(usage.outputTokens)).toBe(true);
+    expect(usage.inputTokens).toBeGreaterThanOrEqual(0);
+    expect(usage.outputTokens).toBeGreaterThanOrEqual(0);
+    expect(usage).not.toHaveProperty("cachedTokens");
+    expect(usage).not.toHaveProperty("reasoningTokens");
+  });
+
+  it("preserves explicit zero subsets while omitting absent subsets", async () => {
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onUsage });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const streamModel = vi.fn()
+      .mockImplementationOnce(async function* () {
+        yield { kind: "usage", usage: { inputTokens: 10, outputTokens: 5, cachedTokens: 0, reasoningTokens: 0 } };
+      })
+      .mockImplementationOnce(async function* () {
+        yield { kind: "usage", usage: { inputTokens: 10, outputTokens: 5 } };
+      });
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
+      baseUrl: "http://localhost:8080/v1",
+      streamModel,
+    } as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+    const model = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+    } as never;
+
+    await provider.provideLanguageModelChatResponse(
+      model, [], {} as never, { report: vi.fn() } as never, dummyToken
+    );
+    await provider.provideLanguageModelChatResponse(
+      model, [], {} as never, { report: vi.fn() } as never, dummyToken
+    );
+
+    expect(onUsage.mock.calls[0][0]).toMatchObject({ cachedTokens: 0, reasoningTokens: 0 });
+    expect(Object.hasOwn(onUsage.mock.calls[0][0], "cachedTokens")).toBe(true);
+    expect(Object.hasOwn(onUsage.mock.calls[0][0], "reasoningTokens")).toBe(true);
+    expect(onUsage.mock.calls[1][0]).not.toHaveProperty("cachedTokens");
+    expect(onUsage.mock.calls[1][0]).not.toHaveProperty("reasoningTokens");
   });
 });
