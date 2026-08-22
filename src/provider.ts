@@ -176,6 +176,12 @@ type CandidateOutcome =
   | { kind: "cancelled" }
   | { kind: "failed"; error: unknown };
 
+/** Final result of traversing the fallback candidates for one request. */
+type ChatPlanOutcome =
+  | { kind: "succeeded"; fallbacksUsed: number }
+  | { kind: "cancelled"; fallbacksUsed: number }
+  | { kind: "failed"; routeId: string | undefined; fallbacksUsed: number; error: unknown };
+
 export class OmniRouteChatProvider
   implements vscode.LanguageModelChatProvider<OmniModelInfo>, vscode.Disposable
 {
@@ -700,83 +706,27 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken,
     abort: AbortController
   ): Promise<void> {
-    const candidates = plan.candidates;
-    let lastError: unknown;
-    const saturatedRoutes = new Set<string>();
-
-    this.deps.onRequestStart?.(candidates[0]?.routeId, plan.modelId);
+    this.deps.onRequestStart?.(plan.candidates[0]?.routeId, plan.modelId);
     let requestSettled = false;
 
     try {
-      for (let i = 0; i < candidates.length;) {
-        const cand = candidates[i];
-        if (token.isCancellationRequested) {
-          requestSettled = true;
-          this.deps.onRequestEnd?.(false, undefined, i);
-          return;
-        }
-        if (saturatedRoutes.has(cand.routeId)) {
-          this.deps.log.info(
-            `Skipping fallback ${cand.modelId} @${cand.routeId}: route rejected admission earlier in this request`
-          );
-          i++;
-          continue;
-        }
-        const client = plan.clientByRoute.get(cand.routeId);
-        if (!client) {
-          lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
-          i++;
-          continue;
-        }
-        const outcome = await this.tryCandidate({
-          cand,
-          client,
-          i,
-          request,
-          inputTokens,
-          progress,
-          token,
-          abort,
-          log: this.deps.log,
-          routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
-          retriesPerServer: plan.retriesPerServer,
-        });
-        if (outcome.kind === "succeeded") {
-          requestSettled = true;
-          this.deps.onRequestEnd?.(true, undefined, i);
-          return;
-        }
-        if (outcome.kind === "cancelled") {
-          requestSettled = true;
-          this.deps.onRequestEnd?.(false, undefined, i);
-          return;
-        }
-        lastError = outcome.error;
-        if (isAdmissionSaturationError(outcome.error)) {
-          saturatedRoutes.add(cand.routeId);
-        }
-        const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
-        if (lastAttemptedIndex >= candidates.length - 1) {
-          requestSettled = true;
-          this.reportChatFailure({
-            routeId: cand.routeId,
-            fallbacksUsed: lastAttemptedIndex,
-            err: outcome.error,
-            modelId: plan.modelId,
-            serverCount: plan.serverCount,
-            candidateCount: candidates.length,
-          });
-        }
-        i = lastAttemptedIndex + 1;
-      }
+      const outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
       requestSettled = true;
+      if (outcome.kind === "succeeded") {
+        this.deps.onRequestEnd?.(true, undefined, outcome.fallbacksUsed);
+        return;
+      }
+      if (outcome.kind === "cancelled") {
+        this.deps.onRequestEnd?.(false, undefined, outcome.fallbacksUsed);
+        return;
+      }
       this.reportChatFailure({
-        routeId: candidates[0]?.routeId,
-        fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
-        err: lastError ?? new OmniRouteError("No configured route served this model", undefined),
+        routeId: outcome.routeId,
+        fallbacksUsed: outcome.fallbacksUsed,
+        err: outcome.error,
         modelId: plan.modelId,
         serverCount: plan.serverCount,
-        candidateCount: candidates.length,
+        candidateCount: plan.candidates.length,
       });
     } catch (err) {
       if (!requestSettled) {
@@ -785,6 +735,73 @@ export class OmniRouteChatProvider
       }
       throw err;
     }
+  }
+
+  /** Traverses fallback candidates without owning request lifecycle callbacks. */
+  private async runChatCandidates(
+    plan: ChatPlan,
+    request: ChatRequest,
+    inputTokens: number,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    token: vscode.CancellationToken,
+    abort: AbortController
+  ): Promise<ChatPlanOutcome> {
+    const candidates = plan.candidates;
+    const saturatedRoutes = new Set<string>();
+    let lastError: unknown;
+
+    for (let i = 0; i < candidates.length;) {
+      const cand = candidates[i];
+      if (token.isCancellationRequested) return { kind: "cancelled", fallbacksUsed: i };
+      if (saturatedRoutes.has(cand.routeId)) {
+        this.deps.log.info(
+          `Skipping fallback ${cand.modelId} @${cand.routeId}: route rejected admission earlier in this request`
+        );
+        i++;
+        continue;
+      }
+      const client = plan.clientByRoute.get(cand.routeId);
+      if (!client) {
+        lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+        i++;
+        continue;
+      }
+      const outcome = await this.tryCandidate({
+        cand,
+        client,
+        i,
+        request,
+        inputTokens,
+        progress,
+        token,
+        abort,
+        log: this.deps.log,
+        routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
+        retriesPerServer: plan.retriesPerServer,
+      });
+      if (outcome.kind === "succeeded" || outcome.kind === "cancelled") {
+        return { kind: outcome.kind, fallbacksUsed: i };
+      }
+      lastError = outcome.error;
+      if (isAdmissionSaturationError(outcome.error)) saturatedRoutes.add(cand.routeId);
+      const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
+      if (lastAttemptedIndex >= candidates.length - 1) {
+        return {
+          kind: "failed",
+          routeId: cand.routeId,
+          fallbacksUsed: lastAttemptedIndex,
+          error: outcome.error,
+        };
+      }
+      i = lastAttemptedIndex + 1;
+    }
+
+    return {
+      kind: "failed",
+      routeId: candidates[0]?.routeId,
+      fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
+      error: lastError ?? new OmniRouteError("No configured route served this model", undefined),
+    };
   }
 
   /** Skips redundant same-route fallbacks after admission throttling. */
