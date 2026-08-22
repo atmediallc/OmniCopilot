@@ -319,6 +319,7 @@ describe("OmniRouteChatProvider", () => {
             inputTokens: 110,
             outputTokens: 40,
             cachedTokens: 75,
+            reasoningTokens: 12,
             totalTokens: 150,
           },
         };
@@ -355,7 +356,54 @@ describe("OmniRouteChatProvider", () => {
       inputTokens: 110,
       outputTokens: 40,
       cachedTokens: 75,
+      reasoningTokens: 12,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
       isEstimated: false,
     });
+  });
+
+
+  it("derives legacy isEstimated from exact mixed token provenance", async () => {
+    const context = mockContext();
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog, onUsage });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "estimated output" };
+        yield { kind: "usage", usage: { inputTokens: 110, cachedTokens: 75, reasoningTokens: 12 } };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.provideLanguageModelChatResponse(
+      {
+        id: "Server 1 · openai/gpt-4o",
+        omniModelId: "openai/gpt-4o",
+        routeId: "route-1",
+        name: "GPT-4o",
+        family: "openai",
+        version: "1.0.0",
+        maxInputTokens: 10000,
+        maxOutputTokens: 4096,
+        capabilities: {},
+      } as never,
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
+
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "estimated",
+      reasoningTokens: 12,
+      isEstimated: true,
+    }));
   });
 });

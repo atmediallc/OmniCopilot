@@ -72,6 +72,9 @@ async function doSyncProviders(
       inputTokens: number;
       outputTokens: number;
       cachedTokens?: number;
+      reasoningTokens?: number;
+      inputTokenProvenance: "reported" | "estimated";
+      outputTokenProvenance: "reported" | "estimated";
       isEstimated?: boolean;
     }) => statusBar?.reportUsage(usage),
     onRequestStart: (routeId: string | undefined, modelName: string) =>

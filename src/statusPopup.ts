@@ -192,7 +192,7 @@ export class OmniStatusPopup {
 
   private lastState:
     | {
-        metrics: Record<string, number | string>;
+        metrics: Record<string, unknown>;
         servers: unknown[];
         suggestions: unknown[];
         fallbackMode: string;
@@ -220,6 +220,10 @@ export class OmniStatusPopup {
           inputTokens: number;
           outputTokens: number;
           totalTokens: number;
+          cachedTokens: number;
+          reasoningTokens: number;
+          inputTokenProvenance: { reported: number; estimated: number; unknown: number };
+          outputTokenProvenance: { reported: number; estimated: number; unknown: number };
           requestCount: number;
           successCount: number;
           errorCount: number;
@@ -233,6 +237,12 @@ export class OmniStatusPopup {
         inputTokens: metrics.servers[s.id]?.inputTokens ?? s.metric.inputTokens,
         outputTokens: metrics.servers[s.id]?.outputTokens ?? s.metric.outputTokens,
         totalTokens: metrics.servers[s.id]?.totalTokens ?? s.metric.totalTokens,
+        cachedTokens: metrics.servers[s.id]?.cachedTokens ?? s.metric.cachedTokens,
+        reasoningTokens: metrics.servers[s.id]?.reasoningTokens ?? s.metric.reasoningTokens,
+        inputTokenProvenance:
+          metrics.servers[s.id]?.inputTokenProvenance ?? s.metric.inputTokenProvenance,
+        outputTokenProvenance:
+          metrics.servers[s.id]?.outputTokenProvenance ?? s.metric.outputTokenProvenance,
         requestCount: metrics.servers[s.id]?.requestCount ?? s.metric.requestCount,
         successCount: metrics.servers[s.id]?.successCount ?? s.metric.successCount,
         errorCount: metrics.servers[s.id]?.errorCount ?? s.metric.errorCount,
@@ -247,6 +257,10 @@ export class OmniStatusPopup {
         totalInputTokens: metrics.totalInputTokens,
         totalOutputTokens: metrics.totalOutputTokens,
         totalTokens: metrics.totalTokens,
+        totalCachedTokens: metrics.totalCachedTokens ?? 0,
+        totalReasoningTokens: metrics.totalReasoningTokens ?? 0,
+        inputTokenProvenance: metrics.inputTokenProvenance,
+        outputTokenProvenance: metrics.outputTokenProvenance,
         totalRequests: metrics.totalRequests,
         formattedTotalTokens: fmtTokens(metrics.totalTokens),
         formattedInputTokens: fmtTokens(metrics.totalInputTokens),
@@ -283,6 +297,18 @@ export class OmniStatusPopup {
         inputTokens: metrics.servers[server.routeId]?.inputTokens ?? 0,
         outputTokens: metrics.servers[server.routeId]?.outputTokens ?? 0,
         totalTokens: metrics.servers[server.routeId]?.totalTokens ?? server.tokens,
+        cachedTokens: metrics.servers[server.routeId]?.cachedTokens ?? 0,
+        reasoningTokens: metrics.servers[server.routeId]?.reasoningTokens ?? 0,
+        inputTokenProvenance: metrics.servers[server.routeId]?.inputTokenProvenance ?? {
+          reported: 0,
+          estimated: 0,
+          unknown: 0,
+        },
+        outputTokenProvenance: metrics.servers[server.routeId]?.outputTokenProvenance ?? {
+          reported: 0,
+          estimated: 0,
+          unknown: 0,
+        },
         requestCount: metrics.servers[server.routeId]?.requestCount ?? server.requests,
         successCount: metrics.servers[server.routeId]?.successCount ?? 0,
         errorCount: metrics.servers[server.routeId]?.errorCount ?? 0,
@@ -305,6 +331,10 @@ export class OmniStatusPopup {
         totalInputTokens: metrics.totalInputTokens,
         totalOutputTokens: metrics.totalOutputTokens,
         totalTokens: metrics.totalTokens,
+        totalCachedTokens: metrics.totalCachedTokens ?? 0,
+        totalReasoningTokens: metrics.totalReasoningTokens ?? 0,
+        inputTokenProvenance: metrics.inputTokenProvenance,
+        outputTokenProvenance: metrics.outputTokenProvenance,
         totalRequests: metrics.totalRequests,
         formattedTotalTokens: fmtTokens(metrics.totalTokens),
         formattedInputTokens: fmtTokens(metrics.totalInputTokens),
@@ -664,6 +694,16 @@ export class OmniStatusPopup {
         <div class="metric-label-row" style="margin-top:4px;">
           <span id="io-avg-text" style="opacity:0.75; font-size:11px;">No requests yet</span>
         </div>
+        <div class="metric-label-row" style="margin-top:6px;">
+          <span id="cached-tokens-text">Cached Input: 0</span>
+          <span id="reasoning-tokens-text">Reasoning Output: 0</span>
+        </div>
+        <div class="metric-label-row" style="margin-top:4px; font-size:11px; opacity:0.75;">
+          <span id="input-provenance-text">Input Provenance: reported 0 · estimated 0 · unknown 0</span>
+        </div>
+        <div class="metric-label-row" style="margin-top:2px; font-size:11px; opacity:0.75;">
+          <span id="output-provenance-text">Output Provenance: reported 0 · estimated 0 · unknown 0</span>
+        </div>
       </div>
 
       <div style="margin-top: 14px;">
@@ -822,6 +862,10 @@ export class OmniStatusPopup {
       const inputShareBar = document.getElementById('input-share-bar');
       const outputShareBar = document.getElementById('output-share-bar');
       const ioAvgText = document.getElementById('io-avg-text');
+      const cachedTokensText = document.getElementById('cached-tokens-text');
+      const reasoningTokensText = document.getElementById('reasoning-tokens-text');
+      const inputProvenanceText = document.getElementById('input-provenance-text');
+      const outputProvenanceText = document.getElementById('output-provenance-text');
 
       const maxReferenceTokens = 500000;
       const totalPct = Math.min(Math.round(((metrics.totalTokens || 0) / maxReferenceTokens) * 100), 100);
@@ -855,6 +899,11 @@ export class OmniStatusPopup {
           ? 'avg per request: In ' + fmtTokens(Math.round(inVal / reqs)) + ' · Out ' + fmtTokens(Math.round(outVal / reqs))
           : 'No requests yet';
       }
+      if (cachedTokensText) cachedTokensText.textContent = 'Cached Input: ' + fmtTokens(metrics.totalCachedTokens || 0);
+      if (reasoningTokensText) reasoningTokensText.textContent = 'Reasoning Output: ' + fmtTokens(metrics.totalReasoningTokens || 0);
+      const provenanceText = p => 'reported ' + fmtTokens(p?.reported || 0) + ' · estimated ' + fmtTokens(p?.estimated || 0) + ' · unknown ' + fmtTokens(p?.unknown || 0);
+      if (inputProvenanceText) inputProvenanceText.textContent = 'Input Provenance: ' + provenanceText(metrics.inputTokenProvenance);
+      if (outputProvenanceText) outputProvenanceText.textContent = 'Output Provenance: ' + provenanceText(metrics.outputTokenProvenance);
 
       // Update Server List
       const serverCountEl = document.getElementById('server-count');

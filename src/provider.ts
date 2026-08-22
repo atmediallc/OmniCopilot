@@ -42,6 +42,9 @@ export interface ProviderDeps {
     inputTokens: number;
     outputTokens: number;
     cachedTokens?: number;
+    reasoningTokens?: number;
+    inputTokenProvenance: "reported" | "estimated";
+    outputTokenProvenance: "reported" | "estimated";
     isEstimated?: boolean;
   }) => void;
   /** A chat request started streaming (status-bar live "responding" state). */
@@ -886,11 +889,16 @@ export class OmniRouteChatProvider
     attempt: Extract<StreamAttemptOutcome, { kind: "completed" }>,
     ctx: ChatCandidateContext
   ): void {
+    const inputTokenProvenance =
+      attempt.reportedUsage?.inputTokens === undefined ? "estimated" : "reported";
+    const outputTokenProvenance =
+      attempt.reportedUsage?.outputTokens === undefined ? "estimated" : "reported";
     const inputTokens = attempt.reportedUsage?.inputTokens ?? ctx.inputTokens;
     const outputTokens = attempt.reportedUsage?.outputTokens ?? estimateTokens(attempt.streamed);
     const cachedTokens = attempt.reportedUsage?.cachedTokens;
+    const reasoningTokens = attempt.reportedUsage?.reasoningTokens;
     const isEstimated =
-      attempt.reportedUsage?.inputTokens === undefined || attempt.reportedUsage?.outputTokens === undefined;
+      inputTokenProvenance === "estimated" || outputTokenProvenance === "estimated";
 
     this.deps.onUsage?.({
       routeId: cand.routeId,
@@ -900,6 +908,9 @@ export class OmniRouteChatProvider
       inputTokens,
       outputTokens,
       cachedTokens,
+      reasoningTokens,
+      inputTokenProvenance,
+      outputTokenProvenance,
       isEstimated,
     });
   }

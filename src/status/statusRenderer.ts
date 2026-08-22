@@ -28,6 +28,11 @@ export interface StatusSnapshot {
     modelName: string;
     inputTokens: number;
     outputTokens: number;
+    cachedTokens?: number;
+    reasoningTokens?: number;
+    inputTokenProvenance: "reported" | "estimated";
+    outputTokenProvenance: "reported" | "estimated";
+    isEstimated?: boolean;
   };
   /** Final failure message of the last request, when it errored out. */
   lastError?: string;

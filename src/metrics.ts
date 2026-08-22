@@ -1,6 +1,14 @@
 import * as vscode from "vscode";
 import type { Route } from "./routes";
 
+export type TokenProvenance = "reported" | "estimated" | "unknown";
+
+export interface TokenProvenanceTotals {
+  reported: number;
+  estimated: number;
+  unknown: number;
+}
+
 export interface ServerMetric {
   routeId: string;
   name: string;
@@ -10,7 +18,10 @@ export interface ServerMetric {
   outputTokens: number;
   totalTokens: number;
   cachedTokens?: number;
+  reasoningTokens?: number;
   estimatedTokens?: number;
+  inputTokenProvenance: TokenProvenanceTotals;
+  outputTokenProvenance: TokenProvenanceTotals;
   requestCount: number;
   successCount: number;
   errorCount: number;
@@ -25,7 +36,10 @@ export interface SessionMetrics {
   totalOutputTokens: number;
   totalTokens: number;
   totalCachedTokens?: number;
+  totalReasoningTokens?: number;
   totalEstimatedTokens?: number;
+  inputTokenProvenance: TokenProvenanceTotals;
+  outputTokenProvenance: TokenProvenanceTotals;
   totalRequests: number;
   totalStalls: number;
   servers: Record<string, ServerMetric>;
@@ -52,17 +66,43 @@ function nonNegativeNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+function emptyProvenance(): TokenProvenanceTotals {
+  return { reported: 0, estimated: 0, unknown: 0 };
+}
+
+function normalizeProvenance(value: unknown, legacyTokens: number): TokenProvenanceTotals {
+  if (!isRecord(value)) return { reported: 0, estimated: 0, unknown: legacyTokens };
+  return {
+    reported: nonNegativeNumber(value.reported),
+    estimated: nonNegativeNumber(value.estimated),
+    unknown: nonNegativeNumber(value.unknown),
+  };
+}
+
+function addProvenance(
+  totals: TokenProvenanceTotals,
+  provenance: TokenProvenance,
+  tokens: number
+): void {
+  totals[provenance] += tokens;
+}
+
 function normalizeServerMetric(routeId: string, saved: Record<string, unknown>): ServerMetric {
+  const inputTokens = nonNegativeNumber(saved.inputTokens);
+  const outputTokens = nonNegativeNumber(saved.outputTokens);
   const metric: ServerMetric = {
     routeId,
     name: typeof saved.name === "string" ? saved.name : routeId,
     baseUrl: typeof saved.baseUrl === "string" ? saved.baseUrl : "",
     online: typeof saved.online === "boolean" ? saved.online : false,
-    inputTokens: nonNegativeNumber(saved.inputTokens),
-    outputTokens: nonNegativeNumber(saved.outputTokens),
+    inputTokens,
+    outputTokens,
     totalTokens: nonNegativeNumber(saved.totalTokens),
-    cachedTokens: nonNegativeNumber(saved.cachedTokens),
+    cachedTokens: Math.min(nonNegativeNumber(saved.cachedTokens), inputTokens),
+    reasoningTokens: Math.min(nonNegativeNumber(saved.reasoningTokens), outputTokens),
     estimatedTokens: nonNegativeNumber(saved.estimatedTokens),
+    inputTokenProvenance: normalizeProvenance(saved.inputTokenProvenance, inputTokens),
+    outputTokenProvenance: normalizeProvenance(saved.outputTokenProvenance, outputTokens),
     requestCount: nonNegativeNumber(saved.requestCount),
     successCount: nonNegativeNumber(saved.successCount),
     errorCount: nonNegativeNumber(saved.errorCount),
@@ -82,13 +122,18 @@ function normalizeMetrics(saved: Record<string, unknown>): SessionMetrics {
       normalizeServerMetric(routeId, isRecord(server) ? server : {}),
     ])
   );
+  const totalInputTokens = nonNegativeNumber(saved.totalInputTokens);
+  const totalOutputTokens = nonNegativeNumber(saved.totalOutputTokens);
   return {
     sessionStartTime: nonNegativeNumber(saved.sessionStartTime, Date.now()),
-    totalInputTokens: nonNegativeNumber(saved.totalInputTokens),
-    totalOutputTokens: nonNegativeNumber(saved.totalOutputTokens),
+    totalInputTokens,
+    totalOutputTokens,
     totalTokens: nonNegativeNumber(saved.totalTokens),
-    totalCachedTokens: nonNegativeNumber(saved.totalCachedTokens),
+    totalCachedTokens: Math.min(nonNegativeNumber(saved.totalCachedTokens), totalInputTokens),
+    totalReasoningTokens: Math.min(nonNegativeNumber(saved.totalReasoningTokens), totalOutputTokens),
     totalEstimatedTokens: nonNegativeNumber(saved.totalEstimatedTokens),
+    inputTokenProvenance: normalizeProvenance(saved.inputTokenProvenance, totalInputTokens),
+    outputTokenProvenance: normalizeProvenance(saved.outputTokenProvenance, totalOutputTokens),
     totalRequests: nonNegativeNumber(saved.totalRequests),
     totalStalls: nonNegativeNumber(saved.totalStalls),
     servers,
@@ -115,6 +160,11 @@ export class MetricsTracker {
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalTokens: 0,
+      totalCachedTokens: 0,
+      totalReasoningTokens: 0,
+      totalEstimatedTokens: 0,
+      inputTokenProvenance: emptyProvenance(),
+      outputTokenProvenance: emptyProvenance(),
       totalRequests: 0,
       totalStalls: 0,
       servers: {},
@@ -154,18 +204,26 @@ export class MetricsTracker {
     inputTokens: number,
     outputTokens: number,
     cachedTokens = 0,
-    isEstimated = false
+    isEstimated = false,
+    reasoningTokens = 0,
+    inputTokenProvenance: TokenProvenance = isEstimated ? "estimated" : "reported",
+    outputTokenProvenance: TokenProvenance = isEstimated ? "estimated" : "reported"
   ): Promise<void> {
     const total = inputTokens + outputTokens;
+    const cachedSubset = Math.min(Math.max(0, cachedTokens), inputTokens);
+    const reasoningSubset = Math.min(Math.max(0, reasoningTokens), outputTokens);
     this.metrics.totalInputTokens += inputTokens;
     this.metrics.totalOutputTokens += outputTokens;
     this.metrics.totalTokens += total;
-    if (cachedTokens > 0) {
-      this.metrics.totalCachedTokens = (this.metrics.totalCachedTokens ?? 0) + cachedTokens;
-    }
-    if (isEstimated) {
-      this.metrics.totalEstimatedTokens = (this.metrics.totalEstimatedTokens ?? 0) + total;
-    }
+    this.metrics.totalCachedTokens = (this.metrics.totalCachedTokens ?? 0) + cachedSubset;
+    this.metrics.totalReasoningTokens = (this.metrics.totalReasoningTokens ?? 0) + reasoningSubset;
+    addProvenance(this.metrics.inputTokenProvenance, inputTokenProvenance, inputTokens);
+    addProvenance(this.metrics.outputTokenProvenance, outputTokenProvenance, outputTokens);
+    const estimatedTokens =
+      (inputTokenProvenance === "estimated" ? inputTokens : 0) +
+      (outputTokenProvenance === "estimated" ? outputTokens : 0);
+    this.metrics.totalEstimatedTokens =
+      (this.metrics.totalEstimatedTokens ?? 0) + estimatedTokens;
     this.metrics.totalRequests += 1;
 
     let server = this.metrics.servers[routeId];
@@ -179,7 +237,10 @@ export class MetricsTracker {
         outputTokens: 0,
         totalTokens: 0,
         cachedTokens: 0,
+        reasoningTokens: 0,
         estimatedTokens: 0,
+        inputTokenProvenance: emptyProvenance(),
+        outputTokenProvenance: emptyProvenance(),
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
@@ -193,12 +254,11 @@ export class MetricsTracker {
     server.inputTokens += inputTokens;
     server.outputTokens += outputTokens;
     server.totalTokens += total;
-    if (cachedTokens > 0) {
-      server.cachedTokens = (server.cachedTokens ?? 0) + cachedTokens;
-    }
-    if (isEstimated) {
-      server.estimatedTokens = (server.estimatedTokens ?? 0) + total;
-    }
+    server.cachedTokens = (server.cachedTokens ?? 0) + cachedSubset;
+    server.reasoningTokens = (server.reasoningTokens ?? 0) + reasoningSubset;
+    server.estimatedTokens = (server.estimatedTokens ?? 0) + estimatedTokens;
+    addProvenance(server.inputTokenProvenance, inputTokenProvenance, inputTokens);
+    addProvenance(server.outputTokenProvenance, outputTokenProvenance, outputTokens);
     server.requestCount += 1;
     server.successCount += 1;
     server.lastUsedModel = modelName;
@@ -221,6 +281,8 @@ export class MetricsTracker {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
+        inputTokenProvenance: emptyProvenance(),
+        outputTokenProvenance: emptyProvenance(),
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
@@ -255,6 +317,8 @@ export class MetricsTracker {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
+        inputTokenProvenance: emptyProvenance(),
+        outputTokenProvenance: emptyProvenance(),
         requestCount: 0,
         successCount: 0,
         errorCount: 0,
@@ -279,6 +343,8 @@ export class MetricsTracker {
           inputTokens: 0,
           outputTokens: 0,
           totalTokens: 0,
+          inputTokenProvenance: emptyProvenance(),
+          outputTokenProvenance: emptyProvenance(),
           requestCount: 0,
           successCount: 0,
           errorCount: 0,

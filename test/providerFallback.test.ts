@@ -666,6 +666,9 @@ describe("full fallback at the request level", () => {
       inputTokens: 100,
       outputTokens: 14,
       cachedTokens: 25,
+      reasoningTokens: undefined,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
       isEstimated: false,
     });
   });

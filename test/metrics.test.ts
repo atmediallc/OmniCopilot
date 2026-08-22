@@ -197,10 +197,75 @@ describe("MetricsTracker", () => {
     expect(metrics.totalOutputTokens).toBe(125);
     expect(metrics.totalCachedTokens).toBe(150);
     expect(metrics.totalEstimatedTokens).toBe(75);
+    expect(metrics.totalReasoningTokens).toBe(0);
+    expect(metrics.inputTokenProvenance).toEqual({ reported: 200, estimated: 50, unknown: 0 });
+    expect(metrics.outputTokenProvenance).toEqual({ reported: 100, estimated: 25, unknown: 0 });
 
     const server = metrics.servers["route-1"];
     expect(server.cachedTokens).toBe(150);
     expect(server.estimatedTokens).toBe(75);
+    expect(server.inputTokenProvenance).toEqual({ reported: 200, estimated: 50, unknown: 0 });
+    expect(server.outputTokenProvenance).toEqual({ reported: 100, estimated: 25, unknown: 0 });
+  });
+
+
+  it("records reasoning as an output subset with exact per-side provenance", async () => {
+    await tracker.recordUsage(
+      "route-1",
+      "Primary Server",
+      "http://localhost:8080",
+      "reasoning-model",
+      120,
+      80,
+      70,
+      false,
+      30,
+      "reported",
+      "estimated"
+    );
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.totalTokens).toBe(200);
+    expect(metrics.totalCachedTokens).toBe(70);
+    expect(metrics.totalReasoningTokens).toBe(30);
+    expect(metrics.inputTokenProvenance).toEqual({ reported: 120, estimated: 0, unknown: 0 });
+    expect(metrics.outputTokenProvenance).toEqual({ reported: 0, estimated: 80, unknown: 0 });
+    expect(metrics.servers["route-1"].reasoningTokens).toBe(30);
+  });
+
+  it("classifies unreconstructable legacy persisted tokens as unknown", () => {
+    tracker = new MetricsTracker(mockContext({
+      sessionStartTime: 1_700_000_000_000,
+      totalInputTokens: 40,
+      totalOutputTokens: 60,
+      totalTokens: 100,
+      totalRequests: 1,
+      servers: {
+        "route-1": {
+          routeId: "route-1",
+          name: "Legacy Server",
+          baseUrl: "http://legacy.local/v1",
+          inputTokens: 40,
+          outputTokens: 60,
+          totalTokens: 100,
+          requestCount: 1,
+        },
+      },
+    }));
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.inputTokenProvenance).toEqual({ reported: 0, estimated: 0, unknown: 40 });
+    expect(metrics.outputTokenProvenance).toEqual({ reported: 0, estimated: 0, unknown: 60 });
+    expect(metrics.servers["route-1"].inputTokenProvenance).toEqual({
+      reported: 0,
+      estimated: 0,
+      unknown: 40,
+    });
+    expect(metrics.servers["route-1"].outputTokenProvenance).toEqual({
+      reported: 0,
+      estimated: 0,
+      unknown: 60,
+    });
   });
 
   it("resets metrics correctly", async () => {

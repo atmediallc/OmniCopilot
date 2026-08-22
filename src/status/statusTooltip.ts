@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { fmtTokens } from "../metrics";
+import { fmtTokens, type TokenProvenanceTotals } from "../metrics";
 import type { StatusServer, StatusSnapshot } from "./statusRenderer";
 
 /** Tooltip internals beyond the pure renderer: needs vscode for
@@ -9,6 +9,10 @@ export interface TooltipTotals {
   totalTokens: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCachedTokens: number;
+  totalReasoningTokens: number;
+  inputTokenProvenance?: TokenProvenanceTotals;
+  outputTokenProvenance?: TokenProvenanceTotals;
   totalRequests: number;
 }
 
@@ -61,11 +65,20 @@ function appendLastError(md: vscode.MarkdownString, snap: StatusSnapshot): void 
 
 function appendTokenMetrics(md: vscode.MarkdownString, totals: TooltipTotals | undefined): void {
   if (!totals) return;
+  const provenance = (value: TokenProvenanceTotals | undefined) =>
+    `${vscode.l10n.t("reported")}: \`${fmtTokens(value?.reported ?? 0)}\` · ` +
+    `${vscode.l10n.t("estimated")}: \`${fmtTokens(value?.estimated ?? 0)}\` · ` +
+    `${vscode.l10n.t("unknown")}: \`${fmtTokens(value?.unknown ?? 0)}\``;
   md.appendMarkdown(`---\n\n`);
   md.appendMarkdown(`#### $(graph) ${vscode.l10n.t("Token Metrics")}\n`);
   md.appendMarkdown(
     `- **${vscode.l10n.t("Total Tokens")}:** \`${fmtTokens(totals.totalTokens)}\` (${vscode.l10n.t("Input")}: \`${fmtTokens(totals.totalInputTokens)}\` · ${vscode.l10n.t("Output")}: \`${fmtTokens(totals.totalOutputTokens)}\`)\n`
   );
+  md.appendMarkdown(
+    `- **${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(totals.totalCachedTokens)}\` · **${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(totals.totalReasoningTokens)}\`\n`
+  );
+  md.appendMarkdown(`- **${vscode.l10n.t("Input Provenance")}:** ${provenance(totals.inputTokenProvenance)}\n`);
+  md.appendMarkdown(`- **${vscode.l10n.t("Output Provenance")}:** ${provenance(totals.outputTokenProvenance)}\n`);
   md.appendMarkdown(
     `- **${vscode.l10n.t("Total Requests")}:** \`${totals.totalRequests}\`\n\n`
   );
@@ -78,7 +91,8 @@ function appendLastRequest(md: vscode.MarkdownString, snap: StatusSnapshot): voi
     `- **${vscode.l10n.t("Server")}:** ${snap.usage.serverName} (${snap.usage.modelName})\n`
   );
   md.appendMarkdown(
-    `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(snap.usage.inputTokens + snap.usage.outputTokens)}\` (In: \`${fmtTokens(snap.usage.inputTokens)}\` · Out: \`${fmtTokens(snap.usage.outputTokens)}\`)\n\n`
+    `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(snap.usage.inputTokens + snap.usage.outputTokens)}\` (In: \`${fmtTokens(snap.usage.inputTokens)}\` [${snap.usage.inputTokenProvenance}] · Out: \`${fmtTokens(snap.usage.outputTokens)}\` [${snap.usage.outputTokenProvenance}])\n` +
+      `- **${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(snap.usage.cachedTokens ?? 0)}\` · **${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(snap.usage.reasoningTokens ?? 0)}\`\n\n`
   );
 }
 

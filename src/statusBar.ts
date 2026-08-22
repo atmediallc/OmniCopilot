@@ -29,6 +29,9 @@ export interface ChatUsage {
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
+  reasoningTokens?: number;
+  inputTokenProvenance: "reported" | "estimated";
+  outputTokenProvenance: "reported" | "estimated";
   isEstimated?: boolean;
 }
 
@@ -161,7 +164,12 @@ export class ConnectionStatusBar implements vscode.Disposable {
         usage.inputTokens,
         usage.outputTokens,
         usage.cachedTokens ?? 0,
-        usage.isEstimated ?? false
+        usage.isEstimated ??
+          (usage.inputTokenProvenance === "estimated" ||
+            usage.outputTokenProvenance === "estimated"),
+        usage.reasoningTokens ?? 0,
+        usage.inputTokenProvenance,
+        usage.outputTokenProvenance
       );
     }
     if (this.usageTimer) clearTimeout(this.usageTimer);
@@ -170,9 +178,6 @@ export class ConnectionStatusBar implements vscode.Disposable {
       if (!this.disposed) this.render();
     }, USAGE_STALE_MS);
     this.render();
-    // A chat round-trip just finished: re-probe servers right away so the
-    // dot reflects the real connection (latency + liveness) immediately
-    // instead of waiting for the next poll.
     this.scheduleRecheck();
   }
 
@@ -355,15 +360,20 @@ export class ConnectionStatusBar implements vscode.Disposable {
     this.item.color = tokens.color ? new vscode.ThemeColor(tokens.color) : undefined;
     this.item.backgroundColor = tokens.background ? new vscode.ThemeColor(tokens.background) : undefined;
 
+    const metrics = this.metricsTracker?.getMetrics();
     this.item.tooltip = buildStatusTooltip(
       snap,
       main,
-      this.metricsTracker
+      metrics
         ? {
-            totalTokens: this.metricsTracker.getMetrics().totalTokens,
-            totalInputTokens: this.metricsTracker.getMetrics().totalInputTokens,
-            totalOutputTokens: this.metricsTracker.getMetrics().totalOutputTokens,
-            totalRequests: this.metricsTracker.getMetrics().totalRequests,
+            totalTokens: metrics.totalTokens,
+            totalInputTokens: metrics.totalInputTokens,
+            totalOutputTokens: metrics.totalOutputTokens,
+            totalCachedTokens: metrics.totalCachedTokens ?? 0,
+            totalReasoningTokens: metrics.totalReasoningTokens ?? 0,
+            inputTokenProvenance: metrics.inputTokenProvenance,
+            outputTokenProvenance: metrics.outputTokenProvenance,
+            totalRequests: metrics.totalRequests,
           }
         : undefined
     );
@@ -388,6 +398,11 @@ export class ConnectionStatusBar implements vscode.Disposable {
             modelName: this.usage.modelName,
             inputTokens: this.usage.inputTokens,
             outputTokens: this.usage.outputTokens,
+            cachedTokens: this.usage.cachedTokens,
+            reasoningTokens: this.usage.reasoningTokens,
+            inputTokenProvenance: this.usage.inputTokenProvenance,
+            outputTokenProvenance: this.usage.outputTokenProvenance,
+            isEstimated: this.usage.isEstimated,
           }
         : undefined,
       lastError: this.lastError,

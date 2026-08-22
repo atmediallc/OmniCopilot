@@ -79,6 +79,12 @@ describe("statusTooltip", () => {
     expect(text).toContain("Last Error");
     expect(text).toContain("ECONNREFUSED");
     expect(text).toContain("2 fallback server");
+    expect(text).toContain("Cached Input");
+    expect(text).toContain("Reasoning Output");
+    expect(text).toContain("Input Provenance");
+    expect(text).toContain("Output Provenance");
+    expect(text).toContain("reported");
+    expect(text).toContain("estimated");
   });
 
   it("omits optional sections when absent", () => {
@@ -90,6 +96,26 @@ describe("statusTooltip", () => {
     const text = md.value;
     expect(text).not.toContain("Last Error");
     expect(text).not.toContain("Connected Servers");
+  });
+});
+
+
+describe("OmniStatusPopup telemetry rendering", () => {
+  type GetHtml = () => string;
+  const getHtml = (
+    OmniStatusPopup.prototype as unknown as { getHtmlForWebview: GetHtml }
+  ).getHtmlForWebview;
+
+  it("renders cached, reasoning, and per-side provenance metrics", () => {
+    const html = getHtml.call({});
+    expect(html).toContain("Cached Input");
+    expect(html).toContain("Reasoning Output");
+    expect(html).toContain("Input Provenance");
+    expect(html).toContain("Output Provenance");
+    expect(html).toContain("totalCachedTokens");
+    expect(html).toContain("totalReasoningTokens");
+    expect(html).toContain("inputTokenProvenance");
+    expect(html).toContain("outputTokenProvenance");
   });
 });
 
