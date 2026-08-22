@@ -6,6 +6,7 @@ import { OmniRouteChatProvider } from "./provider";
 import { SECRET_PREFIX, cachedLoadRoutes, invalidateRouteCache, getClientForRoute } from "./routes";
 import { ConnectionStatusBar } from "./statusBar";
 import { MetricsTracker } from "./metrics";
+import type { ResolvedChatUsage } from "./usage";
 import { OmniStatusPopup } from "./statusPopup";
 import { registerFixedTools } from "./tools";
 
@@ -64,19 +65,7 @@ async function doSyncProviders(
     context,
     log,
     onActivity: (ok: boolean, routeId?: string) => statusBar?.reportActivity(ok, routeId),
-    onUsage: (usage: {
-      routeId?: string;
-      baseUrl?: string;
-      serverName: string;
-      modelName: string;
-      inputTokens: number;
-      outputTokens: number;
-      cachedTokens?: number;
-      reasoningTokens?: number;
-      inputTokenProvenance: "reported" | "estimated";
-      outputTokenProvenance: "reported" | "estimated";
-      isEstimated?: boolean;
-    }) => statusBar?.reportUsage(usage),
+    onUsage: (usage: ResolvedChatUsage) => statusBar?.reportUsage(usage),
     onRequestStart: (routeId: string | undefined, modelName: string) =>
       statusBar?.reportRequestStart(routeId, modelName),
     onRequestEnd: (ok: boolean, error: string | undefined, fallbacksUsed: number) =>

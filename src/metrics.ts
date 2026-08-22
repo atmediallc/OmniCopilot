@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { Route } from "./routes";
+import { finiteNonNegative, subsetTokens, type RecordedChatUsage } from "./usage";
 
 export type TokenProvenance = "reported" | "estimated" | "unknown";
 
@@ -196,22 +197,18 @@ export class MetricsTracker {
   }
 
   /** Record token usage from a chat response. */
-  async recordUsage(
-    routeId: string,
-    routeName: string,
-    baseUrl: string,
-    modelName: string,
-    inputTokens: number,
-    outputTokens: number,
-    cachedTokens = 0,
-    isEstimated = false,
-    reasoningTokens = 0,
-    inputTokenProvenance: TokenProvenance = isEstimated ? "estimated" : "reported",
-    outputTokenProvenance: TokenProvenance = isEstimated ? "estimated" : "reported"
-  ): Promise<void> {
+  async recordUsage(usage: RecordedChatUsage): Promise<void> {
+    const routeId = usage.routeId;
+    const routeName = usage.serverName;
+    const baseUrl = usage.baseUrl ?? "";
+    const modelName = usage.modelName;
+    const inputTokens = finiteNonNegative(usage.inputTokens) ?? 0;
+    const outputTokens = finiteNonNegative(usage.outputTokens) ?? 0;
+    const inputTokenProvenance = usage.inputTokenProvenance;
+    const outputTokenProvenance = usage.outputTokenProvenance;
+    const cachedSubset = subsetTokens(usage.cachedTokens, inputTokens) ?? 0;
+    const reasoningSubset = subsetTokens(usage.reasoningTokens, outputTokens) ?? 0;
     const total = inputTokens + outputTokens;
-    const cachedSubset = Math.min(Math.max(0, cachedTokens), inputTokens);
-    const reasoningSubset = Math.min(Math.max(0, reasoningTokens), outputTokens);
     this.metrics.totalInputTokens += inputTokens;
     this.metrics.totalOutputTokens += outputTokens;
     this.metrics.totalTokens += total;

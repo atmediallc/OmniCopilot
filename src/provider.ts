@@ -18,6 +18,7 @@ import {
 } from "./routes";
 import type { ChatRequest, ChatUsageInfo, OmniRouteModel } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
+import { finiteNonNegative, subsetTokens, type ResolvedChatUsage } from "./usage";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   omniModelId: string;
@@ -34,19 +35,7 @@ export interface ProviderDeps {
    * feeds the status bar without extra polling. */
   onActivity?: (ok: boolean, routeId?: string) => void;
   /** Live token usage while a chat response streams — feeds the status bar. */
-  onUsage?: (usage: {
-    routeId?: string;
-    baseUrl?: string;
-    serverName: string;
-    modelName: string;
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens?: number;
-    reasoningTokens?: number;
-    inputTokenProvenance: "reported" | "estimated";
-    outputTokenProvenance: "reported" | "estimated";
-    isEstimated?: boolean;
-  }) => void;
+  onUsage?: (usage: ResolvedChatUsage) => void;
   /** A chat request started streaming (status-bar live "responding" state). */
   onRequestStart?: (routeId: string | undefined, modelName: string) => void;
   /** A chat request settled. `error` is the surfaced failure message;
@@ -683,7 +672,7 @@ export class OmniRouteChatProvider
         (fallbacks.length ? `, fallbacks: ${fallbackSummary}` : "")
     );
 
-    const retriesPerServer = getConfig().get<number>("retriesPerServer", 3);
+    const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
     return {
       clientByRoute,
       nameByRoute,
@@ -889,16 +878,16 @@ export class OmniRouteChatProvider
     attempt: Extract<StreamAttemptOutcome, { kind: "completed" }>,
     ctx: ChatCandidateContext
   ): void {
-    const inputTokenProvenance =
-      attempt.reportedUsage?.inputTokens === undefined ? "estimated" : "reported";
-    const outputTokenProvenance =
-      attempt.reportedUsage?.outputTokens === undefined ? "estimated" : "reported";
-    const inputTokens = attempt.reportedUsage?.inputTokens ?? ctx.inputTokens;
-    const outputTokens = attempt.reportedUsage?.outputTokens ?? estimateTokens(attempt.streamed);
-    const cachedTokens = attempt.reportedUsage?.cachedTokens;
-    const reasoningTokens = attempt.reportedUsage?.reasoningTokens;
-    const isEstimated =
-      inputTokenProvenance === "estimated" || outputTokenProvenance === "estimated";
+    const reportedInputTokens = finiteNonNegative(attempt.reportedUsage?.inputTokens);
+    const reportedOutputTokens = finiteNonNegative(attempt.reportedUsage?.outputTokens);
+    const inputTokenProvenance = reportedInputTokens === undefined ? "estimated" : "reported";
+    const outputTokenProvenance = reportedOutputTokens === undefined ? "estimated" : "reported";
+    const inputTokens =
+      reportedInputTokens ?? finiteNonNegative(ctx.inputTokens) ?? 0;
+    const outputTokens =
+      reportedOutputTokens ?? estimateTokens(attempt.streamed);
+    const cachedTokens = subsetTokens(attempt.reportedUsage?.cachedTokens, inputTokens);
+    const reasoningTokens = subsetTokens(attempt.reportedUsage?.reasoningTokens, outputTokens);
 
     this.deps.onUsage?.({
       routeId: cand.routeId,
@@ -907,11 +896,10 @@ export class OmniRouteChatProvider
       modelName: cand.modelId,
       inputTokens,
       outputTokens,
-      cachedTokens,
-      reasoningTokens,
+      ...(cachedTokens !== undefined ? { cachedTokens } : {}),
+      ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
       inputTokenProvenance,
       outputTokenProvenance,
-      isEstimated,
     });
   }
 

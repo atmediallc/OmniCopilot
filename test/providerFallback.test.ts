@@ -150,6 +150,40 @@ describe("full fallback at the request level", () => {
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 0);
   });
 
+  it("defaults retriesPerServer to one retry after the initial attempt", async () => {
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
+    let attempts = 0;
+    const client = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new OmniRouteError("temporarily unavailable", 503, false, "headers", undefined, undefined, 0);
+        }
+        yield { kind: "text", text: "default retry answered" };
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      client as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    await provider.provideLanguageModelChatResponse(
+      { id: "Server A · openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
+
+    expect(client.streamModel).toHaveBeenCalledTimes(2);
+  });
+
   it("serves the request from a second server when the primary fails", async () => {
     configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
 
@@ -621,6 +655,49 @@ describe("full fallback at the request level", () => {
     );
   });
 
+  it("keeps a cooling exact-model route ahead of a healthy lower-quality fallback", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
+    routesModule.markRouteCooldown("A", 30_000, 429, "Throttled");
+    const provider = new OmniRouteChatProvider({
+      context: mockContext(),
+      log: mockLog,
+      getOnlineRouteIds: () => new Set(["B"]),
+    });
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("exact model answered")),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "anthropic/claude-haiku" }]),
+      streamModel: vi.fn().mockImplementation(() => streamText("lower quality answered")),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => route.id === "A" ? clientA : clientB) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      { id: "Server A · openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientA.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "exact model answered" }));
+  });
+
   it("merges repeated partial usage snapshots without additive double-counting", async () => {
     configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     const onUsage = vi.fn();
@@ -666,10 +743,8 @@ describe("full fallback at the request level", () => {
       inputTokens: 100,
       outputTokens: 14,
       cachedTokens: 25,
-      reasoningTokens: undefined,
       inputTokenProvenance: "reported",
       outputTokenProvenance: "reported",
-      isEstimated: false,
     });
   });
 });

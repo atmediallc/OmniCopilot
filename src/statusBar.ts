@@ -9,8 +9,9 @@ import {
   type StatusSnapshot,
 } from "./status/statusRenderer";
 import { buildStatusTooltip } from "./status/statusTooltip";
+import type { ResolvedChatUsage } from "./usage";
 
-
+export type ChatUsage = ResolvedChatUsage;
 type Status = StatusKind;
 
 interface ServerHealth {
@@ -18,21 +19,6 @@ interface ServerHealth {
   name: string;
   online: boolean;
   latencyMs?: number;
-}
-
-/** Live token snapshot for the most recent chat round-trip, fed by the provider. */
-export interface ChatUsage {
-  routeId?: string;
-  baseUrl?: string;
-  serverName: string;
-  modelName: string;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens?: number;
-  reasoningTokens?: number;
-  inputTokenProvenance: "reported" | "estimated";
-  outputTokenProvenance: "reported" | "estimated";
-  isEstimated?: boolean;
 }
 
 /** After this idle period without new usage the token readout is cleared. */
@@ -156,21 +142,11 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.disposed) return;
     this.usage = usage;
     if (usage.routeId) {
-      void this.metricsTracker?.recordUsage(
-        usage.routeId,
-        usage.serverName,
-        usage.baseUrl ?? "",
-        usage.modelName,
-        usage.inputTokens,
-        usage.outputTokens,
-        usage.cachedTokens ?? 0,
-        usage.isEstimated ??
-          (usage.inputTokenProvenance === "estimated" ||
-            usage.outputTokenProvenance === "estimated"),
-        usage.reasoningTokens ?? 0,
-        usage.inputTokenProvenance,
-        usage.outputTokenProvenance
-      );
+      void this.metricsTracker?.recordUsage({
+        ...usage,
+        routeId: usage.routeId,
+        baseUrl: usage.baseUrl ?? "",
+      });
     }
     if (this.usageTimer) clearTimeout(this.usageTimer);
     this.usageTimer = setTimeout(() => {
@@ -402,7 +378,6 @@ export class ConnectionStatusBar implements vscode.Disposable {
             reasoningTokens: this.usage.reasoningTokens,
             inputTokenProvenance: this.usage.inputTokenProvenance,
             outputTokenProvenance: this.usage.outputTokenProvenance,
-            isEstimated: this.usage.isEstimated,
           }
         : undefined,
       lastError: this.lastError,

@@ -74,9 +74,16 @@ function appendTokenMetrics(md: vscode.MarkdownString, totals: TooltipTotals | u
   md.appendMarkdown(
     `- **${vscode.l10n.t("Total Tokens")}:** \`${fmtTokens(totals.totalTokens)}\` (${vscode.l10n.t("Input")}: \`${fmtTokens(totals.totalInputTokens)}\` · ${vscode.l10n.t("Output")}: \`${fmtTokens(totals.totalOutputTokens)}\`)\n`
   );
-  md.appendMarkdown(
-    `- **${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(totals.totalCachedTokens)}\` · **${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(totals.totalReasoningTokens)}\`\n`
-  );
+  if (totals.totalCachedTokens > 0 || totals.totalReasoningTokens > 0) {
+    const extras: string[] = [];
+    if (totals.totalCachedTokens > 0) {
+      extras.push(`**${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(totals.totalCachedTokens)}\``);
+    }
+    if (totals.totalReasoningTokens > 0) {
+      extras.push(`**${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(totals.totalReasoningTokens)}\``);
+    }
+    md.appendMarkdown(`- ${extras.join(" · ")}\n`);
+  }
   md.appendMarkdown(`- **${vscode.l10n.t("Input Provenance")}:** ${provenance(totals.inputTokenProvenance)}\n`);
   md.appendMarkdown(`- **${vscode.l10n.t("Output Provenance")}:** ${provenance(totals.outputTokenProvenance)}\n`);
   md.appendMarkdown(
@@ -91,9 +98,19 @@ function appendLastRequest(md: vscode.MarkdownString, snap: StatusSnapshot): voi
     `- **${vscode.l10n.t("Server")}:** ${snap.usage.serverName} (${snap.usage.modelName})\n`
   );
   md.appendMarkdown(
-    `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(snap.usage.inputTokens + snap.usage.outputTokens)}\` (In: \`${fmtTokens(snap.usage.inputTokens)}\` [${snap.usage.inputTokenProvenance}] · Out: \`${fmtTokens(snap.usage.outputTokens)}\` [${snap.usage.outputTokenProvenance}])\n` +
-      `- **${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(snap.usage.cachedTokens ?? 0)}\` · **${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(snap.usage.reasoningTokens ?? 0)}\`\n\n`
+    `- **${vscode.l10n.t("Tokens")}:** \`${fmtTokens(snap.usage.inputTokens + snap.usage.outputTokens)}\` (In: \`${fmtTokens(snap.usage.inputTokens)}\` [${snap.usage.inputTokenProvenance}] · Out: \`${fmtTokens(snap.usage.outputTokens)}\` [${snap.usage.outputTokenProvenance}])\n`
   );
+  const extras: string[] = [];
+  if ((snap.usage.cachedTokens ?? 0) > 0) {
+    extras.push(`**${vscode.l10n.t("Cached Input")}:** \`${fmtTokens(snap.usage.cachedTokens ?? 0)}\``);
+  }
+  if ((snap.usage.reasoningTokens ?? 0) > 0) {
+    extras.push(`**${vscode.l10n.t("Reasoning Output")}:** \`${fmtTokens(snap.usage.reasoningTokens ?? 0)}\``);
+  }
+  if (extras.length > 0) {
+    md.appendMarkdown(`- ${extras.join(" · ")}\n`);
+  }
+  md.appendMarkdown(`\n`);
 }
 
 function appendServers(md: vscode.MarkdownString, snap: StatusSnapshot): void {

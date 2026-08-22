@@ -81,14 +81,16 @@ describe("MetricsTracker", () => {
     });
 
     await tracker.recordStall("route-1", "Legacy Server", "http://legacy.local/v1");
-    await tracker.recordUsage(
-      "route-1",
-      "Legacy Server",
-      "http://legacy.local/v1",
-      "openai/gpt-4o",
-      12,
-      8
-    );
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Legacy Server",
+      baseUrl: "http://legacy.local/v1",
+      modelName: "openai/gpt-4o",
+      inputTokens: 12,
+      outputTokens: 8,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
 
     const metrics = tracker.getMetrics();
     expect(metrics).toMatchObject({
@@ -149,7 +151,16 @@ describe("MetricsTracker", () => {
   });
 
   it("records usage and activity while preserving server names", async () => {
-    await tracker.recordUsage("route-1", "Primary Server", "http://localhost:8080", "gpt-4o", 100, 50);
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "gpt-4o",
+      inputTokens: 100,
+      outputTokens: 50,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
 
     let metrics = tracker.getMetrics();
     expect(metrics.totalTokens).toBe(150);
@@ -170,26 +181,27 @@ describe("MetricsTracker", () => {
   });
 
   it("records cached and estimated tokens accurately", async () => {
-    await tracker.recordUsage(
-      "route-1",
-      "Primary Server",
-      "http://localhost:8080",
-      "claude-sonnet-4-6",
-      200,
-      100,
-      150,
-      false
-    );
-    await tracker.recordUsage(
-      "route-1",
-      "Primary Server",
-      "http://localhost:8080",
-      "fallback-model",
-      50,
-      25,
-      0,
-      true
-    );
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "claude-sonnet-4-6",
+      inputTokens: 200,
+      outputTokens: 100,
+      cachedTokens: 150,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "fallback-model",
+      inputTokens: 50,
+      outputTokens: 25,
+      inputTokenProvenance: "estimated",
+      outputTokenProvenance: "estimated",
+    });
 
     const metrics = tracker.getMetrics();
     expect(metrics.totalTokens).toBe(375);
@@ -210,19 +222,18 @@ describe("MetricsTracker", () => {
 
 
   it("records reasoning as an output subset with exact per-side provenance", async () => {
-    await tracker.recordUsage(
-      "route-1",
-      "Primary Server",
-      "http://localhost:8080",
-      "reasoning-model",
-      120,
-      80,
-      70,
-      false,
-      30,
-      "reported",
-      "estimated"
-    );
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "reasoning-model",
+      inputTokens: 120,
+      outputTokens: 80,
+      cachedTokens: 70,
+      reasoningTokens: 30,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "estimated",
+    });
 
     const metrics = tracker.getMetrics();
     expect(metrics.totalTokens).toBe(200);
@@ -231,6 +242,56 @@ describe("MetricsTracker", () => {
     expect(metrics.inputTokenProvenance).toEqual({ reported: 120, estimated: 0, unknown: 0 });
     expect(metrics.outputTokenProvenance).toEqual({ reported: 0, estimated: 80, unknown: 0 });
     expect(metrics.servers["route-1"].reasoningTokens).toBe(30);
+  });
+
+  it("normalizes invalid primary counts without poisoning cumulative metrics", async () => {
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "invalid-usage-model",
+      inputTokens: Number.NaN,
+      outputTokens: Number.POSITIVE_INFINITY,
+      cachedTokens: -1,
+      reasoningTokens: Number.NaN,
+      inputTokenProvenance: "estimated",
+      outputTokenProvenance: "estimated",
+    });
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.totalInputTokens).toBe(0);
+    expect(metrics.totalOutputTokens).toBe(0);
+    expect(metrics.totalTokens).toBe(0);
+    expect(metrics.totalCachedTokens).toBe(0);
+    expect(metrics.totalReasoningTokens).toBe(0);
+    expect(Object.values(metrics.servers["route-1"]).filter((value) => typeof value === "number").every(Number.isFinite)).toBe(true);
+  });
+
+  it("clamps cached tokens to input and reasoning tokens to output", async () => {
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "bounded-subsets-model",
+      inputTokens: 10,
+      outputTokens: 4,
+      cachedTokens: 100,
+      reasoningTokens: 100,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
+
+    const metrics = tracker.getMetrics();
+    expect(metrics).toMatchObject({
+      totalTokens: 14,
+      totalCachedTokens: 10,
+      totalReasoningTokens: 4,
+    });
+    expect(metrics.servers["route-1"]).toMatchObject({
+      totalTokens: 14,
+      cachedTokens: 10,
+      reasoningTokens: 4,
+    });
   });
 
   it("classifies unreconstructable legacy persisted tokens as unknown", () => {
@@ -269,7 +330,16 @@ describe("MetricsTracker", () => {
   });
 
   it("resets metrics correctly", async () => {
-    await tracker.recordUsage("route-1", "Primary Server", "http://localhost:8080", "gpt-4o", 100, 50);
+    await tracker.recordUsage({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName: "gpt-4o",
+      inputTokens: 100,
+      outputTokens: 50,
+      inputTokenProvenance: "reported",
+      outputTokenProvenance: "reported",
+    });
     await tracker.resetMetrics();
 
     const metrics = tracker.getMetrics();

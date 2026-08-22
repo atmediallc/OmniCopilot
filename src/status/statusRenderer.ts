@@ -2,6 +2,8 @@
  * Produced by the adapter (statusBar.ts), rendered here so the presentation
  * logic stays unit-testable without the VS Code API. */
 
+import type { ResolvedChatUsage } from "../usage";
+
 export type StatusKind =
   | "checking"
   | "online"
@@ -23,17 +25,7 @@ export interface StatusSnapshot {
   status: StatusKind;
   servers: StatusServer[];
   /** Most recent chat round-trip (model + token counts). */
-  usage?: {
-    serverName: string;
-    modelName: string;
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens?: number;
-    reasoningTokens?: number;
-    inputTokenProvenance: "reported" | "estimated";
-    outputTokenProvenance: "reported" | "estimated";
-    isEstimated?: boolean;
-  };
+  usage?: Omit<ResolvedChatUsage, "routeId" | "baseUrl">;
   /** Final failure message of the last request, when it errored out. */
   lastError?: string;
   lastResponseAt?: number;

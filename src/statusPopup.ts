@@ -319,7 +319,7 @@ export class OmniStatusPopup {
       suggestions: [],
       fallbackMode: "sameModel",
       statusBarEnabled: true,
-      retriesPerServer: 3,
+      retriesPerServer: 1,
     };
     const state = {
       ...prev,
@@ -365,7 +365,7 @@ export class OmniStatusPopup {
       const cfg = vscode.workspace.getConfiguration("omnicopilot");
       const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
-      const retriesPerServer = cfg.get<number>("retriesPerServer", 3);
+      const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
       const snapshot = this.statusBar.getSnapshot();
       const suggestions = this.metricsTracker.generateSuggestions(
         routes,
@@ -694,9 +694,9 @@ export class OmniStatusPopup {
         <div class="metric-label-row" style="margin-top:4px;">
           <span id="io-avg-text" style="opacity:0.75; font-size:11px;">No requests yet</span>
         </div>
-        <div class="metric-label-row" style="margin-top:6px;">
-          <span id="cached-tokens-text">Cached Input: 0</span>
-          <span id="reasoning-tokens-text">Reasoning Output: 0</span>
+        <div id="subset-tokens-row" class="metric-label-row" style="margin-top:6px; display:none;">
+          <span id="cached-tokens-text"></span>
+          <span id="reasoning-tokens-text"></span>
         </div>
         <div class="metric-label-row" style="margin-top:4px; font-size:11px; opacity:0.75;">
           <span id="input-provenance-text">Input Provenance: reported 0 · estimated 0 · unknown 0</span>
@@ -864,6 +864,7 @@ export class OmniStatusPopup {
       const ioAvgText = document.getElementById('io-avg-text');
       const cachedTokensText = document.getElementById('cached-tokens-text');
       const reasoningTokensText = document.getElementById('reasoning-tokens-text');
+      const subsetTokensRow = document.getElementById('subset-tokens-row');
       const inputProvenanceText = document.getElementById('input-provenance-text');
       const outputProvenanceText = document.getElementById('output-provenance-text');
 
@@ -899,8 +900,21 @@ export class OmniStatusPopup {
           ? 'avg per request: In ' + fmtTokens(Math.round(inVal / reqs)) + ' · Out ' + fmtTokens(Math.round(outVal / reqs))
           : 'No requests yet';
       }
-      if (cachedTokensText) cachedTokensText.textContent = 'Cached Input: ' + fmtTokens(metrics.totalCachedTokens || 0);
-      if (reasoningTokensText) reasoningTokensText.textContent = 'Reasoning Output: ' + fmtTokens(metrics.totalReasoningTokens || 0);
+      if (cachedTokensText) {
+        cachedTokensText.textContent = metrics.totalCachedTokens
+          ? 'Cached Input: ' + fmtTokens(metrics.totalCachedTokens)
+          : '';
+      }
+      if (reasoningTokensText) {
+        reasoningTokensText.textContent = metrics.totalReasoningTokens
+          ? 'Reasoning Output: ' + fmtTokens(metrics.totalReasoningTokens)
+          : '';
+      }
+      if (subsetTokensRow) {
+        subsetTokensRow.style.display = metrics.totalCachedTokens || metrics.totalReasoningTokens
+          ? 'flex'
+          : 'none';
+      }
       const provenanceText = p => 'reported ' + fmtTokens(p?.reported || 0) + ' · estimated ' + fmtTokens(p?.estimated || 0) + ' · unknown ' + fmtTokens(p?.unknown || 0);
       if (inputProvenanceText) inputProvenanceText.textContent = 'Input Provenance: ' + provenanceText(metrics.inputTokenProvenance);
       if (outputProvenanceText) outputProvenanceText.textContent = 'Output Provenance: ' + provenanceText(metrics.outputTokenProvenance);
