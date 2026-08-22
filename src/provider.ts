@@ -101,6 +101,12 @@ function errorStatus(err: unknown): number | undefined {
   return err instanceof OmniRouteError ? err.status : undefined;
 }
 
+/** Whether a failed candidate rejected request admission for this route. */
+function isAdmissionSaturationError(err: unknown): boolean {
+  const status = errorStatus(err);
+  return status === 429 || status === 503 || isThrottleError(err);
+}
+
 /** Jittered delay between retries. Honors the upstream's Retry-After header
  * when present (capped at 30s) so a misbehaving server can't stall a request. */
 function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number): number {
@@ -746,8 +752,7 @@ export class OmniRouteChatProvider
           return;
         }
         lastError = outcome.error;
-        const status = errorStatus(outcome.error);
-        if (status === 429 || status === 503 || isThrottleError(outcome.error)) {
+        if (isAdmissionSaturationError(outcome.error)) {
           saturatedRoutes.add(cand.routeId);
         }
         const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
@@ -764,22 +769,11 @@ export class OmniRouteChatProvider
         }
         i = lastAttemptedIndex + 1;
       }
-      if (lastError !== undefined) {
-        requestSettled = true;
-        this.reportChatFailure({
-          routeId: candidates[0]?.routeId,
-          fallbacksUsed: candidates.length - 1,
-          err: lastError,
-          modelId: plan.modelId,
-          serverCount: plan.serverCount,
-          candidateCount: candidates.length,
-        });
-      }
       requestSettled = true;
       this.reportChatFailure({
         routeId: candidates[0]?.routeId,
-        fallbacksUsed: candidates.length,
-        err: new OmniRouteError("No configured route served this model", undefined),
+        fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
+        err: lastError ?? new OmniRouteError("No configured route served this model", undefined),
         modelId: plan.modelId,
         serverCount: plan.serverCount,
         candidateCount: candidates.length,

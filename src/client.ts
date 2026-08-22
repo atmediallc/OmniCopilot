@@ -1296,6 +1296,20 @@ function handleMessagesSseLine(
       alive: true,
     };
   }
+  if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+    return {
+      events: event.delta.text ? [{ kind: "text", text: event.delta.text }] : [],
+      alive: Boolean(event.delta.text),
+    };
+  }
+  const toolResult = handleMessagesToolEvent(event, assembler);
+  return toolResult ?? { events: [], alive: Boolean(event.type) };
+}
+
+function handleMessagesToolEvent(
+  event: MessagesStreamEvent,
+  assembler: MessagesToolCallAssembler
+): { events: StreamEvent[]; alive: boolean } | undefined {
   if (event.type === "content_block_start" && event.index !== undefined && event.content_block?.type === "tool_use") {
     assembler.start(
       event.index,
@@ -1304,12 +1318,6 @@ function handleMessagesSseLine(
       event.content_block.input
     );
     return { events: [], alive: true };
-  }
-  if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-    return {
-      events: event.delta.text ? [{ kind: "text", text: event.delta.text }] : [],
-      alive: Boolean(event.delta.text),
-    };
   }
   if (
     event.type === "content_block_delta" &&
@@ -1325,7 +1333,7 @@ function handleMessagesSseLine(
   if (event.type === "message_stop") {
     return { events: [...assembler.flush()], alive: true };
   }
-  return { events: [], alive: Boolean(event.type) };
+  return undefined;
 }
 
 function messagesSseError(message: string, type?: string): OmniRouteError {
