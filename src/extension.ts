@@ -184,7 +184,7 @@ function registerCommands(
   // The management gear in "Manage Models" and the status-bar menu both land
   // on the visual panel (Activity Bar view) where URL + API key live.
   register("omnicopilot.manage", () => panel?.focus());
-  register("omnicopilot.openSettings", () =>
+  register("omnicopilot.openSettings", async () =>
     vscode.commands.executeCommand("workbench.action.openSettings", "omnicopilot")
   );
   register("omnicopilot.setApiKey", () => setApiKey(context, log));

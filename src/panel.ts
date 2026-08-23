@@ -2,6 +2,8 @@ import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { formatErrorValue, normalizeBaseUrl } from "./client";
 import { cachedLoadRoutes, getClientForRoute, saveRoutes } from "./routes";
+import { fetchUsage } from "./usageEndpoint";
+import type { UsageView } from "./usageEndpoint";
 
 interface RawRouteInput {
   id?: string;
@@ -22,6 +24,8 @@ interface PanelRoute {
   hasKey: boolean;
   online: boolean;
   modelCount: number | null;
+  /** OmniCopilot #8 — this route key's own spend. Omitted when offline/no key/fetch failed. */
+  usage?: UsageView;
 }
 
 
@@ -33,7 +37,7 @@ interface PanelStatus {
 }
 
 /** Sidebar webview: connection status, server URL and API key form,
- * plus the extension's quick actions — the visual home of the extension. */
+ * plus the extension's quick actions ÔÇö the visual home of the extension. */
 export class OmniPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = "omnicopilot.panel";
 
@@ -66,6 +70,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
           hasKey: Boolean(r.apiKey),
           online: false,
           modelCount: null,
+          usage: undefined,
         })),
         onlineCount: 0,
         total: routes.length,
@@ -153,6 +158,16 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       routes.map(async (r) => {
         const client = getClientForRoute(r, this.log);
         const online = await client.ping(5000);
+        // OmniCopilot #8 — the route key's own spend, fetched only when the
+        // server answers and a key exists. Any failure hides the section.
+        let usage: UsageView | undefined;
+        if (online && r.apiKey) {
+          try {
+            usage = await fetchUsage(client.baseUrl, r.apiKey);
+          } catch {
+            usage = undefined;
+          }
+        }
         return {
           id: r.id,
           name: r.name,
@@ -160,6 +175,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
           hasKey: Boolean(r.apiKey),
           online,
           modelCount: null,
+          usage,
         };
       })
     );
@@ -193,10 +209,15 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       summary: t("{0}/{1} servers online"),
       linkRefresh: t("Refresh models in the picker"),
       linkDashboard: t("Open a dashboard"),
-      linkCli: t("Configure a coding CLI (Codex, Claude Code…)"),
+      linkCli: t("Configure a coding CLI (Codex, Claude CodeÔÇª)"),
       linkInstall: t("Install OmniRoute"),
       linkGitHub: t("OmniRoute on GitHub"),
       linkSettings: t("Extension settings"),
+      usageTitle: t("My usage"),
+      usageDaily: t("Daily"),
+      usageWeekly: t("Weekly"),
+      usageDisabled: t("Usage is not enabled for this key. An admin can turn on the usage command for it in OmniRoute."),
+      usageEmpty: t("Usage is reported, but nothing is cached yet — it fills in after the first requests."),
     };
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -217,6 +238,8 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   .remove { background: none; border: none; color: var(--vscode-editorError-foreground); cursor: pointer; font-size: 13px; padding: 0 4px; }
   .remove:disabled { opacity: .35; cursor: default; }
   .hint { opacity: .7; font-style: italic; padding: 6px 0; }
+  .usage label { display: block; margin-top: 8px; color: var(--vscode-descriptionForeground); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+  .usage .muted { opacity: .85; word-break: break-word; }
   button.primary { width: 100%; padding: 6px; cursor: pointer; margin-top: 4px; }
   .links { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
   .link { cursor: pointer; opacity: .9; display: flex; align-items: center; gap: 6px; }
@@ -228,7 +251,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 <h3><span id="dot" class="dot"></span> ${S.title}</h3>
 <div id="summary" style="opacity:.8; margin-bottom:8px"></div>
 <div id="routes"></div>
-<button id="add" class="primary">＋ ${S.add}</button>
+<button id="add" class="primary">´╝ï ${S.add}</button>
 <button id="save" class="primary">${S.save}</button>
 
 <div class="links">
@@ -252,7 +275,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   const saveBtn = document.getElementById("save");
   let routes = []; // [{id, name, url, hasKey, online, modelCount}]
 
-      const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "✕" });
+      const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "Ô£ò" });
       rem.disabled = routes.length <= 1;
       rem.addEventListener("click", () => { routes.splice(i, 1); render(); });
 
@@ -268,6 +291,68 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       const st = el("div", { className: "status" });
       st.appendChild(stDot); st.appendChild(stText); st.appendChild(el("span", { style: "flex:1" }));
       card.appendChild(st); card.appendChild(rem);
+
+      // OmniCopilot #8 — this route's own spend. Built with textContent/
+      // createElement only: quota numbers come from the server and must
+      // never reach innerHTML.
+      const usageEl = el("div", { className: "usage", style: "display:none" });
+      const usageTitle = el("label", { textContent: STRINGS.usageTitle });
+      const usageBody = el("div", { className: "muted" });
+      usageEl.append(usageTitle, usageBody);
+      const u = r.usage;
+      if (u && u.kind !== "unsupported") {
+        usageEl.style.display = "block";
+        if (u.kind === "disabled") {
+          usageBody.textContent = STRINGS.usageDisabled;
+        } else {
+          const line = (label, text) => {
+            const rowEl = el("div");
+            const b = el("strong");
+            b.textContent = label + ": ";
+            rowEl.append(b, text);
+            usageBody.append(rowEl);
+          };
+          const pers = u.personal;
+          if (pers) {
+            const usd = (v) => (typeof v === "number" ? "$" + v.toFixed(2) : "—");
+            const left = (spent, limit) =>
+              typeof limit === "number" && limit > 0
+                ? " (" + Math.max(0, Math.round((1 - spent / limit) * 100)) + "% left)"
+                : "";
+            const resetSuffix = (iso) => {
+              // Mini mirror of the host-side formatResetIn (the client script
+              // cannot import extension modules).
+              if (!iso) return "";
+              const ms = Date.parse(iso) - Date.now();
+              if (!Number.isFinite(ms)) return "";
+              if (ms <= 0) return " · resets now";
+              const mins = Math.round(ms / 60000);
+              const d = Math.floor(mins / 1440);
+              const h = Math.floor((mins % 1440) / 60);
+              const m = mins % 60;
+              const txt = d > 0 ? d + "d " + h + "h" : h > 0 ? h + "h " + m + "m" : m + "m";
+              return " · " + STRINGS.usageResetsIn.replace("{0}", txt);
+            };
+            if (pers.dailyLimitUsd !== null)
+              line(STRINGS.usageDaily, usd(pers.dailySpentUsd) + " / " + usd(pers.dailyLimitUsd) + left(pers.dailySpentUsd, pers.dailyLimitUsd) + resetSuffix(pers.dailyResetAtIso));
+            if (pers.weeklyLimitUsd !== null)
+              line(STRINGS.usageWeekly, usd(pers.weeklySpentUsd) + " / " + usd(pers.weeklyLimitUsd) + left(pers.weeklySpentUsd, pers.weeklyLimitUsd) + resetSuffix(pers.weeklyResetAtIso));
+          }
+          const providers = Array.isArray(u.providers) ? u.providers : [];
+          if (providers.length === 0 && !pers) {
+            usageBody.textContent = STRINGS.usageEmpty;
+          } else {
+            for (const snap of providers) {
+              const windows = Object.entries(snap.quotas ?? {});
+              for (const [wname, q] of windows) {
+                const remTxt = typeof q.remaining === "number" ? q.remaining + "% left" : "";
+                line(snap.provider + (windows.length > 1 ? " · " + wname : ""), remTxt || "—");
+              }
+            }
+          }
+        }
+      }
+      card.appendChild(usageEl);
       card.__idx = i;
       host.appendChild(card);
     });
