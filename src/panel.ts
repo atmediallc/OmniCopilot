@@ -37,7 +37,7 @@ interface PanelStatus {
 }
 
 /** Sidebar webview: connection status, server URL and API key form,
- * plus the extension's quick actions ÔÇö the visual home of the extension. */
+ * plus the extension's quick actions — the visual home of the extension. */
 export class OmniPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = "omnicopilot.panel";
 
@@ -209,7 +209,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       summary: t("{0}/{1} servers online"),
       linkRefresh: t("Refresh models in the picker"),
       linkDashboard: t("Open a dashboard"),
-      linkCli: t("Configure a coding CLI (Codex, Claude CodeÔÇª)"),
+      linkCli: t("Configure a coding CLI (Codex, Claude Code…)"),
       linkInstall: t("Install OmniRoute"),
       linkGitHub: t("OmniRoute on GitHub"),
       linkSettings: t("Extension settings"),
@@ -251,7 +251,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 <h3><span id="dot" class="dot"></span> ${S.title}</h3>
 <div id="summary" style="opacity:.8; margin-bottom:8px"></div>
 <div id="routes"></div>
-<button id="add" class="primary">´╝ï ${S.add}</button>
+<button id="add" class="primary">＋ ${S.add}</button>
 <button id="save" class="primary">${S.save}</button>
 
 <div class="links">
@@ -275,7 +275,17 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   const saveBtn = document.getElementById("save");
   let routes = []; // [{id, name, url, hasKey, online, modelCount}]
 
-      const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "Ô£ò" });
+  function render() {
+    host.textContent = "";
+    if (routes.length === 0) host.appendChild(el("div", { className: "hint", textContent: "＋ " + STRINGS.add }));
+    routes.forEach((r, i) => {
+      const card = el("div", { className: "card" });
+      const name = el("input", { type: "text", value: r.name || "", maxLength: 40 });
+      const url = el("input", { type: "text", value: r.url || "", placeholder: STRINGS.urlPlaceholder, spellcheck: false });
+      const key = el("input", { type: "password", value: "", placeholder: r.hasKey ? STRINGS.keyStored : STRINGS.keyPlaceholder, spellcheck: false });
+      const stDot = el("span", { className: "dot" + (r.online ? " on" : " off") });
+      const stText = el("span", { textContent: r.online ? STRINGS.online : STRINGS.offline });
+      const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "✕" });
       rem.disabled = routes.length <= 1;
       rem.addEventListener("click", () => { routes.splice(i, 1); render(); });
 
