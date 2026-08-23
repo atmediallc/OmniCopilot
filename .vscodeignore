@@ -13,3 +13,8 @@ eslint.config.mjs
 !dist/**
 .gitignore
 assets/icon.svg
+
+# publish tokens — never ship in the .vsix
+.env
+.env.*
+!.env.example
