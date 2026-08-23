@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 1.2.0
 
 - **The panel now shows your key's own spend.** A **My usage** section reads OmniRoute's
   self-service endpoint (`GET /api/usage/om-usage?format=json`) and renders the daily/weekly
