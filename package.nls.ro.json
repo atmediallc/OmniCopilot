@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Reîmprospătare modele",
   "cmd.setApiKey": "Setare cheie API",
   "cmd.showStatusPopup": "Afișează valorile tokenurilor și fereastra de stare",
-  "view.connection": "Conexiune"
+  "view.connection": "Conexiune",
+  "cmd.openSettings": "Deschide setările"
 }

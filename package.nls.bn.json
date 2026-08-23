@@ -36,5 +36,6 @@
   "cmd.refreshModels": "মডেল রিফ্রেশ করুন",
   "cmd.setApiKey": "API কী সেট করুন",
   "cmd.showStatusPopup": "টোকেন মেট্রিক্স ও স্ট্যাটাস পপআপ দেখান",
-  "view.connection": "সংযোগ"
+  "view.connection": "সংযোগ",
+  "cmd.openSettings": "সেটিংস খুলুন"
 }

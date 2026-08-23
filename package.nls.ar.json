@@ -36,5 +36,6 @@
   "cmd.refreshModels": "تحديث النماذج",
   "cmd.setApiKey": "تعيين مفتاح API",
   "cmd.showStatusPopup": "إظهار نافذة مقاييس الرموز والحالة",
-  "view.connection": "الاتصال"
+  "view.connection": "الاتصال",
+  "cmd.openSettings": "فتح الإعدادات"
 }

@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Обновить модели",
   "cmd.setApiKey": "Задать ключ API",
   "cmd.showStatusPopup": "Показать метрики токенов и окно состояния",
-  "view.connection": "Подключение"
+  "view.connection": "Подключение",
+  "cmd.openSettings": "Открыть настройки"
 }

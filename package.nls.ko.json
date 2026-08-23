@@ -36,5 +36,6 @@
   "cmd.refreshModels": "모델 새로 고침",
   "cmd.setApiKey": "API 키 설정",
   "cmd.showStatusPopup": "토큰 메트릭 및 상태 팝업 표시",
-  "view.connection": "연결"
+  "view.connection": "연결",
+  "cmd.openSettings": "설정 열기"
 }

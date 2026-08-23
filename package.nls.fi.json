@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Päivitä mallit",
   "cmd.setApiKey": "Aseta API-avain",
   "cmd.showStatusPopup": "Näytä token-mittarit ja tilaponi",
-  "view.connection": "Yhteys"
+  "view.connection": "Yhteys",
+  "cmd.openSettings": "Avaa asetukset"
 }

@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Modellen vernieuwen",
   "cmd.setApiKey": "API-sleutel instellen",
   "cmd.showStatusPopup": "Tokenmetriek en statuspop-up tonen",
-  "view.connection": "Verbinding"
+  "view.connection": "Verbinding",
+  "cmd.openSettings": "Instellingen openen"
 }

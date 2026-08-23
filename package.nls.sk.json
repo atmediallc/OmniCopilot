@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Obnoviť modely",
   "cmd.setApiKey": "Nastaviť kľúč API",
   "cmd.showStatusPopup": "Zobraziť metriky tokenov a okno stavu",
-  "view.connection": "Pripojenie"
+  "view.connection": "Pripojenie",
+  "cmd.openSettings": "Otvoriť nastavenia"
 }

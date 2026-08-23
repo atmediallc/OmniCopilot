@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Оновити моделі",
   "cmd.setApiKey": "Задати ключ API",
   "cmd.showStatusPopup": "Показати метрики токенів і вікно стану",
-  "view.connection": "Підключення"
+  "view.connection": "Підключення",
+  "cmd.openSettings": "Відкрити налаштування"
 }

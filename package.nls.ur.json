@@ -36,5 +36,6 @@
   "cmd.refreshModels": "ماڈلز ریفریش کریں",
   "cmd.setApiKey": "API کلید سیٹ کریں",
   "cmd.showStatusPopup": "ٹوکن میٹرکس اور اسٹیٹس پاپ اپ دکھائیں",
-  "view.connection": "کنکشن"
+  "view.connection": "کنکشن",
+  "cmd.openSettings": "ترتیبات کھولیں"
 }

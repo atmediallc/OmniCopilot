@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Aggiorna modelli",
   "cmd.setApiKey": "Imposta chiave API",
   "cmd.showStatusPopup": "Mostra metriche token e popup di stato",
-  "view.connection": "Connessione"
+  "view.connection": "Connessione",
+  "cmd.openSettings": "Apri impostazioni"
 }

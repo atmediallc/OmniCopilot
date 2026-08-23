@@ -36,5 +36,6 @@
   "cmd.refreshModels": "மாடல்களைப் புதுப்பி",
   "cmd.setApiKey": "API விசையை அமை",
   "cmd.showStatusPopup": "டோக்கன் அளவீடுகள் மற்றும் நிலை பாப்அப்பைக் காட்டு",
-  "view.connection": "இணைப்பு"
+  "view.connection": "இணைப்பு",
+  "cmd.openSettings": "அமைப்புகளைத் திற"
 }

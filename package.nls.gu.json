@@ -36,5 +36,6 @@
   "cmd.refreshModels": "મોડેલ્સ રિફ્રેશ કરો",
   "cmd.setApiKey": "API કી સેટ કરો",
   "cmd.showStatusPopup": "ટોકન મેટ્રિક્સ અને સ્ટેટસ પોપઅપ બતાવો",
-  "view.connection": "કનેક્શન"
+  "view.connection": "કનેક્શન",
+  "cmd.openSettings": "સેટિંગ્સ ખોલો"
 }

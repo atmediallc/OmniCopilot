@@ -36,5 +36,6 @@
   "cmd.refreshModels": "モデルの更新",
   "cmd.setApiKey": "APIキーの設定",
   "cmd.showStatusPopup": "トークンメトリクスとステータスポップアップを表示",
-  "view.connection": "接続"
+  "view.connection": "接続",
+  "cmd.openSettings": "設定を開く"
 }

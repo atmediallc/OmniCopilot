@@ -36,5 +36,6 @@
   "cmd.refreshModels": "刷新模型",
   "cmd.setApiKey": "设置 API 密钥",
   "cmd.showStatusPopup": "显示令牌指标和状态弹窗",
-  "view.connection": "连接"
+  "view.connection": "连接",
+  "cmd.openSettings": "打开设置"
 }

@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Actualizar modelos",
   "cmd.setApiKey": "Establecer clave de API",
   "cmd.showStatusPopup": "Show OmniRoute Connection Status",
-  "view.connection": "Conexión"
+  "view.connection": "Conexión",
+  "cmd.openSettings": "Abrir configuración"
 }

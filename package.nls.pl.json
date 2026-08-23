@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Odśwież modele",
   "cmd.setApiKey": "Ustaw klucz API",
   "cmd.showStatusPopup": "Pokaż metryki tokenów i okno statusu",
-  "view.connection": "Połączenie"
+  "view.connection": "Połączenie",
+  "cmd.openSettings": "Otwórz ustawienia"
 }

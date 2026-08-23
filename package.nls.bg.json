@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Опресняване на моделите",
   "cmd.setApiKey": "Задаване на API ключ",
   "cmd.showStatusPopup": "Показване на прозореца с токени и статистика",
-  "view.connection": "Връзка"
+  "view.connection": "Връзка",
+  "cmd.openSettings": "Отвори настройките"
 }

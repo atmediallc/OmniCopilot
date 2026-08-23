@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Làm mới mô hình",
   "cmd.setApiKey": "Đặt khóa API",
   "cmd.showStatusPopup": "Hiển thị số liệu token và cửa sổ trạng thái",
-  "view.connection": "Kết nối"
+  "view.connection": "Kết nối",
+  "cmd.openSettings": "Mở Cài đặt"
 }

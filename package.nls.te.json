@@ -36,5 +36,6 @@
   "cmd.refreshModels": "మోడల్స్‌ను రిఫ్రెష్ చేయండి",
   "cmd.setApiKey": "API కీని సెట్ చేయండి",
   "cmd.showStatusPopup": "టోకెన్ మెట్రిక్లు మరియు స్టేటస్ పాపప్ను చూపించు",
-  "view.connection": "కనెక్షన్"
+  "view.connection": "కనెక్షన్",
+  "cmd.openSettings": "సెట్టింగ్‌లను తెరవండి"
 }

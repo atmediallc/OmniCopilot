@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Uppdatera modeller",
   "cmd.setApiKey": "Ange API-nyckel",
   "cmd.showStatusPopup": "Visa tokenmätvärden och status-popup",
-  "view.connection": "Anslutning"
+  "view.connection": "Anslutning",
+  "cmd.openSettings": "Öppna inställningar"
 }

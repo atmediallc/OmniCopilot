@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Atualizar Modelos",
   "cmd.setApiKey": "Definir Chave de API",
   "cmd.showStatusPopup": "Mostrar métricas de tokens e pop-up de estado",
-  "view.connection": "Ligação"
+  "view.connection": "Ligação",
+  "cmd.openSettings": "Abrir Definições"
 }

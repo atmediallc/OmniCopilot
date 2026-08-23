@@ -36,5 +36,6 @@
   "cmd.refreshModels": "รีเฟรชโมเดล",
   "cmd.setApiKey": "ตั้งค่าคีย์ API",
   "cmd.showStatusPopup": "แสดงเมตริกโทเค็นและป๊อปอัปสถานะ",
-  "view.connection": "การเชื่อมต่อ"
+  "view.connection": "การเชื่อมต่อ",
+  "cmd.openSettings": "เปิดการตั้งค่า"
 }

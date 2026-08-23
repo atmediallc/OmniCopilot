@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Modelləri yenilə",
   "cmd.setApiKey": "API açarını təyin et",
   "cmd.showStatusPopup": "Token ölçüləri və status popupını göstər",
-  "view.connection": "Bağlantı"
+  "view.connection": "Bağlantı",
+  "cmd.openSettings": "Parametrləri aç"
 }

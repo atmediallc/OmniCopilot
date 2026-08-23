@@ -36,5 +36,6 @@
   "cmd.refreshModels": "I-refresh ang Mga Model",
   "cmd.setApiKey": "Itakda ang API Key",
   "cmd.showStatusPopup": "Ipakita ang Token Metrics at Status Popup",
-  "view.connection": "Koneksyon"
+  "view.connection": "Koneksyon",
+  "cmd.openSettings": "Buksan ang Settings"
 }

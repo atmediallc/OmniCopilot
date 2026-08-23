@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Opdater modeller",
   "cmd.setApiKey": "Angiv API-nøgle",
   "cmd.showStatusPopup": "Vis token-målinger og status-popup",
-  "view.connection": "Forbindelse"
+  "view.connection": "Forbindelse",
+  "cmd.openSettings": "Åbn indstillinger"
 }

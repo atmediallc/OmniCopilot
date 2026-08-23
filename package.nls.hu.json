@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Modellek frissítése",
   "cmd.setApiKey": "API-kulcs beállítása",
   "cmd.showStatusPopup": "Token-metrikák és állapot előugró ablak megjelenítése",
-  "view.connection": "Kapcsolat"
+  "view.connection": "Kapcsolat",
+  "cmd.openSettings": "Beállítások megnyitása"
 }

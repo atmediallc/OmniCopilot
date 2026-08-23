@@ -36,5 +36,6 @@
   "cmd.refreshModels": "重新整理模型",
   "cmd.setApiKey": "設定 API 金鑰",
   "cmd.showStatusPopup": "顯示令牌計量與狀態彈出視窗",
-  "view.connection": "連線"
+  "view.connection": "連線",
+  "cmd.openSettings": "開啟設定"
 }

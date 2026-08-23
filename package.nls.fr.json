@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Actualiser les modèles",
   "cmd.setApiKey": "Définir la clé API",
   "cmd.showStatusPopup": "Afficher les métriques de jetons et la fenêtre d’état",
-  "view.connection": "Connexion"
+  "view.connection": "Connexion",
+  "cmd.openSettings": "Ouvrir les paramètres"
 }

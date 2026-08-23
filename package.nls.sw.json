@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Sasisha Modeli",
   "cmd.setApiKey": "Weka Ufunguo wa API",
   "cmd.showStatusPopup": "Onyesha vipimo vya tokeni na popup ya hali",
-  "view.connection": "Muunganisho"
+  "view.connection": "Muunganisho",
+  "cmd.openSettings": "Fungua Mipangilio"
 }

@@ -36,5 +36,6 @@
   "cmd.refreshModels": "רענון מודלים",
   "cmd.setApiKey": "הגדרת מפתח API",
   "cmd.showStatusPopup": "הצג מדדי טוקנים וחלון מצב",
-  "view.connection": "חיבור"
+  "view.connection": "חיבור",
+  "cmd.openSettings": "פתח הגדרות"
 }

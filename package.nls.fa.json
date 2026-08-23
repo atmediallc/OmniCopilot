@@ -36,5 +36,6 @@
   "cmd.refreshModels": "نوسازی مدل‌ها",
   "cmd.setApiKey": "تنظیم کلید API",
   "cmd.showStatusPopup": "نمایش پنجره آمار توکن‌ها و وضعیت",
-  "view.connection": "اتصال"
+  "view.connection": "اتصال",
+  "cmd.openSettings": "باز کردن تنظیمات"
 }

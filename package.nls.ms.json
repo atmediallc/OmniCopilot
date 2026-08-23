@@ -36,5 +36,6 @@
   "cmd.refreshModels": "Segar Semula Model",
   "cmd.setApiKey": "Tetapkan Kunci API",
   "cmd.showStatusPopup": "Paparkan Metrik Token & Popup Status",
-  "view.connection": "Sambungan"
+  "view.connection": "Sambungan",
+  "cmd.openSettings": "Buka Tetapan"
 }
