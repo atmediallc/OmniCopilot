@@ -4,6 +4,7 @@ import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, 
 import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
 import { selectChatModels } from "./catalogFilter";
+import { transportSurfaceLabel } from "./supportedEndpoints";
 import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { containsVisibleText } from "./visibleText";
 import {
@@ -477,6 +478,11 @@ export class OmniRouteChatProvider
     if (supportsReasoning) capsTags.push("extended thinking");
     if (caps.vision === true) capsTags.push("vision");
 
+    // Per-model API-surface indication, derived from the same authoritative
+    // transport plan used for streaming.
+    const surfaceTags = transportSurfaceLabel(transportPlanForModel(model));
+    capsTags.push(surfaceTags);
+
     const routeLabel = c.entry.routeName || "OmniRoute";
     const tooltip = `${routeLabel} · ${model.id} (${capsTags.join(" · ")})`;
 
@@ -485,7 +491,7 @@ export class OmniRouteChatProvider
       name,
       family: model.owned_by || "omniroute",
       version: "1.0.0",
-      detail: isCombo ? "combo" : (c.entry.routeName || model.owned_by),
+      detail: isCombo ? `combo · ${surfaceTags}` : (c.entry.routeName || model.owned_by),
       tooltip,
       maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
       maxOutputTokens,

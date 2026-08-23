@@ -1,3 +1,5 @@
+import type { ModelTransport } from "./types";
+
 /** Canonical endpoint capabilities advertised by OmniRoute model metadata. */
 export type SupportedEndpointClass =
   | "responses"
@@ -81,4 +83,22 @@ export function classifySupportedEndpoints(
       .filter((endpoint): endpoint is string => typeof endpoint === "string")
       .map(classifySupportedEndpoint)
   );
+}
+
+/** Human-readable API-surface labels, keyed by transport, in plan order. */
+const TRANSPORT_LABELS: Record<ModelTransport, string> = {
+  responses: "Responses",
+  chatCompletions: "Chat",
+  messages: "Messages",
+};
+
+/** Compact surface indication for the model picker (e.g. "Responses/Chat").
+ * An empty plan renders as "no compatible" so an unusable row is never
+ * presented as silently equivalent to a working one. */
+export function transportSurfaceLabel(plan: readonly ModelTransport[]): string {
+  if (!plan || plan.length === 0) return "no compatible";
+  const labels = plan
+    .map((transport) => TRANSPORT_LABELS[transport])
+    .filter(Boolean);
+  return labels.length > 0 ? labels.join("/") : "no compatible";
 }

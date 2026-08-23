@@ -3,6 +3,7 @@ import {
   classifySupportedEndpoint,
   classifySupportedEndpoints,
   normalizeSupportedEndpoint,
+  transportSurfaceLabel,
 } from "../src/supportedEndpoints";
 
 describe("normalizeSupportedEndpoint", () => {
@@ -90,5 +91,24 @@ describe("classifySupportedEndpoints", () => {
 
   it("rejects invalid entries from a list instead of letting them add unknown compatibility", () => {
     expect(classifySupportedEndpoints(["/search", 42, null])).toEqual(new Set(["specialty"]));
+  });
+});
+
+describe("transportSurfaceLabel", () => {
+  it("labels the full compatibility plan in order", () => {
+    expect(transportSurfaceLabel(["responses", "chatCompletions"])).toBe("Responses/Chat");
+  });
+
+  it.each([
+    [["messages"], "Messages"],
+    [["chatCompletions"], "Chat"],
+    [["responses", "messages"], "Responses/Messages"],
+    [["chatCompletions", "messages"], "Chat/Messages"],
+  ] as const)("labels %j as %j", (plan, expected) => {
+    expect(transportSurfaceLabel(plan)).toBe(expected);
+  });
+
+  it("marks an unusable model instead of hiding its incompatibility", () => {
+    expect(transportSurfaceLabel([])).toBe("no compatible");
   });
 });
