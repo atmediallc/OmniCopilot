@@ -46,10 +46,6 @@ const dummyToken = {
   onCancellationRequested: () => ({ dispose: () => {} }),
 } as unknown as vscode.CancellationToken;
 
-async function* streamText(text: string): AsyncGenerator<{ kind: string; text: string }> {
-  yield { kind: "text", text };
-}
-
 describe("full fallback at the request level", () => {
   afterEach(() => {
     routesModule.resetAllCooldowns();
@@ -64,7 +60,7 @@ describe("full fallback at the request level", () => {
     const client = {
       baseUrl: "http://server-a.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("initial attempt answered")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "initial attempt answered" }]),
     };
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
       { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
@@ -205,7 +201,7 @@ describe("full fallback at the request level", () => {
       listModels: vi
         .fn()
         .mockResolvedValue([{ id: "openai/gpt-4o" }, { id: "kimi/k2" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("fallback reply")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "fallback reply" }]),
     };
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -272,7 +268,7 @@ describe("full fallback at the request level", () => {
     const clientB = {
       baseUrl: "http://server-b.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("offline server answered")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "offline server answered" }]),
     };
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -310,7 +306,33 @@ describe("full fallback at the request level", () => {
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
   });
 
-  it.each([429, 503])("honors retriesPerServer for HTTP %i admission failures and immediately tries another route", async (status) => {
+  it.each([
+    {
+      scenario: "generic HTTP 429",
+      status: 429,
+      message: "Too many requests",
+      expectedAttempts: 2,
+    },
+    {
+      scenario: "HTTP 429 with nested chat_admission_busy",
+      status: 429,
+      message:
+        '{"error":{"message":"Chat admission capacity is temporarily unavailable. Retry shortly.","type":"server_error","code":"chat_admission_busy"}}',
+      expectedAttempts: 1,
+    },
+    {
+      scenario: "explicit HTTP 503 admission-capacity rejection",
+      status: 503,
+      message: "Chat admission capacity is temporarily unavailable",
+      expectedAttempts: 1,
+    },
+    {
+      scenario: "generic HTTP 503",
+      status: 503,
+      message: "Service unavailable",
+      expectedAttempts: 2,
+    },
+  ])("handles $scenario and immediately tries another route when appropriate", async ({ status, message, expectedAttempts }) => {
     configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
@@ -329,14 +351,14 @@ describe("full fallback at the request level", () => {
         { id: "openai/gpt-4o-mini" },
       ]),
       streamModel: vi.fn().mockImplementation(async function* () {
-        throw new OmniRouteError("Chat admission capacity is temporarily unavailable", status);
+        throw new OmniRouteError(message, status);
       }),
     };
     // Server B: healthy backup
     const clientB = {
       baseUrl: "http://server-b.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("server B answered")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "server B answered" }]),
     };
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -366,15 +388,22 @@ describe("full fallback at the request level", () => {
       dummyToken
     );
 
-    // The initial attempt plus the configured retry are honored; same-route
-    // fallback is skipped after admission remains saturated.
-    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
+    // Explicit capacity rejection fails over immediately; a generic 429
+    // retains the configured retry policy. Same-route model fallbacks are
+    // always skipped after the route rejects admission.
+    expect(clientA.streamModel).toHaveBeenCalledTimes(expectedAttempts);
     // The other route is tried immediately and succeeds.
     expect(clientB.streamModel).toHaveBeenCalledTimes(1);
     expect(progress.report).toHaveBeenCalledWith(
       expect.objectContaining({ value: "server B answered" })
     );
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, expect.any(Number));
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    if (expectedAttempts === 1) {
+      expect(routesModule.getRouteCooldown("A")).toMatchObject({
+        status,
+        reason: "Admission capacity unavailable",
+      });
+    }
   });
 
   it("does not reuse a throttled route through a later lower-quality fallback", async () => {
@@ -459,7 +488,7 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    expect.soft(client.streamModel).toHaveBeenCalledTimes(2);
+    expect.soft(client.streamModel).toHaveBeenCalledTimes(1);
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
 
@@ -549,12 +578,12 @@ describe("full fallback at the request level", () => {
     const clientB = {
       baseUrl: "http://server-b.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("from B")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "from B" }]),
     };
     const clientC = {
       baseUrl: "http://server-c.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("from C")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "from C" }]),
     };
 
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -612,7 +641,7 @@ describe("full fallback at the request level", () => {
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
       streamModel: vi.fn().mockImplementation(() => {
         callOrder.push("A");
-        return streamText("cooling primary answered");
+        return [{ kind: "text", text: "cooling primary answered" }];
       }),
     };
     const clientB = {
@@ -620,7 +649,7 @@ describe("full fallback at the request level", () => {
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
       streamModel: vi.fn().mockImplementation(() => {
         callOrder.push("B");
-        return streamText("healthy fallback answered");
+        return [{ kind: "text", text: "healthy fallback answered" }];
       }),
     };
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -666,12 +695,12 @@ describe("full fallback at the request level", () => {
     const clientA = {
       baseUrl: "http://server-a.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("exact model answered")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "exact model answered" }]),
     };
     const clientB = {
       baseUrl: "http://server-b.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "anthropic/claude-haiku" }]),
-      streamModel: vi.fn().mockImplementation(() => streamText("lower quality answered")),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "lower quality answered" }]),
     };
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
       { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },

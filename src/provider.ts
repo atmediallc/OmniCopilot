@@ -64,18 +64,13 @@ function formatContextLength(tokens: number): string {
   return `${tokens}`;
 }
 
-/** Compiles the user's model filter regex. A malformed or overly long pattern
- * falls back to a safe literal substring match so the picker still works. */
-function compileModelFilter(filterRaw: string): RegExp | undefined {
-  if (!filterRaw) return undefined;
-  try {
-    if (filterRaw.length > 200) throw new Error("Filter too long");
-    return new RegExp(filterRaw, "i");
-  } catch {
-    // invalid or overly complex regex → fall back to safe escaped substring matching
-    const needle = filterRaw.slice(0, 200).toLowerCase();
-    return new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), "i");
-  }
+/** Builds a bounded, case-insensitive literal model filter. Treating the
+ * workspace setting as data avoids executing user-controlled regular
+ * expressions and their potential catastrophic backtracking. */
+function compileModelFilter(filterRaw: string): ((modelId: string) => boolean) | undefined {
+  const needle = filterRaw.slice(0, 200).toLocaleLowerCase();
+  if (!needle) return undefined;
+  return (modelId: string) => modelId.toLocaleLowerCase().includes(needle);
 }
 
 /** Small non-abortable pause between fallback attempts to avoid hammering a
@@ -106,6 +101,17 @@ function errorStatus(err: unknown): number | undefined {
 function isAdmissionSaturationError(err: unknown): boolean {
   const status = errorStatus(err);
   return status === 429 || status === 503 || isThrottleError(err);
+}
+
+/** A definitive capacity rejection should fail over to another physical
+ * route immediately; retrying the same route only amplifies saturation. */
+function isExplicitAdmissionCapacityError(err: unknown): boolean {
+  if (!(err instanceof OmniRouteError) || (err.status !== 429 && err.status !== 503)) {
+    return false;
+  }
+  const message = err.message.toLowerCase();
+  return message.includes("chat_admission_busy") ||
+    message.includes("chat admission capacity is temporarily unavailable");
 }
 
 /** Jittered delay between retries. Honors the upstream's Retry-After header
@@ -445,14 +451,14 @@ export class OmniRouteChatProvider
    * pass the user's model filter. */
   private isModelEligible(
     c: CatalogModel,
-    filter: RegExp | undefined,
+    filter: ((modelId: string) => boolean) | undefined,
     validRouteIds?: Set<string>
   ): boolean {
     if (validRouteIds && !validRouteIds.has(c.entry.routeId)) return false;
     if (this.filterRouteId && c.entry.routeId !== this.filterRouteId) return false;
     const model = c.model;
     if (!model?.id) return false;
-    if (filter && !filter.test(model.id)) return false;
+    if (filter && !filter(model.id)) return false;
     return true;
   }
 
@@ -757,7 +763,8 @@ export class OmniRouteChatProvider
     let lastError: unknown;
 
     for (let i = 0; i < candidates.length;) {
-      const cand = candidates[i];
+      const cand = candidates.slice(i, i + 1).pop();
+      if (!cand) break;
       if (token.isCancellationRequested) return { kind: "cancelled", fallbacksUsed: i };
       if (saturatedRoutes.has(cand.routeId)) {
         this.deps.log.info(
@@ -804,7 +811,7 @@ export class OmniRouteChatProvider
 
     return {
       kind: "failed",
-      routeId: candidates[0]?.routeId,
+      routeId: candidates.at(0)?.routeId,
       fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
       error: lastError ?? new OmniRouteError("No configured route served this model", undefined),
     };
@@ -834,11 +841,13 @@ export class OmniRouteChatProvider
     status: number | undefined
   ): number {
     let nextIndex = index;
-    while (nextIndex + 1 < candidates.length && candidates[nextIndex + 1].routeId === routeId) {
+    let nextCandidate = candidates.at(nextIndex + 1);
+    while (nextCandidate?.routeId === routeId) {
       this.deps.log.info(
-        `Skipping fallback ${candidates[nextIndex + 1].modelId} @${routeId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
+        `Skipping fallback ${nextCandidate.modelId} @${routeId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
       );
       nextIndex++;
+      nextCandidate = candidates.at(nextIndex + 1);
     }
     return nextIndex;
   }
@@ -877,6 +886,16 @@ export class OmniRouteChatProvider
         markRouteCooldown(cand.routeId, delayMs, errorStatus(attempt.error) ?? 429, "Admission throttle");
       } else if (candError instanceof OmniRouteError && candError.phase === "connect") {
         markRouteCooldown(cand.routeId, 10_000, undefined, "Connection failure");
+      }
+      if (isExplicitAdmissionCapacityError(candError)) {
+        markRouteCooldown(
+          cand.routeId,
+          15_000,
+          errorStatus(candError) ?? 503,
+          "Admission capacity unavailable"
+        );
+        attempted++;
+        break;
       }
       if (attempted + 1 < maxAttempts) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
