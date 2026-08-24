@@ -406,6 +406,62 @@ describe("full fallback at the request level", () => {
     }
   });
 
+  it("retries explicit admission rejection when no alternate physical route remains", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
+    let selectedAttempts = 0;
+    const client = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "openai/gpt-4o" },
+        { id: "openai/gpt-4o-mini" },
+      ]),
+      streamModel: vi.fn().mockImplementation((request: { model: string }) => {
+        if (request.model !== "openai/gpt-4o") {
+          throw new Error(`Unexpected same-route fallback: ${request.model}`);
+        }
+        selectedAttempts++;
+        if (selectedAttempts === 1) {
+          return (async function* () {
+            throw new OmniRouteError(
+              "Chat admission capacity is temporarily unavailable",
+              503,
+              false,
+              "headers",
+              "/responses",
+              10,
+              1
+            );
+          })();
+        }
+        return [{ kind: "text", text: "recovered after admission retry" }];
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      client as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    await provider.provideLanguageModelChatResponse(
+      {
+        id: "Server A · openai/gpt-4o",
+        omniModelId: "openai/gpt-4o",
+        routeId: "A",
+      } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0],
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      { report: vi.fn() } as unknown as vscode.Progress<unknown>,
+      dummyToken
+    );
+
+    expect(client.streamModel).toHaveBeenCalledTimes(2);
+    expect(client.streamModel.mock.calls.every(([request]) => request.model === "openai/gpt-4o")).toBe(true);
+  });
+
   it("does not reuse a throttled route through a later lower-quality fallback", async () => {
     configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
@@ -488,7 +544,7 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    expect.soft(client.streamModel).toHaveBeenCalledTimes(1);
+    expect.soft(client.streamModel).toHaveBeenCalledTimes(2);
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
 

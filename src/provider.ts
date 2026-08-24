@@ -154,6 +154,7 @@ interface ChatPlan {
 interface ChatCandidateContext {
   cand: FallbackCandidate;
   client: OmniRouteClient;
+  hasUsableAlternateRoute: boolean;
   i: number;
   request: ChatRequest;
   routeName: string;
@@ -759,16 +760,17 @@ export class OmniRouteChatProvider
     abort: AbortController
   ): Promise<ChatPlanOutcome> {
     const candidates = plan.candidates;
-    const saturatedRoutes = new Set<string>();
+    const saturatedEndpoints = new Set<string>();
     let lastError: unknown;
 
     for (let i = 0; i < candidates.length;) {
       const cand = candidates.slice(i, i + 1).pop();
       if (!cand) break;
       if (token.isCancellationRequested) return { kind: "cancelled", fallbacksUsed: i };
-      if (saturatedRoutes.has(cand.routeId)) {
+      const endpoint = plan.clientByRoute.get(cand.routeId)?.baseUrl ?? `route:${cand.routeId}`;
+      if (saturatedEndpoints.has(endpoint)) {
         this.deps.log.info(
-          `Skipping fallback ${cand.modelId} @${cand.routeId}: route rejected admission earlier in this request`
+          `Skipping fallback ${cand.modelId} @${cand.routeId}: endpoint rejected admission earlier in this request`
         );
         i++;
         continue;
@@ -782,6 +784,14 @@ export class OmniRouteChatProvider
       const outcome = await this.tryCandidate({
         cand,
         client,
+        hasUsableAlternateRoute: candidates.slice(i + 1).some(
+          (next) => {
+            const nextEndpoint = plan.clientByRoute.get(next.routeId)?.baseUrl;
+            return nextEndpoint !== undefined &&
+              nextEndpoint !== endpoint &&
+              !saturatedEndpoints.has(nextEndpoint);
+          }
+        ),
         i,
         request,
         inputTokens,
@@ -796,7 +806,7 @@ export class OmniRouteChatProvider
         return { kind: outcome.kind, fallbacksUsed: i };
       }
       lastError = outcome.error;
-      if (isAdmissionSaturationError(outcome.error)) saturatedRoutes.add(cand.routeId);
+      if (isAdmissionSaturationError(outcome.error)) saturatedEndpoints.add(endpoint);
       const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
       if (lastAttemptedIndex >= candidates.length - 1) {
         return {
@@ -894,8 +904,10 @@ export class OmniRouteChatProvider
           errorStatus(candError) ?? 503,
           "Admission capacity unavailable"
         );
-        attempted++;
-        break;
+        if (ctx.hasUsableAlternateRoute) {
+          attempted++;
+          break;
+        }
       }
       if (attempted + 1 < maxAttempts) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
