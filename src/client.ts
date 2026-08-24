@@ -645,11 +645,45 @@ export class OmniRouteClient {
   ): AsyncGenerator<StreamEvent> {
     const assembler = new ResponsesToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    for await (const line of readSseLines(stream, session, "/responses")) {
-      yield* this.emitResponsesSseLine(line, assembler, reasoningFilter, session);
+    const state = { sawTerminal: false };
+    let emittedUsefulOutput = false;
+    let recoveredTerminalMarkerError = false;
+    try {
+      for await (const line of readSseLines(stream, session, "/responses")) {
+        for await (const event of this.emitResponsesSseLine(
+          line,
+          assembler,
+          reasoningFilter,
+          session,
+          state
+        )) {
+          emittedUsefulOutput ||= isUsefulStreamEvent(event);
+          yield event;
+        }
+      }
+    } catch (err) {
+      if (!emittedUsefulOutput || !isMissingTerminalMarkerError(err)) throw err;
+      recoveredTerminalMarkerError = true;
     }
-    yield* flushFilteredText(reasoningFilter);
-    yield* assembler.flush();
+    for await (const event of flushFilteredText(reasoningFilter)) {
+      emittedUsefulOutput ||= isUsefulStreamEvent(event);
+      yield event;
+    }
+    if (!state.sawTerminal && !emittedUsefulOutput) {
+      throw new OmniRouteError(
+        "Upstream stream ended without a terminal marker",
+        undefined,
+        false,
+        "stream",
+        "/responses"
+      );
+    }
+    if (!state.sawTerminal) {
+      const suffix = recoveredTerminalMarkerError ? " after an upstream stream error" : " at EOF";
+      this.opts.log?.warn(
+        `[RESPONSES] Stream ended without a terminal marker${suffix}; accepting useful partial output`
+      );
+    }
   }
 
   /** Handles one Responses SSE line and preserves text/tool ordering while
@@ -658,9 +692,11 @@ export class OmniRouteClient {
     line: string,
     assembler: ResponsesToolCallAssembler,
     reasoningFilter: EncryptedReasoningFilter,
-    session: StreamSession
+    session: StreamSession,
+    state: { sawTerminal: boolean }
   ): AsyncGenerator<StreamEvent> {
-    const { events, alive } = handleResponsesSseLine(line, assembler);
+    const { events, alive, terminal } = handleResponsesSseLine(line, assembler);
+    state.sawTerminal ||= terminal;
     if (alive) session.poke();
     for (const event of events) {
       if (event.kind === "text") {
@@ -1348,26 +1384,40 @@ function messagesSseError(message: string, type?: string): OmniRouteError {
 function handleResponsesSseLine(
   line: string,
   assembler: ResponsesToolCallAssembler
-): { events: StreamEvent[]; alive: boolean } {
-  if (!line.startsWith("data:")) return { events: [], alive: false };
+): { events: StreamEvent[]; alive: boolean; terminal: boolean } {
+  if (!line.startsWith("data:")) return { events: [], alive: false, terminal: false };
   const payload = line.slice(5).trim();
-  if (!payload || payload === "[DONE]") return { events: [], alive: false };
+  if (!payload) return { events: [], alive: false, terminal: false };
+  if (payload === "[DONE]") return { events: [], alive: false, terminal: true };
   let event: ResponsesStreamEvent;
   try {
     event = JSON.parse(payload) as ResponsesStreamEvent;
   } catch {
-    return { events: [], alive: false };
+    return { events: [], alive: false, terminal: false };
   }
   if (event.type === "error" || event.type === "response.failed") {
     throw responsesSseError(event.error?.message ?? event.response?.error?.message ?? "Responses stream failed");
   }
   if (event.type === "response.reasoning_summary_text.delta") {
-    return { events: [], alive: Boolean(event.delta) };
+    return { events: [], alive: Boolean(event.delta), terminal: false };
   }
   if (event.type === "response.output_text.delta") {
-    return { events: event.delta ? [{ kind: "text", text: event.delta }] : [], alive: Boolean(event.delta) };
+    return {
+      events: event.delta ? [{ kind: "text", text: event.delta }] : [],
+      alive: Boolean(event.delta),
+      terminal: false,
+    };
   }
-  return handleResponsesToolEvent(event, assembler);
+  const result = handleResponsesToolEvent(event, assembler);
+  return { ...result, terminal: event.type === "response.completed" };
+}
+
+function isUsefulStreamEvent(event: StreamEvent): boolean {
+  return event.kind === "toolCall" || (event.kind === "text" && event.text.length > 0);
+}
+
+function isMissingTerminalMarkerError(err: unknown): boolean {
+  return err instanceof Error && /upstream stream ended without a terminal marker/i.test(err.message);
 }
 
 function handleResponsesToolEvent(

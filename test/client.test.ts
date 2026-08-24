@@ -193,11 +193,11 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 });
     const run = async () => {
-      for await (const _event of client.streamModel(
+      for await (const event of client.streamModel(
         { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
         new AbortController().signal,
         ["responses"]
-      )) { /* no output expected */ }
+      )) void event;
     };
     await expect(run()).rejects.toThrow("Not found");
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["http://x/v1/responses"]);
@@ -218,6 +218,84 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1", chatMaxAttempts: 1 }))).rejects.toThrow("route not found");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("Responses EOF terminal handling", () => {
+    it("preserves useful text when the stream ends without a terminal event", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial answer"}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+        { kind: "text", text: "partial answer" },
+      ]);
+    });
+
+    it("preserves useful text when upstream reports a missing terminal marker", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial answer"}',
+        'data: {"type":"error","error":{"message":"Upstream stream ended without a terminal marker"}}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+        { kind: "text", text: "partial answer" },
+      ]);
+    });
+
+    it("drops a pending tool call when recovering from a missing terminal marker", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial answer"}',
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":""}}',
+        'data: {"type":"response.function_call_arguments.delta","item_id":"item-1","delta":"{\\"city\\":"}',
+        'data: {"type":"error","error":{"message":"Upstream stream ended without a terminal marker"}}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+        { kind: "text", text: "partial answer" },
+      ]);
+    });
+
+    it("drops a pending tool call when the stream reaches EOF without item completion", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial answer"}',
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":""}}',
+        'data: {"type":"response.function_call_arguments.delta","item_id":"item-1","delta":"{\\"city\\":"}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+        { kind: "text", text: "partial answer" },
+      ]);
+    });
+
+    it("rejects an empty stream that ends without a terminal event", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(
+        "Upstream stream ended without a terminal marker"
+      );
+    });
+
+    it("keeps response.failed fatal after partial text", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial"}',
+        'data: {"type":"response.failed","response":{"error":{"message":"provider failed"}}}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(
+        "provider failed"
+      );
+    });
+
+    it("accepts a complete function call when the stream ends without a terminal event", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","call_id":"call-1","name":"weather","arguments":"{\\"city\\":\\"Madrid\\"}"}}',
+        'data: {"type":"response.output_item.done","item_id":"item-1"}',
+      ])));
+
+      await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+        { kind: "toolCall", id: "call-1", name: "weather", args: '{"city":"Madrid"}' },
+      ]);
+    });
   });
 });
 

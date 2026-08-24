@@ -218,6 +218,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       usageWeekly: t("Weekly"),
       usageDisabled: t("Usage is not enabled for this key. An admin can turn on the usage command for it in OmniRoute."),
       usageEmpty: t("Usage is reported, but nothing is cached yet — it fills in after the first requests."),
+      usageResetsIn: t("resets in {0}"),
     };
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -396,7 +397,15 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     summaryEl.textContent = msg.total === 1
       ? (msg.routes[0]?.online ? STRINGS.online : STRINGS.offline)
       : STRINGS.summary.replace("{0}", msg.onlineCount).replace("{1}", msg.total);
-    routes = msg.routes.map((r) => ({ id: r.id, name: r.name, url: r.url, hasKey: r.hasKey, online: r.online, modelCount: r.modelCount }));
+    routes = msg.routes.map((r) => ({
+      id: r.id,
+      name: r.name,
+      url: r.url,
+      hasKey: r.hasKey,
+      online: r.online,
+      modelCount: r.modelCount,
+      usage: r.usage,
+    }));
     render();
   });
 
