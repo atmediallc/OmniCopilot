@@ -117,7 +117,11 @@ export class OmniRouteError extends Error {
     public readonly latencyMs?: number,
     /** Suggested wait from the upstream's `Retry-After` header (503/429),
      * in milliseconds — lets the caller's backoff honor it. */
-    public readonly retryAfterMs?: number
+    public readonly retryAfterMs?: number,
+    /** Structured upstream error code when available (e.g. VALID_001, COMBO_002,
+     * AUTH_001, SECURITY_001). Lets callers distinguish global validation
+     * failures from per-route credential/model failures. */
+    public readonly code?: string
   ) {
     super(message);
     this.name = "OmniRouteError";
@@ -361,7 +365,7 @@ export class OmniRouteClient {
         maxAttempts
       );
       if (!res.ok) {
-        const detail = await safeErrorDetail(res);
+        const { detail, code } = await safeErrorDetail(res);
         const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
         const detailSuffix = detail ? `: ${detail}` : "";
         throw new OmniRouteError(
@@ -371,7 +375,8 @@ export class OmniRouteClient {
           "headers",
           endpoint,
           undefined,
-          retryAfterMs
+          retryAfterMs,
+          code
         );
       }
       return await res.json() as unknown;
@@ -1654,21 +1659,31 @@ function extractReasoning(delta: StreamDelta | undefined): string | undefined {
 /** True when the text is OmniRoute's encrypted/private reasoning notice,
  * which must be filtered out rather than shown to the user. */
 
-async function safeErrorDetail(res: Response): Promise<string> {
+/** Reads an error body once (Response bodies are single-shot) and returns both
+ * the sanitized human detail and the structured `error.code`, so callers can
+ * classify global vs route-local rejections without re-parsing. */
+async function safeErrorDetail(res: Response): Promise<{ detail: string; code?: string }> {
   try {
     const text = await res.text();
-    const parsed = JSON.parse(text) as { error?: { message?: string } };
+    const parsed = JSON.parse(text) as { error?: { message?: string; code?: string } };
+    const code =
+      typeof parsed.error?.code === "string" && parsed.error.code.trim()
+        ? parsed.error.code.trim()
+        : undefined;
     if (typeof parsed.error?.message === "string") {
-      return parsed.error.message.trim();
+      return { detail: parsed.error.message.trim(), code };
     }
-    return text
-      .replace(/<[^>]+>/g, " ")
-      .replace(/[\r\n\t]+/g, " ")
-      .replace(/[^\x20-\x7E]/g, "")
-      .trim()
-      .slice(0, 200);
+    return {
+      detail: text
+        .replace(/<[^>]+>/g, " ")
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/[^\x20-\x7E]/g, "")
+        .trim()
+        .slice(0, 200),
+      code,
+    };
   } catch {
-    return "";
+    return { detail: "" };
   }
 }
 
@@ -1704,7 +1719,7 @@ function sseError(message: string): OmniRouteError {
 /** Non-OK / bodyless chat response: surface the upstream detail plus any
  * Retry-After hint so the caller's backoff can honor it instead of guessing. */
 async function streamError(res: Response, endpoint = "/chat/completions"): Promise<OmniRouteError> {
-  const detail = await safeErrorDetail(res);
+  const { detail, code } = await safeErrorDetail(res);
   const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
   const detailSuffix = detail ? `: ${detail}` : "";
   return new OmniRouteError(
@@ -1714,7 +1729,8 @@ async function streamError(res: Response, endpoint = "/chat/completions"): Promi
     "headers",
     endpoint,
     undefined,
-    retryAfterMs
+    retryAfterMs,
+    code
   );
 }
 

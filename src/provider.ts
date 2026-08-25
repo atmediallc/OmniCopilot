@@ -114,6 +114,29 @@ function isExplicitAdmissionCapacityError(err: unknown): boolean {
     message.includes("chat admission capacity is temporarily unavailable");
 }
 
+/** Structured `error.code` values OmniRoute reserves for request-GLOBAL
+ * rejections (`VALID_*`, `COMBO_*`, `SECURITY_*` — see v3.8.50
+ * src/shared/constants/errorCodes.ts). The same body would be rejected by
+ * every route, so replaying it on other candidates cannot succeed. */
+const GLOBAL_ERROR_CODE = /^(?:VALID|COMBO|SECURITY)_\d+$/;
+
+/** Code-less 400s come from the chat route's early guards, which emit
+ * `<field>: <reason>` details ("messages: Expected array", "Missing model",
+ * "temperature: must be a number"…). Those are equally global. */
+const GLOBAL_400_DETAIL = /\b(messages|model|temperature|top_p|max_tokens|n): |invalid json|missing model|image-generation model/;
+
+/** True when a pre-stream 400/422 will be reproduced identically by every
+ * other candidate. Route-local failures (MODEL_001/model_not_found,
+ * PROVIDER_003 no-credentials, AUTH_*, or any other structured code) are
+ * deliberately excluded — another route's credentials/catalog may serve. */
+function isGlobalRequestRejection(err: unknown): boolean {
+  if (!(err instanceof OmniRouteError) || (err.status !== 400 && err.status !== 422)) {
+    return false;
+  }
+  if (err.code !== undefined) return GLOBAL_ERROR_CODE.test(err.code);
+  return GLOBAL_400_DETAIL.test(err.message.toLowerCase());
+}
+
 /** Jittered delay between retries. Honors the upstream's Retry-After header
  * when present (capped at 30s) so a misbehaving server can't stall a request. */
 function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number): number {
@@ -811,6 +834,15 @@ export class OmniRouteChatProvider
       }
       lastError = outcome.error;
       if (isAdmissionSaturationError(outcome.error)) saturatedEndpoints.add(endpoint);
+      // P2-01: a global rejection (VALID_*/COMBO_*/malformed body) is identical
+      // for every candidate — replaying it only burns fetches. Fail immediately
+      // with the real error instead of advancing the chain.
+      if (isGlobalRequestRejection(outcome.error)) {
+        this.deps.log.error(
+          `Global request rejected by ${cand.routeId}: ${formatErrorValue(outcome.error)} — not replaying on remaining ${candidates.length - 1 - i} candidate(s)`
+        );
+        return { kind: "failed", routeId: cand.routeId, fallbacksUsed: i, error: outcome.error };
+      }
       const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
       if (lastAttemptedIndex >= candidates.length - 1) {
         return {
