@@ -72,6 +72,8 @@ describe("statusTooltip", () => {
       totalTokens: 10,
       totalInputTokens: 4,
       totalOutputTokens: 6,
+      totalCachedTokens: 0,
+      totalReasoningTokens: 0,
       totalRequests: 1,
     });
     const text = md.value;

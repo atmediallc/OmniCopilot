@@ -244,6 +244,157 @@ describe("full fallback at the request level", () => {
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
   });
 
+  it("fails over to another route when the primary rejects with HTTP 401", async () => {
+    // OmniRoute v3.8.50 returns a pre-stream 401 {error:{message,type:"authentication_error"}}
+    // when one route's key is invalid; per-route credentials mean the next
+    // route can still serve — the chain must advance instead of dying.
+    configValues["omnicopilot"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError(
+          "OmniRoute request failed (HTTP 401): Invalid API key",
+          401,
+          false,
+          "headers",
+          "/chat/completions"
+        );
+      }),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "route B answered" }]),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => (route.id === "A" ? clientA : clientB)) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+      progress as unknown as vscode.Progress<unknown>,
+      dummyToken
+    );
+
+    // Permanent rejection: exactly ONE attempt on A (no retry), then B serves.
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "route B answered" }));
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+  });
+
+  it("fails over on pre-stream 400 model_not_found and still surfaces the last error when no candidate remains", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
+    const reject = () =>
+      new OmniRouteError(
+        'OmniRoute request failed (HTTP 400): Model \'openai/gpt-9\' could not be resolved to a known provider.',
+        400,
+        false,
+        "headers",
+        "/chat/completions"
+      );
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-9" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw reject();
+      }),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-9", owned_by: "openai" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw reject();
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => (route.id === "A" ? clientA : clientB)) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const model = {
+      id: "Server A · openai/gpt-9",
+      omniModelId: "openai/gpt-9",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    await expect(
+      provider.provideLanguageModelChatResponse(
+        model,
+        [],
+        {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+        { report: vi.fn() } as unknown as vscode.Progress<unknown>,
+        dummyToken
+      )
+    ).rejects.toThrow(/could not be resolved/);
+
+    // Every candidate got its single attempt before the final error surfaced.
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("could not be resolved"), 1);
+  });
+
+  it("still throws immediately when a failure happens mid-stream after output", async () => {
+    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
+    const client = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "partial answer" };
+        throw new OmniRouteError("stream died", undefined, false, "stream", "/chat/completions");
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      client as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const model = {
+      id: "Server A · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "A",
+    } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
+
+    await expect(
+      provider.provideLanguageModelChatResponse(
+        model,
+        [],
+        {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
+        { report: vi.fn() } as unknown as vscode.Progress<unknown>,
+        dummyToken
+      )
+    ).rejects.toThrow("stream died");
+    // No silent fallback after partial output: VS Code already rendered tokens.
+    expect(client.streamModel).toHaveBeenCalledTimes(1);
+  });
+
   it("tries offline fallback candidate if primary fails instead of dropping it", async () => {
     configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
 

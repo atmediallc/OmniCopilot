@@ -8,6 +8,10 @@ export interface OmniRouteModel {
   object?: string;
   owned_by?: string;
   display_name?: string;
+  /** OmniRoute's metadata registry emits the display name as `name`
+   * (src/lib/modelMetadataRegistry.ts); `display_name` is the vanilla
+   * OpenAI-compatible convention. Either may be absent. */
+  name?: string;
   /** Absent (or "chat") for conversational models; "audio", "image",
    * "embedding", "rerank", "video", "moderation"… for specialty registries
    * that must never reach the Copilot Chat picker. */

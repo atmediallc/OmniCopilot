@@ -176,7 +176,16 @@ type StreamAttemptOutcome =
       reportedUsage?: ChatUsageInfo;
     }
   | { kind: "cancelled" }
-  | { kind: "failed"; error: unknown; stall: boolean; throttle: boolean };
+  | {
+      kind: "failed";
+      error: unknown;
+      /** True when the upstream rejected the request outright (pre-stream 4xx,
+       * e.g. bad key/model/billing). Retrying this candidate is pointless —
+       * the caller should move straight to the next one. */
+      stall: boolean;
+      throttle: boolean;
+      permanent?: boolean;
+    };
 
 /** Outcome of a whole candidate (all of its retries). */
 type CandidateOutcome =
@@ -255,6 +264,7 @@ export class OmniRouteChatProvider
         id: c.model.id,
         owned_by: c.model.owned_by,
         display_name: c.model.display_name,
+        name: c.model.name,
         context_length: c.model.context_length,
         max_output_tokens: c.model.max_output_tokens,
         max_completion_tokens: c.model.max_completion_tokens,
@@ -476,7 +486,7 @@ export class OmniRouteChatProvider
     const maxOutputTokens = Math.min(catalogMaxOutput ?? maxOutput, maxOutput);
     const caps = model.capabilities ?? {};
     const isCombo = model.owned_by === "combo";
-    const displayName = model.display_name?.trim() || model.id;
+    const displayName = model.display_name?.trim() || model.name?.trim() || model.id;
     const supportsReasoning = isReasoningModel(model);
     const name = c.entry.routeName
       ? `${displayName} (${c.entry.routeName})`
@@ -894,6 +904,11 @@ export class OmniRouteChatProvider
         this.deps.onStall?.(cand.routeId);
         break;
       }
+      if (attempt.permanent) {
+        // Pre-stream 4xx (auth/billing/model rejection): retrying or waiting
+        // cannot help this candidate — move to the next one immediately.
+        break;
+      }
       if (attempt.throttle) {
         const delayMs = computeBackoffMs(attempt.error, true, attempted);
         markRouteCooldown(cand.routeId, delayMs, errorStatus(attempt.error) ?? 429, "Admission throttle");
@@ -1061,8 +1076,10 @@ export class OmniRouteChatProvider
     return { streamed, reportedAny, firstTokenAt, hasVisibleText, toolNames, reportedUsage };
   }
 
-  /** Classifies a failed attempt: cancellation, mid-stream/fatal → throw,
-   * anything transient → retryable with stall/throttle flags. */
+  /** Classifies a failed attempt: cancellation → cancelled, mid-stream →
+   * fatal (throw), pre-stream permanent rejection (4xx) → failed+permanent
+   * so the chain advances to the next candidate without retrying, anything
+   * transient → retryable with stall/throttle flags. */
   private concludeStreamFailure(
     err: unknown,
     reportedAny: boolean,
@@ -1079,12 +1096,17 @@ export class OmniRouteChatProvider
     }
     const status = errorStatus(err);
     // Network-level failures (no HTTP status, e.g. `fetch failed`) are
-    // treated as transient so the server can be re-attempted.
+    // treated as transient so the server can be re-attempted. A pre-stream
+    // HTTP rejection is definitive for THIS candidate — but with per-route
+    // credentials another route can still serve, so it must fail over
+    // instead of killing the whole chain.
     const transient = status === undefined || isTransientHttpError(status);
     if (!transient) {
       this.deps.onActivity?.(false, cand.routeId);
-      log.error(`Chat request failed: ${formatErrorValue(err)}`);
-      throw err;
+      log.warn(
+        `Chat request rejected by ${cand.routeId} (HTTP ${status}): ${formatErrorValue(err)} — failing over`
+      );
+      return { kind: "failed", error: err, stall: false, throttle: false, permanent: true };
     }
     return {
       kind: "failed",

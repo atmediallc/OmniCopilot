@@ -416,7 +416,7 @@
     "compile": "npm run check-types && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src test",
     "test": "vitest run",
     "icon": "node scripts/render-icon.mjs",
     "package": "npm run check-types && node esbuild.mjs --production",

@@ -8,7 +8,7 @@ import { ConnectionStatusBar } from "./statusBar";
 import { MetricsTracker } from "./metrics";
 import type { ResolvedChatUsage } from "./usage";
 import { OmniStatusPopup } from "./statusPopup";
-import { registerFixedTools } from "./tools";
+import { registerFixedTools, clearToolDiscoveryCache } from "./tools";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
 const VENDOR = "omniroute";
@@ -143,6 +143,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!e.affectsConfiguration("omnicopilot")) return;
       log.info("Configuration changed — refreshing models and status");
       invalidateRouteCache();
+      // Tool candidate discovery caches clients/routes; stale entries would
+      // keep serving requests through a removed/edited server for 60s.
+      clearToolDiscoveryCache();
       statusBar?.restart();
       void syncProviders(context, log).then(() => refreshAll());
       void panel?.refreshStatus();

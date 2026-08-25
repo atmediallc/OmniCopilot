@@ -31,7 +31,9 @@ const TERMINAL_NAME = "OmniRoute Setup";
 function shellQuote(value: string): string {
   const sanitized = value.replace(/[\r\n]/g, "");
   if (process.platform === "win32") {
-    const escaped = sanitized.replace(/["^\\]/g, String.raw`\$&`);
+    // cmd.exe expands %VAR% even inside double quotes; escape the % so a
+    // crafted stored URL cannot inject environment-variable content.
+    const escaped = sanitized.replace(/["^\\%]/g, String.raw`\$&`);
     return `"${escaped}"`;
   }
   // POSIX: escape every ' as '\'' so the value survives a single-quoted
@@ -79,8 +81,14 @@ export async function configureCliTool(
     void vscode.window.showErrorMessage(vscode.l10n.t("Invalid CLI path: shell metacharacters are not allowed."));
     return;
   }
-  const cliPath = shellQuote(configuredCliPath || "omniroute");
   const root = serverRootUrl(route.baseUrl);
+  // The URL is typed into a live shell; a stored route must not be able to
+  // smuggle metacharacters (cmd.exe expands %VAR% even inside quotes).
+  if (/[&|;$`\r\n<>"'()^%!\\]/.test(root)) {
+    void vscode.window.showErrorMessage(vscode.l10n.t("Invalid server URL: shell metacharacters are not allowed."));
+    return;
+  }
+  const cliPath = shellQuote(configuredCliPath || "omniroute");
   const apiKey = route.apiKey;
 
   const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(root);

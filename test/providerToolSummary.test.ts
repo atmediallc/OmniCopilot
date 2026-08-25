@@ -92,8 +92,8 @@ describe("tool-only turn summaries", () => {
       const { provider, model, client, progress, token } = await prepare(
         transport,
         async function* () {
-          yield { kind: "tool", id: "call-1", name: "read_file", args: `{"path":"${secret}"}` };
-          yield { kind: "tool", id: "call-2", name: "search", args: "{\"query\":\"private customer data\"}" };
+          yield { kind: "toolCall", id: "call-1", name: "read_file", args: `{"path":"${secret}"}` };
+          yield { kind: "toolCall", id: "call-2", name: "search", args: "{\"query\":\"private customer data\"}" };
         },
       );
 
@@ -113,7 +113,7 @@ describe("tool-only turn summaries", () => {
       "responses",
       async function* () {
         yield { kind: "text", text: "I will inspect the file." };
-        yield { kind: "tool", id: "call-1", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: "read_file", args: "{}" };
         yield { kind: "text", text: " Inspection requested." };
       },
     );
@@ -129,7 +129,7 @@ describe("tool-only turn summaries", () => {
       "messages",
       async function* () {
         yield { kind: "text", text: "  \n" };
-        yield { kind: "tool", id: "call-1", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: "read_file", args: "{}" };
       },
     );
 
@@ -149,7 +149,7 @@ describe("tool-only turn summaries", () => {
       "responses",
       async function* () {
         yield { kind: "text", text: invisibleText };
-        yield { kind: "tool", id: "call-1", name: originalToolName, args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: originalToolName, args: "{}" };
       },
     );
 
@@ -169,7 +169,7 @@ describe("tool-only turn summaries", () => {
       "messages",
       async function* () {
         yield { kind: "text", text: visibleUnicode };
-        yield { kind: "tool", id: "call-1", name: originalToolName, args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: originalToolName, args: "{}" };
       },
     );
 
@@ -186,9 +186,9 @@ describe("tool-only turn summaries", () => {
     const { provider, model, progress, token } = await prepare(
       "chatCompletions",
       async function* () {
-        yield { kind: "tool", id: "call-1", name: "read_file", args: "{}" };
-        yield { kind: "tool", id: "call-2", name: "search", args: "{}" };
-        yield { kind: "tool", id: "call-3", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-2", name: "search", args: "{}" };
+        yield { kind: "toolCall", id: "call-3", name: "read_file", args: "{}" };
       },
     );
 
@@ -206,7 +206,7 @@ describe("tool-only turn summaries", () => {
       "messages",
       async function* () {
         for (const [index, name] of allNames.entries()) {
-          yield { kind: "tool", id: `call-${index}`, name, args: `{"secret":"argument-${index}"}` };
+          yield { kind: "toolCall", id: `call-${index}`, name, args: `{"secret":"argument-${index}"}` };
         }
       },
     );
@@ -235,7 +235,7 @@ describe("tool-only turn summaries", () => {
     const { provider, model, progress, token } = await prepare(
       "chatCompletions",
       async function* (state) {
-        yield { kind: "tool", id: "call-1", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: "read_file", args: "{}" };
         state.cancelled = true;
       },
     );
@@ -251,7 +251,7 @@ describe("tool-only turn summaries", () => {
     const { provider, model, progress, token } = await prepare(
       "messages",
       async function* () {
-        yield { kind: "tool", id: "call-1", name: "read_file", args: "{}" };
+        yield { kind: "toolCall", id: "call-1", name: "read_file", args: "{}" };
         throw failure;
       },
     );

@@ -10,7 +10,7 @@ import {
   parseRetryAfterHeader,
   serverRootUrl,
 } from "../src/client";
-import type { StreamEvent } from "../src/types";
+import type { ModelTransportPlan, StreamEvent } from "../src/types";
 
 function sseResponse(lines: string[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -54,12 +54,15 @@ async function collect(client: OmniRouteClient): Promise<StreamEvent[]> {
   return events;
 }
 
-async function collectModel(client: OmniRouteClient): Promise<StreamEvent[]> {
+async function collectModel(
+  client: OmniRouteClient,
+  plan: ModelTransportPlan = ["responses", "chatCompletions"]
+): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   for await (const event of client.streamModel(
     { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
     new AbortController().signal,
-    ["responses", "chatCompletions"]
+    plan
   )) events.push(event);
   return events;
 }

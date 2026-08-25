@@ -300,13 +300,22 @@ export class OmniRouteClient {
       );
       if (!res.ok) return [];
       const data = await res.json() as unknown;
+      // OmniRoute v3.8.50: {object:"list", data:[{id, object:"search_provider", ...}]}
+      // (src/app/api/v1/search/route.ts GET handler). Vanilla OpenAI-compatible
+      // shapes (bare array, {providers:[...]}) stay supported for other servers.
       if (Array.isArray(data)) {
         return data.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
       }
       if (data && typeof data === "object") {
-        const obj = data as { providers?: unknown[]; defaultProvider?: string };
+        const obj = data as { providers?: unknown[]; data?: unknown[] };
         if (Array.isArray(obj.providers)) {
           return obj.providers.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+        }
+        if (Array.isArray(obj.data)) {
+          return obj.data
+            .filter((item): item is { id?: unknown } => Boolean(item) && typeof item === "object")
+            .map((item) => item.id)
+            .filter((id): id is string => typeof id === "string" && Boolean(id.trim()));
         }
       }
       return [];

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OmniRouteClient, OmniRouteError } from "../src/client";
+import { SEARCH_PROVIDERS_RESPONSE } from "./fixtures/omniroute-v3.8.50";
 
 describe("OmniRouteClient fixed endpoint tools", () => {
   afterEach(() => {
@@ -77,5 +78,21 @@ describe("OmniRouteClient fixed endpoint tools", () => {
       "http://route.test/v1/search",
       expect.objectContaining({ method: "GET" })
     );
+  });
+
+  it("parses OmniRoute v3.8.50 GET /v1/search {object:list,data:[{id}]} shape", async () => {
+    const payload = {
+      ...SEARCH_PROVIDERS_RESPONSE,
+      data: [
+        ...SEARCH_PROVIDERS_RESPONSE.data,
+        { id: "", object: "search_provider", name: "broken row without id" },
+        null,
+        "not-an-object",
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://route.test/v1" });
+    await expect(client.listSearchProviders()).resolves.toEqual(["duckduckgo-free", "brave-search"]);
   });
 });
