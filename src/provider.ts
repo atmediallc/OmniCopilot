@@ -154,7 +154,6 @@ interface ChatPlan {
 interface ChatCandidateContext {
   cand: FallbackCandidate;
   client: OmniRouteClient;
-  hasUsableAlternateRoute: boolean;
   i: number;
   request: ChatRequest;
   routeName: string;
@@ -797,14 +796,6 @@ export class OmniRouteChatProvider
       const outcome = await this.tryCandidate({
         cand,
         client,
-        hasUsableAlternateRoute: candidates.slice(i + 1).some(
-          (next) => {
-            const nextEndpoint = plan.clientByRoute.get(next.routeId)?.baseUrl;
-            return nextEndpoint !== undefined &&
-              nextEndpoint !== endpoint &&
-              !saturatedEndpoints.has(nextEndpoint);
-          }
-        ),
         i,
         request,
         inputTokens,
@@ -922,10 +913,8 @@ export class OmniRouteChatProvider
           errorStatus(candError) ?? 503,
           "Admission capacity unavailable"
         );
-        if (ctx.hasUsableAlternateRoute) {
-          attempted++;
-          break;
-        }
+        attempted++;
+        break;
       }
       if (attempted + 1 < maxAttempts) {
         await delay(computeBackoffMs(attempt.error, attempt.throttle, attempted), token);
