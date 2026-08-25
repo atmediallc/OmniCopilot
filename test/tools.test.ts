@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockContext, configValues, registeredTools, secretStore } from "./vscode.mock";
 import { OmniRouteError } from "../src/client";
 import { invalidateRouteCache } from "../src/routes";
-import { createFixedTools, registerFixedTools } from "../src/tools";
+import { clearToolDiscoveryCache, createFixedTools, registerFixedTools } from "../src/tools";
 
 const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
 const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -10,6 +10,9 @@ const route = (id: string) => ({ id, name: id.toUpperCase(), baseUrl: `http://${
 function client(models: Array<{ id: string; supported_endpoints: string[] }>, overrides: Record<string, unknown> = {}) {
   return {
     listModels: vi.fn().mockResolvedValue(models),
+    listSearchProviders: vi.fn().mockResolvedValue(
+      models.filter((m) => m.supported_endpoints.some((e) => e.toLowerCase().includes("search"))).map((m) => m.id)
+    ),
     search: vi.fn().mockResolvedValue({ data: [{ title: "result" }], extra: { preserved: true } }),
     rerank: vi.fn().mockResolvedValue({ results: [{ index: 0, relevance_score: 1 }], id: "rr-1" }),
     ...overrides,
@@ -22,6 +25,7 @@ describe("fixed OmniRoute tools", () => {
     secretStore.clear();
     for (const key of Object.keys(configValues)) delete configValues[key];
     invalidateRouteCache();
+    clearToolDiscoveryCache();
     vi.clearAllMocks();
   });
 
@@ -40,7 +44,12 @@ describe("fixed OmniRoute tools", () => {
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1"), route("r2")], getClient: (r) => clients.get(r.id) as never });
 
     const result = await tools.search.invoke({ input: { query: "  latest VS Code  " }, toolInvocationToken: undefined }, token as never);
-    expect(clients.get("r2")!.search).toHaveBeenCalledWith({ query: "latest VS Code", provider: "brave", max_results: 5, search_type: "web" }, expect.any(AbortSignal));
+    expect(clients.get("r2")!.search).toHaveBeenCalledWith(
+      { query: "latest VS Code", provider: "brave", max_results: 5, search_type: "web" },
+      expect.any(AbortSignal),
+      30_000,
+      1
+    );
     expect(JSON.parse((result!.content[0] as { value: string }).value)).toEqual({ data: [{ title: "result" }], extra: { preserved: true } });
   });
 
@@ -48,18 +57,28 @@ describe("fixed OmniRoute tools", () => {
     const c = client([{ id: "tavily", supported_endpoints: ["/search"] }]);
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1")], getClient: () => c as never });
     await tools.search.invoke({ input: { query: "q", routeId: "r1", model: "tavily", max_results: 100, search_type: "news" }, toolInvocationToken: undefined }, token as never);
-    expect(c.search).toHaveBeenCalledWith({ query: "q", provider: "tavily", max_results: 100, search_type: "news" }, expect.any(AbortSignal));
+    expect(c.search).toHaveBeenCalledWith(
+      { query: "q", provider: "tavily", max_results: 100, search_type: "news" },
+      expect.any(AbortSignal),
+      30_000,
+      1
+    );
     expect(JSON.stringify(c.search.mock.calls[0][0])).not.toContain("routeId");
   });
 
   it("accepts exact Search boundaries and continues past an unavailable route catalog", async () => {
-    const unavailable = client([], { listModels: vi.fn().mockRejectedValue(new Error("offline")) });
+    const unavailable = client([], {
+      listModels: vi.fn().mockRejectedValue(new Error("offline")),
+      listSearchProviders: vi.fn().mockRejectedValue(new Error("offline")),
+    });
     const available = client([{ id: "search-provider", supported_endpoints: ["/search"] }]);
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1"), route("r2")], getClient: (r) => (r.id === "r1" ? unavailable : available) as never });
     await tools.search.invoke({ input: { query: "x".repeat(500), max_results: 1 }, toolInvocationToken: undefined }, token as never);
     expect(available.search).toHaveBeenCalledWith(
       { query: "x".repeat(500), provider: "search-provider", max_results: 1, search_type: "web" },
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      30_000,
+      1
     );
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not inspect route "r1" for /search'));
   });
@@ -68,7 +87,12 @@ describe("fixed OmniRoute tools", () => {
     const c = client([{ id: "cohere/rerank-v3", supported_endpoints: ["https://x.test/v1/rerank"] }]);
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1")], getClient: () => c as never });
     const result = await tools.rerank.invoke({ input: { query: " q ", documents: ["a", "b"], top_n: 1, return_documents: true }, toolInvocationToken: undefined }, token as never);
-    expect(c.rerank).toHaveBeenCalledWith({ model: "cohere/rerank-v3", query: "q", documents: ["a", "b"], top_n: 1, return_documents: true }, expect.any(AbortSignal));
+    expect(c.rerank).toHaveBeenCalledWith(
+      { model: "cohere/rerank-v3", query: "q", documents: ["a", "b"], top_n: 1, return_documents: true },
+      expect.any(AbortSignal),
+      30_000,
+      1
+    );
     expect(JSON.parse((result!.content[0] as { value: string }).value)).toEqual({ results: [{ index: 0, relevance_score: 1 }], id: "rr-1" });
   });
 
@@ -107,9 +131,11 @@ describe("fixed OmniRoute tools", () => {
     expect(first.search).toHaveBeenCalledTimes(1);
     expect(second.search).toHaveBeenCalledTimes(1);
 
-    first.search.mockRejectedValueOnce(new OmniRouteError("bad", 400));
+    clearToolDiscoveryCache();
+    first.search.mockReset().mockRejectedValue(new OmniRouteError("bad", 400));
+    second.search.mockReset().mockResolvedValue({ data: [] });
     await expect(tools.search.invoke({ input: { query: "q" }, toolInvocationToken: undefined }, token as never)).rejects.toMatchObject({ status: 400 });
-    expect(second.search).toHaveBeenCalledTimes(1);
+    expect(second.search).not.toHaveBeenCalled();
   });
 
   it("caps discovery at ten routes and keeps concurrent invocations independent", async () => {

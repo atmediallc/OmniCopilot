@@ -7,6 +7,7 @@ import {
   describeFetchError,
   isThrottleError,
   normalizeBaseUrl,
+  parseRetryAfterHeader,
   serverRootUrl,
 } from "../src/client";
 import type { StreamEvent } from "../src/types";
@@ -1011,5 +1012,32 @@ describe("OmniRouteClient token usage parsing", () => {
 
     const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
     await expect(collect(client)).rejects.toThrow(/exceeded maximum buffer limit/i);
+  });
+
+  it("parses retry after headers properly", () => {
+    const now = 1_700_000_000_000;
+    expect(parseRetryAfterHeader(undefined, now)).toBeUndefined();
+    expect(parseRetryAfterHeader("", now)).toBeUndefined();
+    expect(parseRetryAfterHeader("2", now)).toBe(2000);
+    expect(parseRetryAfterHeader("45", now)).toBe(30_000);
+
+    const futureHttpDate = new Date(now + 5000).toUTCString();
+    expect(parseRetryAfterHeader(futureHttpDate, now)).toBe(5000);
+
+    const pastHttpDate = new Date(now - 5000).toUTCString();
+    expect(parseRetryAfterHeader(pastHttpDate, now)).toBe(0);
+
+    expect(parseRetryAfterHeader("invalid-date-string", now)).toBeUndefined();
+  });
+
+  it("streamModel throws compatibility error on empty transport plan", async () => {
+    const client = new OmniRouteClient({ baseUrl: "http://x/v1" });
+    await expect(
+      client.streamModel(
+        { model: "m", messages: [{ role: "user", content: "hi" }], stream: true },
+        new AbortController().signal,
+        []
+      ).next()
+    ).rejects.toThrow("No compatible transport available for model m");
   });
 });

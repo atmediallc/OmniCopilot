@@ -190,6 +190,46 @@ describe("OmniRouteChatProvider", () => {
     expect(infos[0].supportsReasoning).toBe(true);
   });
 
+  it("uses OmniRoute max_output_tokens and forwards the selected output limit", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-limit", name: "Limit Server", baseUrl: "http://limit.test/v1" },
+    ]);
+    const streamModel = vi.fn().mockImplementation(async function* () {
+      yield { kind: "text", text: "ok" };
+    });
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
+      baseUrl: "http://limit.test/v1",
+      listModels: vi.fn().mockResolvedValue([{
+        id: "openai/limited",
+        max_output_tokens: 8192,
+        max_completion_tokens: 4096,
+      }]),
+      streamModel,
+    } as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    await provider.refresh();
+    const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    expect(infos).toHaveLength(1);
+    expect(infos[0].maxOutputTokens).toBe(8192);
+    await provider.provideLanguageModelChatResponse(
+      infos[0],
+      [{ role: 1, content: "hi" }] as never,
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
+    expect(streamModel.mock.calls[0][0]).toMatchObject({ max_tokens: 8192 });
+    await vi.waitFor(() => {
+      const saved = context.globalState.get("omnicopilot.cachedCatalog.v1") as Array<{
+        model: { max_output_tokens?: number };
+      }>;
+      expect(saved[0].model.max_output_tokens).toBe(8192);
+    });
+  });
+
   it("keeps last-known models when a route's discovery fails transiently", async () => {
     const context = mockContext();
     const provider = new OmniRouteChatProvider({

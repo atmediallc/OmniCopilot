@@ -103,6 +103,19 @@ function result(value: unknown): vscode.LanguageModelToolResult {
   ]);
 }
 
+interface CachedToolCandidates {
+  candidates: Candidate[];
+  expiresAt: number;
+}
+
+const toolDiscoveryCache = new Map<string, CachedToolCandidates>();
+const inFlightToolDiscovery = new Map<string, Promise<Candidate[]>>();
+
+export function clearToolDiscoveryCache(): void {
+  toolDiscoveryCache.clear();
+  inFlightToolDiscovery.clear();
+}
+
 async function candidatesFor(
   deps: ToolDeps,
   endpoint: Endpoint,
@@ -117,30 +130,68 @@ async function candidatesFor(
   if (routeId && routes.length === 0) throw new Error(`Unknown OmniRoute routeId "${routeId}"`);
   if (configured.length === 0) throw new Error("No OmniRoute routes are configured");
 
-  const discovered = await Promise.all(routes.map(async (route) => {
+  const cacheKey = `${endpoint}:${routeId ?? "*"}:${modelOverride ?? "*"}:${routes.map((r) => r.id).join(",")}`;
+  const now = Date.now();
+  const cached = toolDiscoveryCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
     throwIfCancelled(token);
-    const client = getClient(route, deps.log);
-    try {
-      const models = await client.listModels(token);
-      throwIfCancelled(token);
-      return models
-        .filter((model) => supportsEndpoint(model, endpoint))
-        .filter((model) => !modelOverride || model.id === modelOverride)
-        .map((model) => ({ route, client, model }));
-    } catch (error) {
-      if (token.isCancellationRequested) throw error;
-      deps.log.warn(`Could not inspect route "${route.id}" for ${endpoint}: ${String(error)}`);
-      return [];
-    }
-  }));
-  throwIfCancelled(token);
-  const candidates = discovered.flat();
-  if (candidates.length === 0 && modelOverride) {
-    const routeSuffix = routeId ? ` on route "${routeId}"` : "";
-    throw new Error(`Model override "${modelOverride}" does not support ${endpoint}${routeSuffix}`);
+    return cached.candidates;
   }
-  if (candidates.length === 0) throw new Error(`No configured OmniRoute model supports ${endpoint}`);
-  return candidates;
+  const inFlight = inFlightToolDiscovery.get(cacheKey);
+  if (inFlight) {
+    throwIfCancelled(token);
+    return await inFlight;
+  }
+
+  const discoveryPromise = (async () => {
+    const discovered = await Promise.all(routes.map(async (route) => {
+      throwIfCancelled(token);
+      const client = getClient(route, deps.log);
+      try {
+        if (endpoint === "/search") {
+          let providers: string[] = [];
+          if (typeof client.listSearchProviders === "function") {
+            providers = await client.listSearchProviders(undefined, 5000);
+          }
+          if (providers.length > 0) {
+            return providers
+              .filter((provider) => !modelOverride || provider === modelOverride)
+              .map((provider) => ({
+                route,
+                client,
+                model: { id: provider, supported_endpoints: ["/search"] },
+              }));
+          }
+        }
+        const models = await client.listModels(token);
+        throwIfCancelled(token);
+        return models
+          .filter((model) => supportsEndpoint(model, endpoint))
+          .filter((model) => !modelOverride || model.id === modelOverride)
+          .map((model) => ({ route, client, model }));
+      } catch (error) {
+        if (token.isCancellationRequested) throw error;
+        deps.log.warn(`Could not inspect route "${route.id}" for ${endpoint}: ${String(error)}`);
+        return [];
+      }
+    }));
+    throwIfCancelled(token);
+    const candidates = discovered.flat();
+    if (candidates.length === 0 && modelOverride) {
+      const routeSuffix = routeId ? ` on route "${routeId}"` : "";
+      throw new Error(`Model override "${modelOverride}" does not support ${endpoint}${routeSuffix}`);
+    }
+    if (candidates.length === 0) throw new Error(`No configured OmniRoute model supports ${endpoint}`);
+    toolDiscoveryCache.set(cacheKey, { candidates, expiresAt: Date.now() + 60_000 });
+    return candidates;
+  })();
+
+  inFlightToolDiscovery.set(cacheKey, discoveryPromise);
+  try {
+    return await discoveryPromise;
+  } finally {
+    inFlightToolDiscovery.delete(cacheKey);
+  }
 }
 
 async function executeWithFailover<T>(
@@ -183,7 +234,7 @@ export function createFixedTools(deps: ToolDeps): {
           candidate.client.search({
             ...request,
             provider: options.input.model?.trim() || candidate.model.id,
-          }, signal)
+          }, signal, 30_000, 1)
         );
         return result(response);
       },
@@ -193,7 +244,7 @@ export function createFixedTools(deps: ToolDeps): {
         const request = validateRerank(options.input);
         const candidates = await candidatesFor(deps, "/rerank", options.input.routeId, options.input.model?.trim() || undefined, token);
         const response = await executeWithFailover(candidates, token, deps.log, (candidate, signal) =>
-          candidate.client.rerank({ ...request, model: options.input.model?.trim() || candidate.model.id }, signal)
+          candidate.client.rerank({ ...request, model: options.input.model?.trim() || candidate.model.id }, signal, 30_000, 1)
         );
         return result(response);
       },

@@ -341,41 +341,16 @@
               "baseUrl": {
                 "type": "string",
                 "description": "Base URL for this OmniRoute server (e.g. http://127.0.0.1:8000/v1)."
-              },
-              "apiKey": {
-                "type": "string",
-                "description": "Optional API key for this server."
-              },
-              "models": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Explicit model whitelist. If empty, all models are imported."
-              },
-              "excludeModels": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Models to exclude from this server."
-              },
-              "prefix": {
-                "type": "string",
-                "description": "Optional prefix for model IDs from this server."
-              },
-              "priority": {
-                "type": "number",
-                "default": 1,
-                "description": "Route priority (lower numbers = higher priority)."
-              },
-              "weight": {
-                "type": "number",
-                "default": 1,
-                "description": "Traffic weight for load balancing between equal priority routes."
               }
             }
           }
+        },
+        "omnicopilot.firstByteTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "maximum": 600,
+          "description": "%cfg.firstByteTimeoutSeconds%"
         },
         "omnicopilot.fallbackMode": {
           "type": "string",

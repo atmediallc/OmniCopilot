@@ -256,6 +256,7 @@ export class OmniRouteChatProvider
         owned_by: c.model.owned_by,
         display_name: c.model.display_name,
         context_length: c.model.context_length,
+        max_output_tokens: c.model.max_output_tokens,
         max_completion_tokens: c.model.max_completion_tokens,
         supported_endpoints: c.model.supported_endpoints,
         capabilities: {
@@ -471,7 +472,8 @@ export class OmniRouteChatProvider
   ): OmniModelInfo {
     const model = c.model;
     const contextLength = model.context_length ?? defaultContext;
-    const maxOutputTokens = Math.min(model.max_completion_tokens ?? maxOutput, maxOutput);
+    const catalogMaxOutput = model.max_output_tokens ?? model.max_completion_tokens;
+    const maxOutputTokens = Math.min(catalogMaxOutput ?? maxOutput, maxOutput);
     const caps = model.capabilities ?? {};
     const isCombo = model.owned_by === "combo";
     const displayName = model.display_name?.trim() || model.id;
@@ -570,6 +572,7 @@ export class OmniRouteChatProvider
       stream: true,
       stream_options: { include_usage: true },
       tools: this.capTools(options.tools, log),
+      max_tokens: model.maxOutputTokens,
     };
     if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
       request.tool_choice = "required";

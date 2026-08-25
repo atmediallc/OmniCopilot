@@ -13,6 +13,7 @@
   "cfg.baseUrl": "OmniRoute base URL (OpenAI-compatible). Point it at your local install or any remote OmniRoute instance.",
   "cfg.statusBar": "Show the OmniRoute connection indicator in the status bar.",
   "cfg.healthCheckIntervalSeconds": "How often the status bar probes the OmniRoute server (seconds).",
+  "cfg.firstByteTimeoutSeconds": "Maximum time in seconds to wait for the first byte of a stream from OmniRoute.",
   "cfg.maxOutputTokens": "Maximum output tokens reserved per response.",
   "cfg.defaultContextLength": "Context length assumed for models whose catalog entry does not declare one.",
   "cfg.modelFilter": "Optional case-insensitive substring or regex to limit which models are listed in the picker (e.g. \"glm|kimi\"). Empty lists everything.",

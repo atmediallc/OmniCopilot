@@ -66,4 +66,16 @@ describe("OmniRouteClient fixed endpoint tools", () => {
     await vi.advanceTimersByTimeAsync(25);
     await timeoutExpectation;
   });
+
+  it("lists search providers from GET /v1/search endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(["brave", "tavily"]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OmniRouteClient({ baseUrl: "http://route.test/v1", apiKey: "token" });
+    const providers = await client.listSearchProviders();
+    expect(providers).toEqual(["brave", "tavily"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://route.test/v1/search",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
 });

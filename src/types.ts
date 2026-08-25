@@ -19,6 +19,7 @@ export interface OmniRouteModel {
    * (OmniRoute `dual` prefix mode). Points at the primary id. */
   parent?: string | null;
   context_length?: number;
+  max_output_tokens?: number;
   max_completion_tokens?: number;
   capabilities?: {
     tool_calling?: boolean;

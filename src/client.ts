@@ -229,13 +229,29 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** Parses a Retry-After header: supports delta-seconds or HTTP-date, capped at 30s. */
+export function parseRetryAfterHeader(header: string | null | undefined, now = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, 30_000);
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    const diff = dateMs - now;
+    if (diff <= 0) return 0;
+    return Math.min(diff, 30_000);
+  }
+  return undefined;
+}
+
 /** Backoff for a failed attempt: honor Retry-After, else exponential + jitter. */
 function retryDelayMs(res: Response | undefined, attempt: number, policy: Required<RetryPolicy>): number {
   if (res) {
-    const retryAfter = Number(res.headers.get("retry-after"));
-    // Honor the server's hint, but cap it: a pathological/hostile value
-    // (e.g. HTTP-date or huge integer) must not stall the request for minutes.
-    if (Number.isFinite(retryAfter) && retryAfter >= 0) return Math.min(retryAfter * 1000, 30_000);
+    const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
+    if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 30_000);
   }
   const base = Math.min(policy.maxMs, policy.baseMs * 2 ** attempt);
   // crypto.randomInt (CSPRNG) rather than Math.random: the jitter is not
@@ -258,20 +274,63 @@ export class OmniRouteClient {
 
   /** Non-streaming Search endpoint. The caller owns route/model selection;
    * this method owns HTTP retry, timeout, authentication, and cancellation. */
-  search(request: SearchRequest, signal: AbortSignal, timeoutMs = 30_000): Promise<unknown> {
-    return this.postJson("/search", request, signal, timeoutMs);
+  search(request: SearchRequest, signal: AbortSignal, timeoutMs = 30_000, maxAttempts?: number): Promise<unknown> {
+    return this.postJson("/search", request, signal, timeoutMs, maxAttempts);
+  }
+
+  /** Enumerates search providers exposed by OmniRoute at GET /v1/search. */
+  async listSearchProviders(signal?: AbortSignal, timeoutMs = 10_000): Promise<string[]> {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort(signal?.reason ?? new Error("The operation was cancelled"));
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(
+      () => ctrl.abort(new Error(`Timeout listing search providers from ${this.baseUrl} after ${timeoutMs}ms`)),
+      Math.max(1, timeoutMs)
+    );
+    try {
+      const res = await this.fetchWithRetry(
+        `${this.baseUrl}/search`,
+        {
+          method: "GET",
+          headers: headers(this.opts.apiKey, false),
+          signal: ctrl.signal,
+        },
+        1
+      );
+      if (!res.ok) return [];
+      const data = await res.json() as unknown;
+      if (Array.isArray(data)) {
+        return data.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+      }
+      if (data && typeof data === "object") {
+        const obj = data as { providers?: unknown[]; defaultProvider?: string };
+        if (Array.isArray(obj.providers)) {
+          return obj.providers.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+        }
+      }
+      return [];
+    } catch (err) {
+      if (ctrl.signal.aborted && signal?.aborted) throw abortReason(ctrl.signal);
+      this.opts.log?.warn(`[SEARCH PROVIDERS] Failed from ${this.baseUrl}: ${formatErrorValue(err)}`);
+      return [];
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   /** Non-streaming Rerank endpoint with the same request-local behavior. */
-  rerank(request: RerankRequest, signal: AbortSignal, timeoutMs = 30_000): Promise<unknown> {
-    return this.postJson("/rerank", request, signal, timeoutMs);
+  rerank(request: RerankRequest, signal: AbortSignal, timeoutMs = 30_000, maxAttempts?: number): Promise<unknown> {
+    return this.postJson("/rerank", request, signal, timeoutMs, maxAttempts);
   }
 
   private async postJson(
     endpoint: "/search" | "/rerank",
     request: SearchRequest | RerankRequest,
     signal: AbortSignal,
-    timeoutMs: number
+    timeoutMs: number,
+    maxAttempts?: number
   ): Promise<unknown> {
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort(signal.reason ?? new Error("The operation was cancelled"));
@@ -282,21 +341,28 @@ export class OmniRouteClient {
       Math.max(1, timeoutMs)
     );
     try {
-      const res = await this.fetchWithRetry(`${this.baseUrl}${endpoint}`, {
-        method: "POST",
-        headers: headers(this.opts.apiKey, true),
-        body: JSON.stringify(request),
-        signal: ctrl.signal,
-      });
+      const res = await this.fetchWithRetry(
+        `${this.baseUrl}${endpoint}`,
+        {
+          method: "POST",
+          headers: headers(this.opts.apiKey, true),
+          body: JSON.stringify(request),
+          signal: ctrl.signal,
+        },
+        maxAttempts
+      );
       if (!res.ok) {
-        const detail = (await res.text().catch(() => "")).trim();
+        const detail = await safeErrorDetail(res);
+        const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
         const detailSuffix = detail ? `: ${detail}` : "";
         throw new OmniRouteError(
           `OmniRoute ${endpoint} returned HTTP ${res.status}${detailSuffix}`,
           res.status,
           false,
           "headers",
-          endpoint
+          endpoint,
+          undefined,
+          retryAfterMs
         );
       }
       return await res.json() as unknown;
@@ -514,6 +580,15 @@ export class OmniRouteClient {
     signal: AbortSignal,
     transportPlan: ModelTransportPlan
   ): AsyncGenerator<StreamEvent> {
+    if (!transportPlan || transportPlan.length === 0) {
+      throw new OmniRouteError(
+        `No compatible transport available for model ${request.model}`,
+        undefined,
+        false,
+        "connect",
+        "/chat/completions"
+      );
+    }
     for (let index = 0; index < transportPlan.length; index++) {
       const transport = transportPlan[index];
       let emitted = false;
@@ -1574,7 +1649,15 @@ async function safeErrorDetail(res: Response): Promise<string> {
   try {
     const text = await res.text();
     const parsed = JSON.parse(text) as { error?: { message?: string } };
-    return parsed.error?.message ?? text.slice(0, 200);
+    if (typeof parsed.error?.message === "string") {
+      return parsed.error.message.trim();
+    }
+    return text
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/[^\x20-\x7E]/g, "")
+      .trim()
+      .slice(0, 200);
   } catch {
     return "";
   }
@@ -1613,9 +1696,7 @@ function sseError(message: string): OmniRouteError {
  * Retry-After hint so the caller's backoff can honor it instead of guessing. */
 async function streamError(res: Response, endpoint = "/chat/completions"): Promise<OmniRouteError> {
   const detail = await safeErrorDetail(res);
-  const retryAfter = res.headers.get("retry-after");
-  const retryAfterMs =
-    retryAfter !== null && Number(retryAfter) > 0 ? Number(retryAfter) * 1000 : undefined;
+  const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
   const detailSuffix = detail ? `: ${detail}` : "";
   return new OmniRouteError(
     `OmniRoute request failed (HTTP ${res.status})${detailSuffix}`,
