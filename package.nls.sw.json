@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL ya msingi ya OmniRoute (inayooana na OpenAI). Ielekeze kwenye usakinishaji wako wa ndani au kwenye seva yoyote ya mbali ya OmniRoute.",
-  "cfg.baseUrlDeprecated": "Imechakaa: tumia omnicopilot.routes badala yake (kitu kimoja kwa kila seva). Thamani ya zamani huhamishwa kiotomatiki hadi njia ya kwanza.",
+  "cfg.baseUrlDeprecated": "Imechakaa: tumia omnicopilot-dev.routes badala yake (kitu kimoja kwa kila seva). Thamani ya zamani huhamishwa kiotomatiki hadi njia ya kwanza.",
   "cfg.cliPath": "Njia ya CLI ya OmniRoute, inayotumiwa na amri ya \"Sanidi CLI ya Uandishi wa Msimbo\".",
   "cfg.dashboardOpen": "Mahali dashibodi ya OmniRoute inapofunguliwa.",
   "cfg.dashboardOpen.editor": "Fungua dashibodi katika kichupo cha kihariri cha VS Code (Simple Browser). Inahitaji toleo la OmniRoute linaloruhusu upachikaji.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Weka Ufunguo wa API",
   "cmd.showStatusPopup": "Onyesha vipimo vya tokeni na popup ya hali",
   "view.connection": "Muunganisho",
-  "cmd.openSettings": "Fungua Mipangilio"
+  "cmd.openSettings": "Fungua Mipangilio",
+  "cfg.transport": "Itifaki ya waya inayotumika kwa maombi ya mazungumzo. Auto huhifadhi mpango unaotokana na katalogi (Responses inapendekezwa, na urejeshaji wa itifaki); thamani mahususi hulazimisha usafirishaji huo mmoja.",
+  "cfg.transport.auto": "Auto: tumia mpango wa mfano unaotokana na katalogi (Responses inapendekezwa, na urejeshaji).",
+  "cfg.transport.responses": "Responses: tumia kila wakati kituo cha /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: tumia kila wakati kituo cha /chat/completions.",
+  "cfg.transport.messages": "Messages: tumia kila wakati kituo cha /messages."
 }

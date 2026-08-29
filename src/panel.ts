@@ -39,7 +39,7 @@ interface PanelStatus {
 /** Sidebar webview: connection status, server URL and API key form,
  * plus the extension's quick actions — the visual home of the extension. */
 export class OmniPanelProvider implements vscode.WebviewViewProvider {
-  public static readonly viewId = "omnicopilot.panel";
+  public static readonly viewId = "omnicopilot-dev.panel";
 
   private view: vscode.WebviewView | undefined;
 
@@ -136,14 +136,14 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 
       case "action": {
         const allowedCommands = new Set([
-          "omnicopilot.openDashboard",
-          "omnicopilot.manage",
-          "omnicopilot.refreshModels",
-          "omnicopilot.configureCliTool",
-          "omnicopilot.checkConnection",
-          "omnicopilot.installOmniRoute",
-          "omnicopilot.openGitHub",
-          "omnicopilot.openSettings",
+          "omnicopilot-dev.openDashboard",
+          "omnicopilot-dev.manage",
+          "omnicopilot-dev.refreshModels",
+          "omnicopilot-dev.configureCliTool",
+          "omnicopilot-dev.checkConnection",
+          "omnicopilot-dev.installOmniRoute",
+          "omnicopilot-dev.openGitHub",
+          "omnicopilot-dev.openSettings",
         ]);
         if (typeof msg.command !== "string" || !allowedCommands.has(msg.command)) break;
         await vscode.commands.executeCommand(msg.command);
@@ -256,12 +256,12 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
 <button id="save" class="primary">${S.save}</button>
 
 <div class="links">
-  <div class="link" data-cmd="omnicopilot.refreshModels"><span class="codicon codicon-sync"></span> ${S.linkRefresh}</div>
-  <div class="link" data-cmd="omnicopilot.openDashboard"><span class="codicon codicon-dashboard"></span> ${S.linkDashboard}</div>
-  <div class="link" data-cmd="omnicopilot.configureCliTool"><span class="codicon codicon-terminal"></span> ${S.linkCli}</div>
-  <div class="link" data-cmd="omnicopilot.installOmniRoute"><span class="codicon codicon-cloud-download"></span> ${S.linkInstall}</div>
-  <div class="link" data-cmd="omnicopilot.openGitHub"><span class="codicon codicon-github"></span> ${S.linkGitHub}</div>
-  <div class="link" data-cmd="omnicopilot.openSettings"><span class="codicon codicon-settings-gear"></span> ${S.linkSettings}</div>
+  <div class="link" data-cmd="omnicopilot-dev.refreshModels"><span class="codicon codicon-sync"></span> ${S.linkRefresh}</div>
+  <div class="link" data-cmd="omnicopilot-dev.openDashboard"><span class="codicon codicon-dashboard"></span> ${S.linkDashboard}</div>
+  <div class="link" data-cmd="omnicopilot-dev.configureCliTool"><span class="codicon codicon-terminal"></span> ${S.linkCli}</div>
+  <div class="link" data-cmd="omnicopilot-dev.installOmniRoute"><span class="codicon codicon-cloud-download"></span> ${S.linkInstall}</div>
+  <div class="link" data-cmd="omnicopilot-dev.openGitHub"><span class="codicon codicon-github"></span> ${S.linkGitHub}</div>
+  <div class="link" data-cmd="omnicopilot-dev.openSettings"><span class="codicon codicon-settings-gear"></span> ${S.linkSettings}</div>
 </div>
 
 

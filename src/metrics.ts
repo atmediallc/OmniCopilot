@@ -57,7 +57,7 @@ export interface ImprovementSuggestion {
   actionArgs?: unknown[];
 }
 
-const GLOBAL_STATE_KEY = "omnicopilot.tokenMetrics.v1";
+const GLOBAL_STATE_KEY = "omnicopilot-dev.tokenMetrics.v1";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -358,7 +358,7 @@ export class MetricsTracker {
   /** Generate smart system and token improvement suggestions. */
   generateSuggestions(routes: Route[], onlineRouteIds: Set<string>): ImprovementSuggestion[] {
     const suggestions: ImprovementSuggestion[] = [];
-    const cfg = vscode.workspace.getConfiguration("omnicopilot");
+    const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
     const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
 
     // 1. Redundancy / Failover check
@@ -370,7 +370,7 @@ export class MetricsTracker {
         description: "Add at least one OmniRoute server URL (e.g. http://localhost:20128/v1) to enable chat models.",
         impact: "High",
         actionLabel: "Add Server",
-        actionCommand: "omnicopilot.manage",
+        actionCommand: "omnicopilot-dev.manage",
       });
     } else if (routes.length === 1) {
       suggestions.push({
@@ -380,7 +380,7 @@ export class MetricsTracker {
         description: "You have only 1 server configured. Add a second server or backup endpoint (Ollama, Groq, OpenRouter) for automatic failover if the primary fails.",
         impact: "Medium",
         actionLabel: "Configure Servers",
-        actionCommand: "omnicopilot.manage",
+        actionCommand: "omnicopilot-dev.manage",
       });
     } else if (onlineRouteIds.size < routes.length) {
       const offlineCount = routes.length - onlineRouteIds.size;
@@ -391,7 +391,7 @@ export class MetricsTracker {
         description: "Some configured servers are not responding to health pings. Verify that local proxy services or servers are running.",
         impact: "High",
         actionLabel: "Test Connection",
-        actionCommand: "omnicopilot.checkConnection",
+        actionCommand: "omnicopilot-dev.checkConnection",
       });
     }
 
@@ -405,7 +405,7 @@ export class MetricsTracker {
         impact: "Medium",
         actionLabel: "Change Fallback Mode",
         actionCommand: "workbench.action.openSettings",
-        actionArgs: ["omnicopilot.fallbackMode"],
+        actionArgs: ["omnicopilot-dev.fallbackMode"],
       });
     }
 
@@ -415,11 +415,11 @@ export class MetricsTracker {
         id: "high_token_usage",
         type: "optimization",
         title: "Token Usage Optimization",
-        description: `You have consumed ${fmtTokens(this.metrics.totalTokens)} tokens in this session. Limit tools sent by adjusting 'omnicopilot.maxTools' to save context.`,
+        description: `You have consumed ${fmtTokens(this.metrics.totalTokens)} tokens in this session. Limit tools sent by adjusting 'omnicopilot-dev.maxTools' to save context.`,
         impact: "Medium",
         actionLabel: "Adjust maxTools",
         actionCommand: "workbench.action.openSettings",
-        actionArgs: ["omnicopilot.maxTools"],
+        actionArgs: ["omnicopilot-dev.maxTools"],
       });
     }
 
@@ -434,7 +434,7 @@ export class MetricsTracker {
         description: `Servers with stalled streams: ${names}. Consider increasing streamFirstByteTimeoutMs or checking server load.`,
         impact: "High",
         actionLabel: "Check Server Health",
-        actionCommand: "omnicopilot.openDashboard",
+        actionCommand: "omnicopilot-dev.openDashboard",
       });
     }
 
@@ -446,7 +446,7 @@ export class MetricsTracker {
       description: "Connect your OmniRoute servers with terminal tools like Claude Code, Aider, OpenHands, or Cursor via the OmniRoute CLI.",
       impact: "Medium",
       actionLabel: "Configure CLI",
-      actionCommand: "omnicopilot.configureCliTool",
+      actionCommand: "omnicopilot-dev.configureCliTool",
     });
 
     // 5. General status suggestion
@@ -458,7 +458,7 @@ export class MetricsTracker {
         description: `All ${routes.length} servers are online with active smart fallback (${fallbackMode}).`,
         impact: "Low",
         actionLabel: "Open Dashboard",
-        actionCommand: "omnicopilot.openDashboard",
+        actionCommand: "omnicopilot-dev.openDashboard",
       });
     }
 

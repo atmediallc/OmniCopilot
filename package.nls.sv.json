@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "Bas-URL för OmniRoute (OpenAI-kompatibel). Peka den mot din lokala installation eller valfri fjärrinstans av OmniRoute.",
-  "cfg.baseUrlDeprecated": "Föråldrad: använd omnicopilot.routes i stället (en post per server). Det gamla värdet migreras automatiskt till den första rutten.",
+  "cfg.baseUrlDeprecated": "Föråldrad: använd omnicopilot-dev.routes i stället (en post per server). Det gamla värdet migreras automatiskt till den första rutten.",
   "cfg.cliPath": "Sökväg till OmniRoute-CLI:t, som används av kommandot \"Konfigurera kodnings-CLI\".",
   "cfg.dashboardOpen": "Var OmniRoutes instrumentpanel öppnas.",
   "cfg.dashboardOpen.editor": "Öppna instrumentpanelen i en VS Code-redigerarflik (Simple Browser). Kräver en OmniRoute-version som tillåter inbäddning.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Ange API-nyckel",
   "cmd.showStatusPopup": "Visa tokenmätvärden och status-popup",
   "view.connection": "Anslutning",
-  "cmd.openSettings": "Öppna inställningar"
+  "cmd.openSettings": "Öppna inställningar",
+  "cfg.transport": "Wire-protokoll som används för chattförfrågningar. Auto behåller den kataloghärledda planen (Responses föredras, med protokoll-fallback); ett konkret värde tvingar den enda transporten.",
+  "cfg.transport.auto": "Auto: använd modellens kataloghärledda plan (Responses föredras, med fallback).",
+  "cfg.transport.responses": "Responses: använd alltid /responses-slutpunkten.",
+  "cfg.transport.chatCompletions": "Chat Completions: använd alltid /chat/completions-slutpunkten.",
+  "cfg.transport.messages": "Messages: använd alltid /messages-slutpunkten."
 }

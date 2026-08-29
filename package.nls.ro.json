@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL-ul de bază OmniRoute (compatibil OpenAI). Îndreptați-l către instalarea locală sau către orice instanță OmniRoute la distanță.",
-  "cfg.baseUrlDeprecated": "Învechit: folosiți omnicopilot.routes în schimb (o intrare per server). Valoarea veche migrează automat către prima rută.",
+  "cfg.baseUrlDeprecated": "Învechit: folosiți omnicopilot-dev.routes în schimb (o intrare per server). Valoarea veche migrează automat către prima rută.",
   "cfg.cliPath": "Calea către CLI-ul OmniRoute, folosită de comanda \"Configurare CLI de codare\".",
   "cfg.dashboardOpen": "Unde se deschide tabloul de bord OmniRoute.",
   "cfg.dashboardOpen.editor": "Deschide tabloul de bord într-o filă de editor VS Code (Simple Browser). Necesită o versiune OmniRoute care permite încorporarea.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Setare cheie API",
   "cmd.showStatusPopup": "Afișează valorile tokenurilor și fereastra de stare",
   "view.connection": "Conexiune",
-  "cmd.openSettings": "Deschide setările"
+  "cmd.openSettings": "Deschide setările",
+  "cfg.transport": "Protocol de transport utilizat pentru cererile de chat. Auto păstrează planul derivat din catalog (Responses preferat, cu fallback de protocol); o valoare concretă forțează acel singur transport.",
+  "cfg.transport.auto": "Auto: utilizați planul derivat din catalog al modelului (Responses preferat, cu fallback).",
+  "cfg.transport.responses": "Responses: utilizați întotdeauna punctul final /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: utilizați întotdeauna punctul final /chat/completions.",
+  "cfg.transport.messages": "Messages: utilizați întotdeauna punctul final /messages."
 }

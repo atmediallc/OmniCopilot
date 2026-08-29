@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRouteのベースURL（OpenAI互換）。ローカルインストールまたは任意のリモートOmniRouteインスタンスを指定します。",
-  "cfg.baseUrlDeprecated": "非推奨: 代わりに omnicopilot.routes を使用してください（サーバーごとに 1 エントリ）。以前の値は最初のルートに自動的に移行されます。",
+  "cfg.baseUrlDeprecated": "非推奨: 代わりに omnicopilot-dev.routes を使用してください（サーバーごとに 1 エントリ）。以前の値は最初のルートに自動的に移行されます。",
   "cfg.cliPath": "「コーディングCLIの構成」コマンドで使用するOmniRoute CLIのパス。",
   "cfg.dashboardOpen": "OmniRouteダッシュボードを開く場所。",
   "cfg.dashboardOpen.editor": "VS Codeのエディタータブ（Simple Browser）でダッシュボードを開きます。埋め込みを許可するバージョンのOmniRouteが必要です。",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "APIキーの設定",
   "cmd.showStatusPopup": "トークンメトリクスとステータスポップアップを表示",
   "view.connection": "接続",
-  "cmd.openSettings": "設定を開く"
+  "cmd.openSettings": "設定を開く",
+  "cfg.transport": "チャット要求に使用されるワイヤプロトコル。自動はカタログ由来のプランを維持します（Responses 優先、プロトコルフォールバック付き）。具体的な値を指定すると、その単一のトランスポートが強制されます。",
+  "cfg.transport.auto": "自動: モデルのカタログ由来プランを使用します（Responses 優先、フォールバック付き）。",
+  "cfg.transport.responses": "Responses: 常に /responses エンドポイントを使用します。",
+  "cfg.transport.chatCompletions": "Chat Completions: 常に /chat/completions エンドポイントを使用します。",
+  "cfg.transport.messages": "Messages: 常に /messages エンドポイントを使用します。"
 }

@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "Basis-URL von OmniRoute (OpenAI-kompatibel). Verweisen Sie auf Ihre lokale Installation oder eine beliebige entfernte OmniRoute-Instanz.",
-  "cfg.baseUrlDeprecated": "Veraltet: Verwenden Sie stattdessen omnicopilot.routes (ein Eintrag pro Server). Der alte Wert wird automatisch zur ersten Route migriert.",
+  "cfg.baseUrlDeprecated": "Veraltet: Verwenden Sie stattdessen omnicopilot-dev.routes (ein Eintrag pro Server). Der alte Wert wird automatisch zur ersten Route migriert.",
   "cfg.cliPath": "Pfad zur OmniRoute-CLI, der vom Befehl \"Configure Coding CLI\" verwendet wird.",
   "cfg.dashboardOpen": "Wo das OmniRoute-Dashboard geöffnet wird.",
   "cfg.dashboardOpen.editor": "Dashboard in einer VS Code-Editorregisterkarte öffnen (Simple Browser). Erfordert eine OmniRoute-Version, die das Einbetten erlaubt.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API-Schlüssel festlegen",
   "cmd.showStatusPopup": "Token-Metriken & Status-Popup anzeigen",
   "view.connection": "Verbindung",
-  "cmd.openSettings": "Einstellungen öffnen"
+  "cmd.openSettings": "Einstellungen öffnen",
+  "cfg.transport": "Drahtprotokoll für Chat-Anfragen. Auto behält den katalogabgeleiteten Plan (Responses bevorzugt, mit Protokoll-Fallback); ein konkreter Wert erzwingt genau diesen Transport.",
+  "cfg.transport.auto": "Auto: Verwenden Sie den katalogabgeleiteten Plan des Modells (Responses bevorzugt, mit Fallback).",
+  "cfg.transport.responses": "Responses: Verwenden Sie immer den /responses-Endpunkt.",
+  "cfg.transport.chatCompletions": "Chat Completions: Verwenden Sie immer den /chat/completions-Endpunkt.",
+  "cfg.transport.messages": "Messages: Verwenden Sie immer den /messages-Endpunkt."
 }

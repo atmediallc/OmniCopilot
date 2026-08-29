@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute बेस URL (OpenAI-सुसंगत). तो तुमच्या स्थानिक इंस्टॉलेशनकडे किंवा कोणत्याही रिमोट OmniRoute इन्स्टन्सकडे निर्देशित करा.",
-  "cfg.baseUrlDeprecated": "अप्रचलित: त्याऐवजी omnicopilot.routes वापरा (प्रति सर्व्हर एक नोंद). जुने मूल्य आपोआप पहिल्या मार्गावर स्थलांतरित होते.",
+  "cfg.baseUrlDeprecated": "अप्रचलित: त्याऐवजी omnicopilot-dev.routes वापरा (प्रति सर्व्हर एक नोंद). जुने मूल्य आपोआप पहिल्या मार्गावर स्थलांतरित होते.",
   "cfg.cliPath": "OmniRoute CLI चा मार्ग, \"कोडिंग CLI कॉन्फिगर करा\" कमांडद्वारे वापरला जातो.",
   "cfg.dashboardOpen": "OmniRoute डॅशबोर्ड कुठे उघडतो.",
   "cfg.dashboardOpen.editor": "डॅशबोर्ड VS Code एडिटर टॅबमध्ये (Simple Browser) उघडा. एम्बेडिंगला परवानगी देणारी OmniRoute आवृत्ती आवश्यक आहे.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API की सेट करा",
   "cmd.showStatusPopup": "टोकन मेट्रिक्स आणि स्टेटस पॉपअप दाखवा",
   "view.connection": "कनेक्शन",
-  "cmd.openSettings": "सेटिंग्ज उघडा"
+  "cmd.openSettings": "सेटिंग्ज उघडा",
+  "cfg.transport": "चॅट विनंत्यांसाठी वापरला जाणारा वायर प्रोटोकॉल. ऑटो कॅटलॉग-व्युत्पन्न योजना ठेवते (Responses प्राधान्य, प्रोटोकॉल फॉलबॅकसह); ठोस मूल्य ते एकल ट्रान्सपोर्ट बळजबरीने लागू करते.",
+  "cfg.transport.auto": "ऑटो: मॉडेलची कॅटलॉग-व्युत्पन्न योजना वापरा (Responses प्राधान्य, फॉलबॅकसह).",
+  "cfg.transport.responses": "Responses: नेहमी /responses एंडपॉइंट वापरा.",
+  "cfg.transport.chatCompletions": "Chat Completions: नेहमी /chat/completions एंडपॉइंट वापरा.",
+  "cfg.transport.messages": "Messages: नेहमी /messages एंडपॉइंट वापरा."
 }

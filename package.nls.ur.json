@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute کا بنیادی URL (OpenAI کے ساتھ ہم آہنگ)۔ اسے اپنی مقامی انسٹالیشن یا کسی بھی ریموٹ OmniRoute انسٹینس کی طرف پوائنٹ کریں۔",
-  "cfg.baseUrlDeprecated": "متروک: اس کے بجائے omnicopilot.routes استعمال کریں (ہر سرور کے لیے ایک اندراج)۔ پرانی قدر خود بخود پہلے روٹ پر منتقل ہو جاتی ہے۔",
+  "cfg.baseUrlDeprecated": "متروک: اس کے بجائے omnicopilot-dev.routes استعمال کریں (ہر سرور کے لیے ایک اندراج)۔ پرانی قدر خود بخود پہلے روٹ پر منتقل ہو جاتی ہے۔",
   "cfg.cliPath": "OmniRoute CLI کا راستہ، جو \"کوڈنگ CLI کنفیگر کریں\" کمانڈ استعمال کرتی ہے۔",
   "cfg.dashboardOpen": "OmniRoute ڈیش بورڈ کہاں کھلتا ہے۔",
   "cfg.dashboardOpen.editor": "ڈیش بورڈ کو VS Code ایڈیٹر ٹیب (Simple Browser) میں کھولیں۔ اس کے لیے OmniRoute کا ایسا ورژن درکار ہے جو ایمبیڈنگ کی اجازت دیتا ہو۔",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API کلید سیٹ کریں",
   "cmd.showStatusPopup": "ٹوکن میٹرکس اور اسٹیٹس پاپ اپ دکھائیں",
   "view.connection": "کنکشن",
-  "cmd.openSettings": "ترتیبات کھولیں"
+  "cmd.openSettings": "ترتیبات کھولیں",
+  "cfg.transport": "چیٹ درخواستوں کے لیے استعمال ہونے والا وائر پروٹوکول۔ آٹو کیٹلاگ سے ماخوذ منصوبہ رکھتا ہے (Responses ترجیحی، پروٹوکول فال بیک کے ساتھ)؛ ایک ٹھوس قدر اس واحد ٹرانسپورٹ کو مجبور کرتی ہے۔",
+  "cfg.transport.auto": "آٹو: ماڈل کا کیٹلاگ سے ماخوذ منصوبہ استعمال کریں (Responses ترجیحی، فال بیک کے ساتھ)۔",
+  "cfg.transport.responses": "Responses: ہمیشہ /responses اینڈ پوائنٹ استعمال کریں۔",
+  "cfg.transport.chatCompletions": "Chat Completions: ہمیشہ /chat/completions اینڈ پوائنٹ استعمال کریں۔",
+  "cfg.transport.messages": "Messages: ہمیشہ /messages اینڈ پوائنٹ استعمال کریں۔"
 }

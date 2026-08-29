@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL dasar OmniRoute (kompatibel dengan OpenAI). Arahkan ke instalasi lokal Anda atau ke instans OmniRoute jarak jauh mana pun.",
-  "cfg.baseUrlDeprecated": "Usang: gunakan omnicopilot.routes sebagai gantinya (satu entri per server). Nilai lama dimigrasikan otomatis ke rute pertama.",
+  "cfg.baseUrlDeprecated": "Usang: gunakan omnicopilot-dev.routes sebagai gantinya (satu entri per server). Nilai lama dimigrasikan otomatis ke rute pertama.",
   "cfg.cliPath": "Jalur ke CLI OmniRoute, digunakan oleh perintah \"Konfigurasikan CLI Pengodean\".",
   "cfg.dashboardOpen": "Tempat dasbor OmniRoute dibuka.",
   "cfg.dashboardOpen.editor": "Buka dasbor di tab editor VS Code (Simple Browser). Memerlukan versi OmniRoute yang mengizinkan penyematan.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Atur Kunci API",
   "cmd.showStatusPopup": "Tampilkan Metrik Token & Popup Status",
   "view.connection": "Koneksi",
-  "cmd.openSettings": "Buka Pengaturan"
+  "cmd.openSettings": "Buka Pengaturan",
+  "cfg.transport": "Protokol kabel yang digunakan untuk permintaan chat. Auto mempertahankan rencana turunan katalog (Responses lebih disukai, dengan fallback protokol); nilai konkret memaksa transport tunggal itu.",
+  "cfg.transport.auto": "Auto: gunakan rencana turunan katalog model (Responses lebih disukai, dengan fallback).",
+  "cfg.transport.responses": "Responses: selalu gunakan endpoint /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: selalu gunakan endpoint /chat/completions.",
+  "cfg.transport.messages": "Messages: selalu gunakan endpoint /messages."
 }

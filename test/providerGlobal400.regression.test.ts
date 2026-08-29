@@ -42,12 +42,12 @@ const dummyToken = {
 describe("P2-01 regression: global 400 must not blind-replay across candidates", () => {
   afterEach(() => {
     routesModule.resetAllCooldowns();
-    delete configValues["omnicopilot"];
+    delete configValues["omnicopilot-dev"];
     vi.restoreAllMocks();
   });
 
   it("short-circuits candidate loop on global VALID_001 / messages validation 400 (≤1 fetch, not ≤5)", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
 
@@ -105,7 +105,7 @@ describe("P2-01 regression: global 400 must not blind-replay across candidates",
   });
 
   it("short-circuits on a structured VALID_* 400 error.code even when the message is opaque", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
 
@@ -164,7 +164,7 @@ describe("P2-01 regression: global 400 must not blind-replay across candidates",
   });
 
   it("still fails over on route-local 400 model_not_found (existing behavior preserved)", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
 

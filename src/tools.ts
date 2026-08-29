@@ -6,8 +6,8 @@ import type { OmniLogger } from "./client";
 import type { OmniRouteModel, RerankRequest, SearchRequest } from "./types";
 import type { Route } from "./routes";
 
-export const SEARCH_TOOL_NAME = "omniroute_search";
-export const RERANK_TOOL_NAME = "omniroute_rerank";
+export const SEARCH_TOOL_NAME = "omniroute-dev_search";
+export const RERANK_TOOL_NAME = "omniroute-dev_rerank";
 
 export interface SearchToolInput {
   query: string;

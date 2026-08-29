@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "عنوان URL الأساسي لـ OmniRoute (متوافق مع OpenAI). وجّهه إلى التثبيت المحلي لديك أو إلى أي مثيل OmniRoute بعيد.",
-  "cfg.baseUrlDeprecated": "مهمل: استخدم omnicopilot.routes بدلاً من ذلك (إدخال واحد لكل خادم). تُرحَّل القيمة القديمة تلقائيًا إلى المسار الأول.",
+  "cfg.baseUrlDeprecated": "مهمل: استخدم omnicopilot-dev.routes بدلاً من ذلك (إدخال واحد لكل خادم). تُرحَّل القيمة القديمة تلقائيًا إلى المسار الأول.",
   "cfg.cliPath": "مسار OmniRoute CLI، الذي يستخدمه الأمر \"Configure Coding CLI\".",
   "cfg.dashboardOpen": "مكان فتح لوحة تحكم OmniRoute.",
   "cfg.dashboardOpen.editor": "فتح لوحة التحكم في علامة تبويب محرر VS Code (Simple Browser). يتطلب إصدار OmniRoute يسمح بالتضمين.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "تعيين مفتاح API",
   "cmd.showStatusPopup": "إظهار نافذة مقاييس الرموز والحالة",
   "view.connection": "الاتصال",
-  "cmd.openSettings": "فتح الإعدادات"
+  "cmd.openSettings": "فتح الإعدادات",
+  "cfg.transport": "بروتوكول الأسلاك المستخدم لطلبات الدردشة. تلقائي يحافظ على الخطة المشتقة من الكتالوج (Responses مفضل، مع تراجع البروتوكول)؛ قيمة محددة تفرض هذا النقل الوحيد.",
+  "cfg.transport.auto": "تلقائي: استخدم خطة النموذج المشتقة من الكتالوج (Responses مفضل، مع تراجع).",
+  "cfg.transport.responses": "Responses: استخدم دائمًا نقطة نهاية /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: استخدم دائمًا نقطة نهاية /chat/completions.",
+  "cfg.transport.messages": "Messages: استخدم دائمًا نقطة نهاية /messages."
 }

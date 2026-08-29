@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL asas OmniRoute (serasi dengan OpenAI). Halakan ke pemasangan setempat anda atau ke mana-mana instans OmniRoute jauh.",
-  "cfg.baseUrlDeprecated": "Usang: gunakan omnicopilot.routes sebaliknya (satu entri bagi setiap pelayan). Nilai lama berpindah secara automatik ke laluan pertama.",
+  "cfg.baseUrlDeprecated": "Usang: gunakan omnicopilot-dev.routes sebaliknya (satu entri bagi setiap pelayan). Nilai lama berpindah secara automatik ke laluan pertama.",
   "cfg.cliPath": "Laluan ke CLI OmniRoute, digunakan oleh perintah \"Konfigurasikan CLI Pengekodan\".",
   "cfg.dashboardOpen": "Tempat papan pemuka OmniRoute dibuka.",
   "cfg.dashboardOpen.editor": "Buka papan pemuka dalam tab editor VS Code (Simple Browser). Memerlukan versi OmniRoute yang membenarkan pembenaman.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Tetapkan Kunci API",
   "cmd.showStatusPopup": "Paparkan Metrik Token & Popup Status",
   "view.connection": "Sambungan",
-  "cmd.openSettings": "Buka Tetapan"
+  "cmd.openSettings": "Buka Tetapan",
+  "cfg.transport": "Protokol wayar yang digunakan untuk permintaan sembang. Auto mengekalkan pelan terbitan katalog (Responses diutamakan, dengan sandaran protokol); nilai konkrit memaksa pengangkutan tunggal itu.",
+  "cfg.transport.auto": "Auto: gunakan pelan terbitan katalog model (Responses diutamakan, dengan sandaran).",
+  "cfg.transport.responses": "Responses: sentiasa gunakan titik akhir /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: sentiasa gunakan titik akhir /chat/completions.",
+  "cfg.transport.messages": "Messages: sentiasa gunakan titik akhir /messages."
 }

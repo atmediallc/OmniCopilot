@@ -13,7 +13,7 @@ const tools = (manifest.contributes.languageModelTools as unknown as ToolManifes
 
 describe("language model tool manifest", () => {
   it("declares exactly the fixed OmniRoute Search and Rerank tools", () => {
-    expect(tools.map((tool) => tool.name)).toEqual(["omniroute_search", "omniroute_rerank"]);
+    expect(tools.map((tool) => tool.name)).toEqual(["omniroute-dev_search", "omniroute-dev_rerank"]);
     expect(tools).toHaveLength(2);
   });
 

@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute 基础 URL（兼容 OpenAI）。可指向本地安装或任意远程 OmniRoute 实例。",
-  "cfg.baseUrlDeprecated": "已弃用：请改用 omnicopilot.routes（每个服务器一条）。旧值会自动迁移到第一个路由。",
+  "cfg.baseUrlDeprecated": "已弃用：请改用 omnicopilot-dev.routes（每个服务器一条）。旧值会自动迁移到第一个路由。",
   "cfg.cliPath": "OmniRoute CLI 的路径，由“配置编码 CLI”命令使用。",
   "cfg.dashboardOpen": "OmniRoute 仪表板的打开位置。",
   "cfg.dashboardOpen.editor": "在 VS Code 编辑器选项卡（Simple Browser）中打开仪表板。需要允许嵌入的 OmniRoute 版本。",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "设置 API 密钥",
   "cmd.showStatusPopup": "显示令牌指标和状态弹窗",
   "view.connection": "连接",
-  "cmd.openSettings": "打开设置"
+  "cmd.openSettings": "打开设置",
+  "cfg.transport": "用于聊天请求的传输协议。自动保留从目录派生的计划（优先使用 Responses，带协议回退）；具体值将强制使用该单一传输方式。",
+  "cfg.transport.auto": "自动：使用模型从目录派生的计划（优先使用 Responses，带回退）。",
+  "cfg.transport.responses": "Responses：始终使用 /responses 端点。",
+  "cfg.transport.chatCompletions": "Chat Completions：始终使用 /chat/completions 端点。",
+  "cfg.transport.messages": "Messages：始终使用 /messages 端点。"
 }

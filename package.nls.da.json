@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute-basis-URL (OpenAI-kompatibel). Peg den på din lokale installation eller en hvilken som helst ekstern OmniRoute-instans.",
-  "cfg.baseUrlDeprecated": "Forældet: brug omnicopilot.routes i stedet (én post pr. server). Den gamle værdi migreres automatisk til den første rute.",
+  "cfg.baseUrlDeprecated": "Forældet: brug omnicopilot-dev.routes i stedet (én post pr. server). Den gamle værdi migreres automatisk til den første rute.",
   "cfg.cliPath": "Sti til OmniRoute CLI, som bruges af kommandoen \"Configure Coding CLI\".",
   "cfg.dashboardOpen": "Hvor OmniRoute-dashboardet åbnes.",
   "cfg.dashboardOpen.editor": "Åbn dashboardet i en VS Code-editorfane (Simple Browser). Kræver en OmniRoute-version, der tillader indlejring.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Angiv API-nøgle",
   "cmd.showStatusPopup": "Vis token-målinger og status-popup",
   "view.connection": "Forbindelse",
-  "cmd.openSettings": "Åbn indstillinger"
+  "cmd.openSettings": "Åbn indstillinger",
+  "cfg.transport": "Wire-protokol brugt til chat-anmodninger. Auto bevarer den katalogafledte plan (Responses foretrukket, med protokol-fallback); en konkret værdi tvinger den enkelte transport.",
+  "cfg.transport.auto": "Auto: brug modellens katalogafledte plan (Responses foretrukket, med fallback).",
+  "cfg.transport.responses": "Responses: brug altid /responses-endepunktet.",
+  "cfg.transport.chatCompletions": "Chat Completions: brug altid /chat/completions-endepunktet.",
+  "cfg.transport.messages": "Messages: brug altid /messages-endepunktet."
 }

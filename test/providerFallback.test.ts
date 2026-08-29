@@ -49,12 +49,12 @@ const dummyToken = {
 describe("full fallback at the request level", () => {
   afterEach(() => {
     routesModule.resetAllCooldowns();
-    delete configValues["omnicopilot"];
+    delete configValues["omnicopilot-dev"];
     vi.restoreAllMocks();
   });
 
   it("performs the initial request when retriesPerServer is zero", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
     const client = {
@@ -93,7 +93,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("treats retriesPerServer as retries after the initial attempt", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
     let attempts = 0;
@@ -181,7 +181,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("serves the request from a second server when the primary fails", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
     const onRequestEnd = vi.fn();
@@ -248,7 +248,7 @@ describe("full fallback at the request level", () => {
     // OmniRoute v3.8.50 returns a pre-stream 401 {error:{message,type:"authentication_error"}}
     // when one route's key is invalid; per-route credentials mean the next
     // route can still serve — the chain must advance instead of dying.
-    configValues["omnicopilot"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
     const clientA = {
@@ -301,7 +301,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("fails over on pre-stream 400 model_not_found and still surfaces the last error when no candidate remains", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
     const reject = () =>
@@ -358,7 +358,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("still throws immediately when a failure happens mid-stream after output", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const client = {
       baseUrl: "http://server-a.local/v1",
@@ -396,7 +396,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("tries offline fallback candidate if primary fails instead of dropping it", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
 
     const context = mockContext();
     const onRequestEnd = vi.fn();
@@ -484,7 +484,7 @@ describe("full fallback at the request level", () => {
       expectedAttempts: 2,
     },
   ])("handles $scenario and immediately tries another route when appropriate", async ({ status, message, expectedAttempts }) => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
     const onRequestEnd = vi.fn();
@@ -558,7 +558,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("propagates explicit admission rejection without retrying or trying same-route fallback models", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const failure = new OmniRouteError(
       "Chat admission capacity is temporarily unavailable",
@@ -605,7 +605,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("does not reuse a throttled route through a later lower-quality fallback", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const clientA = {
       baseUrl: "http://server-a.local/v1",
@@ -653,7 +653,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("rethrows an exhausted admission failure without showing extension error UI", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     const showErrorMessage = vi.spyOn(vscode.window, "showErrorMessage");
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const failure = new OmniRouteError("Chat admission capacity is temporarily unavailable", 503);
@@ -691,7 +691,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("starts 12 simultaneous streams before any response is released or completes", async () => {
-    configValues["omnicopilot"] = { fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { fallbackMode: "sameModel" };
 
     const context = mockContext();
     const onRequestEnd = vi.fn();
@@ -757,7 +757,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("prioritizes non-cooling fallback routes over routes currently in cooldown", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
     const onRequestEnd = vi.fn();
@@ -826,7 +826,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("deprioritizes a selected primary in cooldown behind a healthy same-model fallback", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     routesModule.markRouteCooldown("A", 30_000, 429, "Throttled");
     const provider = new OmniRouteChatProvider({
       context: mockContext(),
@@ -883,7 +883,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("keeps a cooling exact-model route ahead of a healthy lower-quality fallback", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 0, fallbackMode: "full" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     routesModule.markRouteCooldown("A", 30_000, 429, "Throttled");
     const provider = new OmniRouteChatProvider({
       context: mockContext(),
@@ -926,7 +926,7 @@ describe("full fallback at the request level", () => {
   });
 
   it("merges repeated partial usage snapshots without additive double-counting", async () => {
-    configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+    configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     const onUsage = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onUsage });
     const client = {

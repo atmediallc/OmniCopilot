@@ -3,22 +3,22 @@ import { OmniRouteClient, normalizeBaseUrl } from "./client";
 import { selectChatModels } from "./catalogFilter";
 import { classifySupportedEndpoints } from "./supportedEndpoints";
 import type { OmniLogger } from "./client";
-import type { ModelTransport, ModelTransportPlan, OmniRouteModel, RouteConfig } from "./types";
+import type { ModelTransport, ModelTransportPlan, OmniRouteModel, RouteConfig, TransportPreference } from "./types";
 
 /** Legacy single-route secret (migrated into route-1). */
-export const SECRET_API_KEY = "omnicopilot.apiKey";
-/** Per-route secret prefix: `omnicopilot.apiKey.<routeId>`. */
-export const SECRET_PREFIX = "omnicopilot.apiKey.";
+export const SECRET_API_KEY = "omnicopilot-dev.apiKey";
+/** Per-route secret prefix: `omnicopilot-dev.apiKey.<routeId>`. */
+export const SECRET_PREFIX = "omnicopilot-dev.apiKey.";
 
 export interface Route extends RouteConfig {
   apiKey?: string;
 }
 
-/** Load configured routes. When `omnicopilot.routes` was never written (null),
+/** Load configured routes. When `omnicopilot-dev.routes` was never written (null),
  * the legacy `baseUrl`+`apiKey` become `route-1` (silent migration, no config
  * write). An explicit empty array stays empty — no resurrection. */
 export async function loadRoutes(context: vscode.ExtensionContext): Promise<Route[]> {
-  const cfg = vscode.workspace.getConfiguration("omnicopilot");
+  const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
   const configured = cfg.get<RouteConfig[] | null>("routes", null);
 
   if (configured && configured.length > 0) {
@@ -64,11 +64,11 @@ export async function saveRoutes(
   context: vscode.ExtensionContext,
   routes: Route[]
 ): Promise<void> {
-  const cfg = vscode.workspace.getConfiguration("omnicopilot");
+  const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
   const prior = cfg.get<RouteConfig[]>("routes", []) ?? [];
 
   // Defensive id normalization: a blank or duplicate (within this batch) id
-  // would collide in the client pool and SecretStorage (`omnicopilot.apiKey.<id>`).
+  // would collide in the client pool and SecretStorage (`omnicopilot-dev.apiKey.<id>`).
   // Kept ids from `prior` are reused as-is; only blank/duplicate ones are
   // re-keyed to a monotonic `route-N` that avoids kept ids too.
   const seen = new Set<string>();
@@ -229,7 +229,7 @@ export function makeClientForRoute(
   });
 }
 
-/** Canonical vendor string for VS Code model provider registration (e.g. omniroute-Ashburn). */
+/** Canonical vendor string for VS Code model provider registration (e.g. omniroute-dev-Ashburn). */
 export function vendorForRoute(
   route: { id: string; name: string },
   allRoutes: { id: string; name: string }[]
@@ -237,9 +237,9 @@ export function vendorForRoute(
   const clean = route.name.trim() || route.id;
   const matches = allRoutes.filter((r) => (r.name.trim() || r.id) === clean);
   if (matches.length > 1) {
-    return `omniroute-${clean}-${route.id}`;
+    return `omniroute-dev-${clean}-${route.id}`;
   }
-  return `omniroute-${clean}`;
+  return `omniroute-dev-${clean}`;
 }
 
 /** Host portion of a URL → auto-generated route name on migration. */
@@ -331,6 +331,20 @@ export function transportPlanForModel(model: OmniRouteModel | undefined): ModelT
     return ["responses", "chatCompletions"];
   }
   return [];
+}
+
+/** Apply the user's transport preference to a catalog-derived plan.
+ * `auto` returns the plan untouched; a concrete transport narrows it to that
+ * single protocol (the user's explicit choice wins over catalog metadata).
+ * When the model's plan does not include the preferred transport, the result
+ * is empty so the request fails loudly instead of silently using another
+ * protocol. */
+export function applyTransportPreference(
+  plan: ModelTransportPlan,
+  preference: TransportPreference
+): ModelTransportPlan {
+  if (preference === "auto") return plan;
+  return plan.filter((transport) => transport === preference);
 }
 
 /** Ordered cross-route fallback candidates for a failing chat request.

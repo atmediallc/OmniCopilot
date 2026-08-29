@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute బేస్ URL (OpenAI-అనుకూలం). దీన్ని మీ లోకల్ ఇన్‌స్టాలేషన్‌కు లేదా ఏదైనా రిమోట్ OmniRoute ఇన్‌స్టాన్స్‌కు సూచించండి.",
-  "cfg.baseUrlDeprecated": "వాడుకలో లేదు: బదులుగా omnicopilot.routes ఉపయోగించండి (ప్రతి సర్వర్కు ఒక ఎంట్రీ). పాత విలువ స్వయంచాలకంగా మొదటి మార్గానికి బదిలీ అవుతుంది.",
+  "cfg.baseUrlDeprecated": "వాడుకలో లేదు: బదులుగా omnicopilot-dev.routes ఉపయోగించండి (ప్రతి సర్వర్కు ఒక ఎంట్రీ). పాత విలువ స్వయంచాలకంగా మొదటి మార్గానికి బదిలీ అవుతుంది.",
   "cfg.cliPath": "\"కోడింగ్ CLIని కాన్ఫిగర్ చేయండి\" ఆదేశం ఉపయోగించే OmniRoute CLI పాత్.",
   "cfg.dashboardOpen": "OmniRoute డాష్‌బోర్డ్ ఎక్కడ తెరుచుకుంటుంది.",
   "cfg.dashboardOpen.editor": "డాష్‌బోర్డ్‌ను VS Code ఎడిటర్ ట్యాబ్‌లో (Simple Browser) తెరవండి. ఎంబెడ్డింగ్‌ను అనుమతించే OmniRoute వెర్షన్ అవసరం.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API కీని సెట్ చేయండి",
   "cmd.showStatusPopup": "టోకెన్ మెట్రిక్లు మరియు స్టేటస్ పాపప్ను చూపించు",
   "view.connection": "కనెక్షన్",
-  "cmd.openSettings": "సెట్టింగ్‌లను తెరవండి"
+  "cmd.openSettings": "సెట్టింగ్‌లను తెరవండి",
+  "cfg.transport": "చాట్ అభ్యర్థనల కోసం ఉపయోగించే వైర్ ప్రోటోకాల్. ఆటో కేటలాగ్-ఉత్పన్న ప్రణాళికను ఉంచుతుంది (Responses ప్రాధాన్యత, ప్రోటోకాల్ ఫాల్బ్యాక్తో); ఒక కాంక్రీట్ విలువ ఆ ఒకే రవాణాను బలవంతం చేస్తుంది.",
+  "cfg.transport.auto": "ఆటో: మోడల్ యొక్క కేటలాగ్-ఉత్పన్న ప్రణాళికను ఉపయోగించండి (Responses ప్రాధాన్యత, ఫాల్బ్యాక్తో).",
+  "cfg.transport.responses": "Responses: ఎల్లప్పుడూ /responses ఎండ్పాయింట్ను ఉపయోగించండి.",
+  "cfg.transport.chatCompletions": "Chat Completions: ఎల్లప్పుడూ /chat/completions ఎండ్పాయింట్ను ఉపయోగించండి.",
+  "cfg.transport.messages": "Messages: ఎల్లప్పుడూ /messages ఎండ్పాయింట్ను ఉపయోగించండి."
 }

@@ -32,7 +32,7 @@ describe("fixed OmniRoute tools", () => {
   it("registers exactly two lifecycle disposables with the fixed names", () => {
     const context = createMockContext() as { subscriptions: unknown[] };
     registerFixedTools(context as never, log);
-    expect(registeredTools.map((entry) => entry.name)).toEqual(["omniroute_search", "omniroute_rerank"]);
+    expect(registeredTools.map((entry) => entry.name)).toEqual(["omniroute-dev_search", "omniroute-dev_rerank"]);
     expect(context.subscriptions).toHaveLength(2);
   });
 

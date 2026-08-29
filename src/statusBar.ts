@@ -64,7 +64,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   ) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
     this.item.name = "OmniRoute";
-    this.item.command = "omnicopilot.showStatusPopup";
+    this.item.command = "omnicopilot-dev.showStatusPopup";
     this.render();
   }
 
@@ -271,7 +271,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
   }
 
   private applyVisibility(): void {
-    const enabled = vscode.workspace.getConfiguration("omnicopilot").get<boolean>("statusBar", true);
+    const enabled = vscode.workspace.getConfiguration("omnicopilot-dev").get<boolean>("statusBar", true);
     if (enabled) this.item.show();
     else this.item.hide();
   }
@@ -283,7 +283,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     if (this.disposed) return;
     if (this.loopTimer) clearTimeout(this.loopTimer);
     const seconds = vscode.workspace
-      .getConfiguration("omnicopilot")
+      .getConfiguration("omnicopilot-dev")
       .get<number>("healthCheckIntervalSeconds", 30);
     const base = Math.max(seconds, 5) * 1000;
     const multiplier = this.consecutiveFailures >= 2

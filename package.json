@@ -60,7 +60,7 @@
   "contributes": {
     "languageModelTools": [
       {
-        "name": "omniroute_search",
+        "name": "omniroute-dev_search",
         "displayName": "OmniRoute Search",
         "modelDescription": "Search the web or news through an automatically selected OmniRoute Search provider.",
         "canBeReferencedInPrompt": true,
@@ -78,7 +78,7 @@
         }
       },
       {
-        "name": "omniroute_rerank",
+        "name": "omniroute-dev_rerank",
         "displayName": "OmniRoute Rerank",
         "modelDescription": "Rerank text documents through an automatically selected OmniRoute Rerank model.",
         "canBeReferencedInPrompt": true,
@@ -100,17 +100,17 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "omnicopilot",
+          "id": "omnicopilot-dev",
           "title": "OmniRoute",
           "icon": "assets/activity-icon.svg"
         }
       ]
     },
     "views": {
-      "omnicopilot": [
+      "omnicopilot-dev": [
         {
           "type": "webview",
-          "id": "omnicopilot.panel",
+          "id": "omnicopilot-dev.panel",
           "name": "%view.connection%",
           "icon": "assets/activity-icon.svg"
         }
@@ -118,118 +118,118 @@
     },
     "languageModelChatProviders": [
       {
-        "vendor": "omniroute",
+        "vendor": "omniroute-dev",
         "displayName": "OmniRoute",
-        "configuration": "omnicopilot"
+        "configuration": "omnicopilot-dev"
       },
       {
-        "vendor": "omniroute-2",
+        "vendor": "omniroute-dev-2",
         "displayName": "OmniRoute #2",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 2"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 2"
       },
       {
-        "vendor": "omniroute-3",
+        "vendor": "omniroute-dev-3",
         "displayName": "OmniRoute #3",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 3"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 3"
       },
       {
-        "vendor": "omniroute-4",
+        "vendor": "omniroute-dev-4",
         "displayName": "OmniRoute #4",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 4"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 4"
       },
       {
-        "vendor": "omniroute-5",
+        "vendor": "omniroute-dev-5",
         "displayName": "OmniRoute #5",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 5"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 5"
       },
       {
-        "vendor": "omniroute-6",
+        "vendor": "omniroute-dev-6",
         "displayName": "OmniRoute #6",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 6"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 6"
       },
       {
-        "vendor": "omniroute-7",
+        "vendor": "omniroute-dev-7",
         "displayName": "OmniRoute #7",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 7"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 7"
       },
       {
-        "vendor": "omniroute-8",
+        "vendor": "omniroute-dev-8",
         "displayName": "OmniRoute #8",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 8"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 8"
       },
       {
-        "vendor": "omniroute-9",
+        "vendor": "omniroute-dev-9",
         "displayName": "OmniRoute #9",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 9"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 9"
       },
       {
-        "vendor": "omniroute-10",
+        "vendor": "omniroute-dev-10",
         "displayName": "OmniRoute #10",
-        "configuration": "omnicopilot",
-        "when": "omnicopilot.routeCount >= 10"
+        "configuration": "omnicopilot-dev",
+        "when": "omnicopilot-dev.routeCount >= 10"
       }
     ],
     "commands": [
       {
-        "command": "omnicopilot.manage",
+        "command": "omnicopilot-dev.manage",
         "category": "OmniRoute",
         "title": "%cmd.manage%"
       },
       {
-        "command": "omnicopilot.setApiKey",
+        "command": "omnicopilot-dev.setApiKey",
         "category": "OmniRoute",
         "title": "%cmd.setApiKey%"
       },
       {
-        "command": "omnicopilot.refreshModels",
+        "command": "omnicopilot-dev.refreshModels",
         "category": "OmniRoute",
         "title": "%cmd.refreshModels%"
       },
       {
-        "command": "omnicopilot.checkConnection",
+        "command": "omnicopilot-dev.checkConnection",
         "category": "OmniRoute",
         "title": "%cmd.checkConnection%"
       },
       {
-        "command": "omnicopilot.openDashboard",
+        "command": "omnicopilot-dev.openDashboard",
         "category": "OmniRoute",
         "title": "%cmd.openDashboard%"
       },
       {
-        "command": "omnicopilot.openGitHub",
+        "command": "omnicopilot-dev.openGitHub",
         "category": "OmniRoute",
         "title": "%cmd.openGitHub%"
       },
       {
-        "command": "omnicopilot.installOmniRoute",
+        "command": "omnicopilot-dev.installOmniRoute",
         "category": "OmniRoute",
         "title": "%cmd.installOmniRoute%"
       },
       {
-        "command": "omnicopilot.configureCliTool",
+        "command": "omnicopilot-dev.configureCliTool",
         "category": "OmniRoute",
         "title": "%cmd.configureCliTool%"
       },
       {
-        "command": "omnicopilot.quickActions",
+        "command": "omnicopilot-dev.quickActions",
         "category": "OmniRoute",
         "title": "%cmd.quickActions%"
       },
       {
-        "command": "omnicopilot.showStatusPopup",
+        "command": "omnicopilot-dev.showStatusPopup",
         "category": "OmniRoute",
         "title": "%cmd.showStatusPopup%"
       },
       {
-        "command": "omnicopilot.openSettings",
+        "command": "omnicopilot-dev.openSettings",
         "category": "OmniRoute",
         "title": "%cmd.openSettings%"
       }
@@ -237,19 +237,19 @@
     "configuration": {
       "title": "OmniRoute for Copilot",
       "properties": {
-        "omnicopilot.baseUrl": {
+        "omnicopilot-dev.baseUrl": {
           "type": "string",
           "default": "",
           "scope": "application",
           "description": "%cfg.baseUrlDeprecated%"
         },
-        "omnicopilot.statusBar": {
+        "omnicopilot-dev.statusBar": {
           "type": "boolean",
           "default": true,
           "order": 2,
           "description": "%cfg.statusBar%"
         },
-        "omnicopilot.healthCheckIntervalSeconds": {
+        "omnicopilot-dev.healthCheckIntervalSeconds": {
           "type": "number",
           "default": 30,
           "minimum": 5,
@@ -257,27 +257,27 @@
           "order": 3,
           "description": "%cfg.healthCheckIntervalSeconds%"
         },
-        "omnicopilot.maxOutputTokens": {
+        "omnicopilot-dev.maxOutputTokens": {
           "type": "number",
           "default": 16384,
           "minimum": 256,
           "order": 4,
           "description": "%cfg.maxOutputTokens%"
         },
-        "omnicopilot.defaultContextLength": {
+        "omnicopilot-dev.defaultContextLength": {
           "type": "number",
           "default": 128000,
           "minimum": 1024,
           "order": 5,
           "description": "%cfg.defaultContextLength%"
         },
-        "omnicopilot.modelFilter": {
+        "omnicopilot-dev.modelFilter": {
           "type": "string",
           "default": "",
           "order": 6,
           "description": "%cfg.modelFilter%"
         },
-        "omnicopilot.dashboardOpen": {
+        "omnicopilot-dev.dashboardOpen": {
           "type": "string",
           "enum": [
             "external",
@@ -291,7 +291,7 @@
           "order": 7,
           "description": "%cfg.dashboardOpen%"
         },
-        "omnicopilot.defaultReasoningEffort": {
+        "omnicopilot-dev.defaultReasoningEffort": {
           "type": "string",
           "enum": [
             "",
@@ -313,13 +313,13 @@
           "order": 8,
           "description": "%cfg.defaultReasoningEffort%"
         },
-        "omnicopilot.cliPath": {
+        "omnicopilot-dev.cliPath": {
           "type": "string",
           "default": "omniroute",
           "order": 9,
           "description": "%cfg.cliPath%"
         },
-        "omnicopilot.routes": {
+        "omnicopilot-dev.routes": {
           "type": "array",
           "default": [],
           "scope": "application",
@@ -345,14 +345,14 @@
             }
           }
         },
-        "omnicopilot.firstByteTimeoutSeconds": {
+        "omnicopilot-dev.firstByteTimeoutSeconds": {
           "type": "number",
           "default": 120,
           "minimum": 5,
           "maximum": 600,
           "description": "%cfg.firstByteTimeoutSeconds%"
         },
-        "omnicopilot.fallbackMode": {
+        "omnicopilot-dev.fallbackMode": {
           "type": "string",
           "default": "sameModel",
           "enum": [
@@ -369,28 +369,28 @@
           ],
           "description": "%cfg.fallbackMode%"
         },
-        "omnicopilot.retriesPerServer": {
+        "omnicopilot-dev.retriesPerServer": {
           "type": "number",
           "default": 1,
           "minimum": 0,
           "maximum": 5,
           "description": "%cfg.retriesPerServer%"
         },
-        "omnicopilot.maxTools": {
+        "omnicopilot-dev.maxTools": {
           "type": "number",
           "default": 0,
           "minimum": 0,
           "maximum": 128,
           "description": "%cfg.maxTools%"
         },
-        "omnicopilot.modelCacheTtlMinutes": {
+        "omnicopilot-dev.modelCacheTtlMinutes": {
           "type": "number",
           "default": 60,
           "minimum": 1,
           "maximum": 1440,
           "description": "%cfg.modelCacheTtlMinutes%"
         },
-        "omnicopilot.compressionOverride": {
+        "omnicopilot-dev.compressionOverride": {
           "type": "string",
           "default": "serverDefault",
           "enum": [
@@ -408,6 +408,23 @@
             "%cfg.compressionOverride.caveman%"
           ],
           "description": "%cfg.compressionOverride%"
+        },
+        "omnicopilot-dev.transport": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "responses",
+            "chatCompletions",
+            "messages"
+          ],
+          "enumDescriptions": [
+            "%cfg.transport.auto%",
+            "%cfg.transport.responses%",
+            "%cfg.transport.chatCompletions%",
+            "%cfg.transport.messages%"
+          ],
+          "description": "%cfg.transport%"
         }
       }
     }
@@ -421,7 +438,7 @@
     "icon": "node scripts/render-icon.mjs",
     "package": "npm run check-types && node esbuild.mjs --production",
     "vscode:prepublish": "npm run package",
-    "vsix": "vsce package -o omnicopilot.vsix"
+    "vsix": "vsce package -o omnicopilot-dev.vsix"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

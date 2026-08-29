@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute temel URL'si (OpenAI uyumlu). Yerel kurulumunuza veya herhangi bir uzak OmniRoute örneğine yönlendirin.",
-  "cfg.baseUrlDeprecated": "Kullanımdan kaldırıldı: bunun yerine omnicopilot.routes kullanın (sunucu başına bir giriş). Eski değer otomatik olarak ilk rotaya taşınır.",
+  "cfg.baseUrlDeprecated": "Kullanımdan kaldırıldı: bunun yerine omnicopilot-dev.routes kullanın (sunucu başına bir giriş). Eski değer otomatik olarak ilk rotaya taşınır.",
   "cfg.cliPath": "\"Kodlama CLI'sını Yapılandır\" komutunun kullandığı OmniRoute CLI yolu.",
   "cfg.dashboardOpen": "OmniRoute gösterge panelinin nerede açılacağı.",
   "cfg.dashboardOpen.editor": "Gösterge panelini bir VS Code düzenleyici sekmesinde (Simple Browser) aç. Gömmeye izin veren bir OmniRoute sürümü gerektirir.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API Anahtarını Ayarla",
   "cmd.showStatusPopup": "Token ölçümlerini ve durum açılır penceresini göster",
   "view.connection": "Bağlantı",
-  "cmd.openSettings": "Ayarları Aç"
+  "cmd.openSettings": "Ayarları Aç",
+  "cfg.transport": "Sohbet istekleri için kullanılan kablolu protokol. Otomatik, katalogdan türetilen planı korur (Responses tercih edilir, protokol geri dönüşüyle); somut bir değer o tek taşımayı zorlar.",
+  "cfg.transport.auto": "Otomatik: modelin katalogdan türetilen planını kullanın (Responses tercih edilir, geri dönüşle).",
+  "cfg.transport.responses": "Responses: her zaman /responses uç noktasını kullanın.",
+  "cfg.transport.chatCompletions": "Chat Completions: her zaman /chat/completions uç noktasını kullanın.",
+  "cfg.transport.messages": "Messages: her zaman /messages uç noktasını kullanın."
 }

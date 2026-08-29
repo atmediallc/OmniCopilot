@@ -8,6 +8,7 @@ import { transportSurfaceLabel } from "./supportedEndpoints";
 import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
 import { containsVisibleText } from "./visibleText";
 import {
+  applyTransportPreference,
   buildCatalog,
   cachedLoadRoutes,
   clearRouteCooldown,
@@ -17,7 +18,7 @@ import {
   pickFallbackCandidates,
   transportPlanForModel,
 } from "./routes";
-import type { ChatRequest, ChatUsageInfo, OmniRouteModel } from "./types";
+import type { ChatRequest, ChatUsageInfo, OmniRouteModel, TransportPreference } from "./types";
 import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
 import { finiteNonNegative, subsetTokens, type ResolvedChatUsage } from "./usage";
 
@@ -50,7 +51,7 @@ export interface ProviderDeps {
 }
 
 function getConfig() {
-  return vscode.workspace.getConfiguration("omnicopilot");
+  return vscode.workspace.getConfiguration("omnicopilot-dev");
 }
 
 function formatContextLength(tokens: number): string {
@@ -232,8 +233,8 @@ export class OmniRouteChatProvider
   private static sharedCachedModels: CatalogModel[] = [];
   private static sharedLastCatalogFetch = 0;
   private static sharedRefreshGeneration = 0;
-  private static readonly CACHE_STATE_KEY = "omnicopilot.cachedCatalog.v1";
-  private static readonly CACHE_TIME_KEY = "omnicopilot.cachedCatalogTime.v1";
+  private static readonly CACHE_STATE_KEY = "omnicopilot-dev.cachedCatalog.v1";
+  private static readonly CACHE_TIME_KEY = "omnicopilot-dev.cachedCatalogTime.v1";
 
   private static rebuildSharedCatalog(): CatalogModel[] {
     const segments = Array.from(OmniRouteChatProvider.sharedRouteCatalogs.values());
@@ -558,9 +559,9 @@ export class OmniRouteChatProvider
       installLabel
     );
     if (pick === configureLabel) {
-      void vscode.commands.executeCommand("omnicopilot.manage");
+      void vscode.commands.executeCommand("omnicopilot-dev.manage");
     } else if (pick === installLabel) {
-      void vscode.commands.executeCommand("omnicopilot.installOmniRoute");
+      void vscode.commands.executeCommand("omnicopilot-dev.installOmniRoute");
     }
   }
 
@@ -668,14 +669,21 @@ export class OmniRouteChatProvider
         `Primary model not found in catalog: ${model.id} (${this.cachedModels.length} cached)`
       );
     }
-    const fallbacks = primaryEntry
+    // User-selected transport override: `auto` keeps the catalog-derived plan;
+    // a concrete value narrows every candidate to that single protocol.
+    const preference = getConfig().get<TransportPreference>("transport", "auto");
+    const fallbacks = (primaryEntry
       ? pickFallbackCandidates(
           primaryEntry,
           this.cachedModels,
           Boolean(options.tools?.length),
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
-      : [];
+      : []
+    ).map((candidate) => ({
+      ...candidate,
+      transportPlan: applyTransportPreference(candidate.transportPlan, preference),
+    }));
     // The prefixedId is the source of truth for what the user selected.
     // Resolve the route from the catalog entry, NOT from model.routeId which
     // can be stale or point to a different server.
@@ -686,12 +694,15 @@ export class OmniRouteChatProvider
       ? {
           routeId: primaryEntry.routeId,
           modelId: primaryEntry.modelId,
-          transportPlan: transportPlanForModel(primaryCatalogModel?.model),
+          transportPlan: applyTransportPreference(
+            transportPlanForModel(primaryCatalogModel?.model),
+            preference
+          ),
         }
       : {
           routeId: model.routeId!,
           modelId: model.omniModelId!,
-          transportPlan: ["responses", "chatCompletions"],
+          transportPlan: applyTransportPreference(["responses", "chatCompletions"], preference),
         };
 
     log.info(

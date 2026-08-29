@@ -25,7 +25,7 @@ const token = {
 } as unknown as vscode.CancellationToken;
 
 async function prepare(primaryStream: () => AsyncGenerator<unknown>, fallbackStream: () => AsyncGenerator<unknown>) {
-  configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
+  configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
   const clientA = {
     baseUrl: "http://a/v1",
     listModels: vi.fn().mockResolvedValue([{ id: "anthropic/claude", supported_endpoints: ["POST /v1/messages"] }]),
@@ -55,7 +55,7 @@ async function prepare(primaryStream: () => AsyncGenerator<unknown>, fallbackStr
 describe("Messages-aware provider fallback", () => {
   afterEach(() => {
     routesModule.resetAllCooldowns();
-    delete configValues["omnicopilot"];
+    delete configValues["omnicopilot-dev"];
     vi.restoreAllMocks();
   });
 

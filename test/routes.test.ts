@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyTransportPreference,
   buildCatalog,
   clearRouteCooldown,
   getClientForRoute,
@@ -101,6 +102,26 @@ describe("transportPlanForModel", () => {
   });
 });
 
+describe("applyTransportPreference", () => {
+  it("keeps the plan untouched for auto", () => {
+    const plan = ["responses", "chatCompletions"] as const;
+    expect(applyTransportPreference(plan, "auto")).toBe(plan);
+    expect(applyTransportPreference(["messages"] as const, "auto")).toEqual(["messages"]);
+  });
+
+  it("narrows the plan to the preferred transport when supported", () => {
+    expect(applyTransportPreference(["responses", "chatCompletions"] as const, "responses")).toEqual(["responses"]);
+    expect(applyTransportPreference(["responses", "chatCompletions"] as const, "chatCompletions")).toEqual(["chatCompletions"]);
+    expect(applyTransportPreference(["responses", "messages"] as const, "messages")).toEqual(["messages"]);
+  });
+
+  it("returns an empty plan when the model does not support the preferred transport", () => {
+    expect(applyTransportPreference(["chatCompletions"] as const, "responses")).toEqual([]);
+    expect(applyTransportPreference(["responses"] as const, "messages")).toEqual([]);
+    expect(applyTransportPreference([] as const, "chatCompletions")).toEqual([]);
+  });
+});
+
 describe("pickFallbackCandidates", () => {
   const cat = buildCatalog([
     { routeId: "r1", name: "A", models: [model("openai/gpt-4o", true), model("openai/gpt-4o-mini", false)] },
@@ -147,9 +168,9 @@ describe("pickFallbackCandidates", () => {
 });
 
 describe("vendorForRoute", () => {
-  it("genera omniroute-NOMBRE para servidor unico", () => {
+  it("genera omniroute-dev-NOMBRE para servidor unico", () => {
     const routes = [{ id: "r1", name: "Ashburn" }];
-    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-Ashburn");
+    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-dev-Ashburn");
   });
 
   it("agrega el routeId si hay colision de nombres de servidor", () => {
@@ -157,8 +178,8 @@ describe("vendorForRoute", () => {
       { id: "r1", name: "Ashburn" },
       { id: "r2", name: "Ashburn" },
     ];
-    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-Ashburn-r1");
-    expect(vendorForRoute(routes[1], routes)).toBe("omniroute-Ashburn-r2");
+    expect(vendorForRoute(routes[0], routes)).toBe("omniroute-dev-Ashburn-r1");
+    expect(vendorForRoute(routes[1], routes)).toBe("omniroute-dev-Ashburn-r2");
   });
 });
 
@@ -170,7 +191,7 @@ describe("saveRoutes", () => {
   });
 
   function seedPrior(routes: Array<{ id: string; name: string; baseUrl: string }>) {
-    configValues["omnicopilot"] = { ...(configValues["omnicopilot"] ?? {}), routes };
+    configValues["omnicopilot-dev"] = { ...(configValues["omnicopilot-dev"] ?? {}), routes };
   }
 
   it("mantiene el secreto cuando una ruta existente se guarda sin apiKey", async () => {

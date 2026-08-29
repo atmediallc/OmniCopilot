@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL หลักของ OmniRoute (เข้ากันได้กับ OpenAI) ชี้ไปที่การติดตั้งในเครื่องของคุณหรืออินสแตนซ์ OmniRoute ระยะไกลใดก็ได้",
-  "cfg.baseUrlDeprecated": "เลิกใช้แล้ว: ให้ใช้ omnicopilot.routes แทน (หนึ่งรายการต่อเซิร์ฟเวอร์) ค่าเดิมจะย้ายไปยังเส้นทางแรกโดยอัตโนมัติ",
+  "cfg.baseUrlDeprecated": "เลิกใช้แล้ว: ให้ใช้ omnicopilot-dev.routes แทน (หนึ่งรายการต่อเซิร์ฟเวอร์) ค่าเดิมจะย้ายไปยังเส้นทางแรกโดยอัตโนมัติ",
   "cfg.cliPath": "พาธไปยัง OmniRoute CLI ซึ่งใช้โดยคำสั่ง \"กำหนดค่า CLI สำหรับเขียนโค้ด\"",
   "cfg.dashboardOpen": "ตำแหน่งที่แดชบอร์ด OmniRoute จะเปิด",
   "cfg.dashboardOpen.editor": "เปิดแดชบอร์ดในแท็บตัวแก้ไขของ VS Code (Simple Browser) ต้องใช้ OmniRoute เวอร์ชันที่อนุญาตการฝัง",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "ตั้งค่าคีย์ API",
   "cmd.showStatusPopup": "แสดงเมตริกโทเค็นและป๊อปอัปสถานะ",
   "view.connection": "การเชื่อมต่อ",
-  "cmd.openSettings": "เปิดการตั้งค่า"
+  "cmd.openSettings": "เปิดการตั้งค่า",
+  "cfg.transport": "โปรโตคอลสายที่ใช้สำหรับคำขอแชท อัตโนมัติจะรักษาแผนที่ได้จากแคตตาล็อก (Responses เป็นที่ต้องการ พร้อมการสำรองโปรโตคอล) ค่าที่เป็นรูปธรรมจะบังคับการขนส่งเดียวนั้น",
+  "cfg.transport.auto": "อัตโนมัติ: ใช้แผนที่ได้จากแคตตาล็อกของโมเดล (Responses เป็นที่ต้องการ พร้อมการสำรอง)",
+  "cfg.transport.responses": "Responses: ใช้จุดสิ้นสุด /responses เสมอ",
+  "cfg.transport.chatCompletions": "Chat Completions: ใช้จุดสิ้นสุด /chat/completions เสมอ",
+  "cfg.transport.messages": "Messages: ใช้จุดสิ้นสุด /messages เสมอ"
 }

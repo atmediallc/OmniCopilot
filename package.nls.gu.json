@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute બેઝ URL (OpenAI-સુસંગત). તેને તમારા લોકલ ઇન્સ્ટોલ અથવા કોઈપણ રિમોટ OmniRoute ઇન્સ્ટન્સ તરફ પોઇન્ટ કરો.",
-  "cfg.baseUrlDeprecated": "અપ્રચલિત: તેના બદલે omnicopilot.routes વાપરો (દરેક સર્વર માટે એક એન્ટ્રી). જૂની કિંમત આપમેળે પ્રથમ રૂટ પર સ્થાનાંતરિત થાય છે.",
+  "cfg.baseUrlDeprecated": "અપ્રચલિત: તેના બદલે omnicopilot-dev.routes વાપરો (દરેક સર્વર માટે એક એન્ટ્રી). જૂની કિંમત આપમેળે પ્રથમ રૂટ પર સ્થાનાંતરિત થાય છે.",
   "cfg.cliPath": "OmniRoute CLI નો પાથ, જે \"Configure Coding CLI\" કમાન્ડ દ્વારા વપરાય છે.",
   "cfg.dashboardOpen": "OmniRoute ડેશબોર્ડ ક્યાં ખૂલે છે.",
   "cfg.dashboardOpen.editor": "VS Code એડિટર ટૅબમાં (Simple Browser) ડેશબોર્ડ ખોલો. એમ્બેડિંગની મંજૂરી આપતી OmniRoute આવૃત્તિ જરૂરી છે.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API કી સેટ કરો",
   "cmd.showStatusPopup": "ટોકન મેટ્રિક્સ અને સ્ટેટસ પોપઅપ બતાવો",
   "view.connection": "કનેક્શન",
-  "cmd.openSettings": "સેટિંગ્સ ખોલો"
+  "cmd.openSettings": "સેટિંગ્સ ખોલો",
+  "cfg.transport": "ચેટ વિનંતીઓ માટે વપરાતો વાયર પ્રોટોકોલ. ઓટો કેટલોગ-મેળવેલ યોજના રાખે છે (Responses પસંદગી, પ્રોટોકોલ ફોલબેક સાથે); ચોક્કસ મૂલ્ય તે એકલ ટ્રાન્સપોર્ટ દબાણ કરે છે.",
+  "cfg.transport.auto": "ઓટો: મોડેલની કેટલોગ-મેળવેલ યોજના વાપરો (Responses પસંદગી, ફોલબેક સાથે).",
+  "cfg.transport.responses": "Responses: હંમેશા /responses એન્ડપોઇન્ટ વાપરો.",
+  "cfg.transport.chatCompletions": "Chat Completions: હંમેશા /chat/completions એન્ડપોઇન્ટ વાપરો.",
+  "cfg.transport.messages": "Messages: હંમેશા /messages એન્ડપોઇન્ટ વાપરો."
 }

@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL cơ sở của OmniRoute (tương thích OpenAI). Trỏ đến bản cài đặt cục bộ của bạn hoặc bất kỳ phiên bản OmniRoute từ xa nào.",
-  "cfg.baseUrlDeprecated": "Không dùng nữa: hãy dùng omnicopilot.routes thay thế (một mục cho mỗi máy chủ). Giá trị cũ tự động chuyển sang tuyến đầu tiên.",
+  "cfg.baseUrlDeprecated": "Không dùng nữa: hãy dùng omnicopilot-dev.routes thay thế (một mục cho mỗi máy chủ). Giá trị cũ tự động chuyển sang tuyến đầu tiên.",
   "cfg.cliPath": "Đường dẫn đến OmniRoute CLI, được lệnh \"Cấu hình CLI lập trình\" sử dụng.",
   "cfg.dashboardOpen": "Nơi mở bảng điều khiển OmniRoute.",
   "cfg.dashboardOpen.editor": "Mở bảng điều khiển trong một tab trình soạn thảo VS Code (Simple Browser). Yêu cầu phiên bản OmniRoute cho phép nhúng.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Đặt khóa API",
   "cmd.showStatusPopup": "Hiển thị số liệu token và cửa sổ trạng thái",
   "view.connection": "Kết nối",
-  "cmd.openSettings": "Mở Cài đặt"
+  "cmd.openSettings": "Mở Cài đặt",
+  "cfg.transport": "Giao thức truyền tải được sử dụng cho các yêu cầu trò chuyện. Tự động giữ kế hoạch lấy từ danh mục (Responses được ưu tiên, có dự phòng giao thức); một giá trị cụ thể buộc sử dụng đúng phương thức truyền tải đó.",
+  "cfg.transport.auto": "Tự động: sử dụng kế hoạch lấy từ danh mục của mô hình (Responses được ưu tiên, có dự phòng).",
+  "cfg.transport.responses": "Responses: luôn sử dụng điểm cuối /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: luôn sử dụng điểm cuối /chat/completions.",
+  "cfg.transport.messages": "Messages: luôn sử dụng điểm cuối /messages."
 }

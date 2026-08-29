@@ -66,6 +66,9 @@ export class OmniStatusPopup {
           case "changeFallbackMode":
             await this.handleChangeFallbackMode(msg.value);
             break;
+          case "changeTransport":
+            await this.handleChangeTransport(msg.value);
+            break;
           case "runCommand":
             await this.handleRunCommand(msg.value);
             break;
@@ -134,7 +137,7 @@ export class OmniStatusPopup {
     if (typeof payload?.setting !== "string" || !allowedSettings.has(payload.setting)) return;
     if (typeof payload.enabled !== "boolean") return;
     await vscode.workspace
-      .getConfiguration("omnicopilot")
+      .getConfiguration("omnicopilot-dev")
       .update(payload.setting, payload.enabled, vscode.ConfigurationTarget.Global);
     // Reflect the toggle immediately so a metrics-only render can't
     // flip it back before the throttled refresh runs.
@@ -152,7 +155,7 @@ export class OmniStatusPopup {
     const allowedModes = new Set(["sameModel", "sameFamily", "full", "none"]);
     if (typeof mode !== "string" || !allowedModes.has(mode)) return;
     await vscode.workspace
-      .getConfiguration("omnicopilot")
+      .getConfiguration("omnicopilot-dev")
       .update("fallbackMode", mode, vscode.ConfigurationTarget.Global);
     // Reflect the choice immediately (even if updateStateData is
     // throttled/in-flight) so a metrics-only render can't revert it.
@@ -167,17 +170,36 @@ export class OmniStatusPopup {
     await this.updateStateData();
   }
 
+  /** Apply a user-chosen wire transport override. */
+  private async handleChangeTransport(value: unknown): Promise<void> {
+    const transport = value as string;
+    const allowed = new Set(["auto", "responses", "chatCompletions", "messages"]);
+    if (typeof transport !== "string" || !allowed.has(transport)) return;
+    await vscode.workspace
+      .getConfiguration("omnicopilot-dev")
+      .update("transport", transport, vscode.ConfigurationTarget.Global);
+    if (this.lastState) {
+      this.lastState = { ...this.lastState, transport };
+      void this.panel.webview.postMessage({
+        command: "updateState",
+        state: { ...this.lastState, transport },
+      });
+    }
+    this.lastUpdateMs = 0;
+    await this.updateStateData();
+  }
+
   /** Run an allow-listed command coming from the webview. */
   private async handleRunCommand(value: unknown): Promise<void> {
     const payload = value as { cmd?: unknown; args?: unknown[] };
     const allowedCommands = new Set([
-      "omnicopilot.openDashboard",
-      "omnicopilot.manage",
-      "omnicopilot.refreshModels",
-      "omnicopilot.configureCliTool",
-      "omnicopilot.checkConnection",
-      "omnicopilot.installOmniRoute",
-      "omnicopilot.openGitHub",
+      "omnicopilot-dev.openDashboard",
+      "omnicopilot-dev.manage",
+      "omnicopilot-dev.refreshModels",
+      "omnicopilot-dev.configureCliTool",
+      "omnicopilot-dev.checkConnection",
+      "omnicopilot-dev.installOmniRoute",
+      "omnicopilot-dev.openGitHub",
       "workbench.action.openSettings",
     ]);
     if (typeof payload.cmd !== "string" || !allowedCommands.has(payload.cmd)) return;
@@ -196,6 +218,7 @@ export class OmniStatusPopup {
         servers: unknown[];
         suggestions: unknown[];
         fallbackMode: string;
+        transport: string;
         statusBarEnabled: boolean;
         retriesPerServer: number;
       }
@@ -279,6 +302,7 @@ export class OmniStatusPopup {
     settings?: {
       suggestions?: unknown[];
       fallbackMode?: string;
+      transport?: string;
       statusBarEnabled?: boolean;
       retriesPerServer?: number;
     }
@@ -318,6 +342,7 @@ export class OmniStatusPopup {
     const prev = this.lastState ?? {
       suggestions: [],
       fallbackMode: "sameModel",
+      transport: "auto",
       statusBarEnabled: true,
       retriesPerServer: 1,
     };
@@ -325,6 +350,7 @@ export class OmniStatusPopup {
       ...prev,
       suggestions: settings?.suggestions ?? prev.suggestions,
       fallbackMode: settings?.fallbackMode ?? prev.fallbackMode,
+      transport: settings?.transport ?? prev.transport,
       statusBarEnabled: settings?.statusBarEnabled ?? prev.statusBarEnabled,
       retriesPerServer: settings?.retriesPerServer ?? prev.retriesPerServer,
       metrics: {
@@ -348,6 +374,7 @@ export class OmniStatusPopup {
       servers: state.servers,
       suggestions: state.suggestions,
       fallbackMode: state.fallbackMode,
+      transport: state.transport,
       statusBarEnabled: state.statusBarEnabled,
       retriesPerServer: state.retriesPerServer,
     };
@@ -362,8 +389,9 @@ export class OmniStatusPopup {
     this.lastUpdateMs = now;
     try {
       const routes = await cachedLoadRoutes(this.context);
-      const cfg = vscode.workspace.getConfiguration("omnicopilot");
+      const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
       const fallbackMode = cfg.get<string>("fallbackMode", "sameModel");
+      const transport = cfg.get<string>("transport", "auto");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
       const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
       const snapshot = this.statusBar.getSnapshot();
@@ -376,6 +404,7 @@ export class OmniStatusPopup {
       await this.renderStatusSnapshot(snapshot, {
         suggestions,
         fallbackMode,
+        transport,
         statusBarEnabled,
         retriesPerServer,
       });
@@ -655,8 +684,8 @@ export class OmniStatusPopup {
         <span id="header-badge" class="badge badge-danger">Loading...</span>
       </div>
       <div class="header-actions">
-        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.openDashboard">📊 Dashboard</button>
-        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.manage">⚙ Configure</button>
+        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot-dev.openDashboard">📊 Dashboard</button>
+        <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot-dev.manage">⚙ Configure</button>
         <button class="btn btn-secondary btn-sm" data-action="sendMessage" data-msg="refresh">🔄 Refresh</button>
       </div>
     </div>
@@ -740,13 +769,23 @@ export class OmniStatusPopup {
         </div>
 
         <div class="toggle-item">
+          <span>Transport:</span>
+          <select id="transport-select" data-action="changeTransport">
+            <option value="auto">Auto (Recommended)</option>
+            <option value="responses">Responses (/responses)</option>
+            <option value="chatCompletions">Chat Completions (/chat/completions)</option>
+            <option value="messages">Messages (/messages)</option>
+          </select>
+        </div>
+
+        <div class="toggle-item">
           <span>Retries per server:</span>
           <span id="retries-text" style="opacity:0.8; font-weight:500;">1 retry(ies) per server</span>
         </div>
 
         <div class="toggle-item">
           <span>Model Catalog Sync:</span>
-          <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot.refreshModels">🔄 Sync Models</button>
+          <button class="btn btn-secondary btn-sm" data-action="runCommand" data-cmd="omnicopilot-dev.refreshModels">🔄 Sync Models</button>
         </div>
       </div>
     </div>
@@ -763,9 +802,9 @@ export class OmniStatusPopup {
 
     <!-- Footer Links -->
     <div class="footer-links">
-      <a href="#" data-action="runCommand" data-cmd="omnicopilot.configureCliTool">⚡ Configure CLI Bridge (Aider/Claude)</a>
-      <a href="#" data-action="runCommand" data-cmd="omnicopilot.checkConnection">🩺 Check Server Health</a>
-      <a href="#" data-action="runCommand" data-cmd="omnicopilot.openGitHub">⭐ OmniRoute on GitHub</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.configureCliTool">⚡ Configure CLI Bridge (Aider/Claude)</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.checkConnection">🩺 Check Server Health</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.openGitHub">⭐ OmniRoute on GitHub</a>
     </div>
   </div>
 
@@ -787,6 +826,7 @@ export class OmniStatusPopup {
       const action = el.dataset.action;
        if (action === 'toggleSetting') toggleSetting(el.dataset.setting, el.checked);
        else if (action === 'changeFallbackMode') changeFallbackMode(el.value);
+       else if (action === 'changeTransport') changeTransport(el.value);
     }, true);
 
     function sendMessage(command, value) {
@@ -803,6 +843,10 @@ export class OmniStatusPopup {
 
     function changeFallbackMode(mode) {
       vscode.postMessage({ command: 'changeFallbackMode', value: mode });
+    }
+
+    function changeTransport(transport) {
+      vscode.postMessage({ command: 'changeTransport', value: transport });
     }
 
     function getSuggestionIcon(type) {
@@ -981,12 +1025,16 @@ export class OmniStatusPopup {
       // Update Settings & Toggles
       const toggleEl = document.getElementById('status-bar-toggle');
       const fallbackEl = document.getElementById('fallback-select');
+      const transportEl = document.getElementById('transport-select');
       const retriesEl = document.getElementById('retries-text');
       if (toggleEl && typeof state.statusBarEnabled === 'boolean') {
         toggleEl.checked = state.statusBarEnabled;
       }
       if (fallbackEl && state.fallbackMode) {
         fallbackEl.value = state.fallbackMode;
+      }
+      if (transportEl && state.transport) {
+        transportEl.value = state.transport;
       }
       if (retriesEl && typeof state.retriesPerServer === 'number') {
         retriesEl.textContent = state.retriesPerServer + ' retry(ies) per server';

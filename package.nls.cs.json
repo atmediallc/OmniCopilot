@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "Základní URL adresa OmniRoute (kompatibilní s OpenAI). Nasměrujte ji na místní instalaci nebo na libovolnou vzdálenou instanci OmniRoute.",
-  "cfg.baseUrlDeprecated": "Zastaralé: použijte místo toho omnicopilot.routes (jedna položka na server). Původní hodnota se automaticky přenese na první trasu.",
+  "cfg.baseUrlDeprecated": "Zastaralé: použijte místo toho omnicopilot-dev.routes (jedna položka na server). Původní hodnota se automaticky přenese na první trasu.",
   "cfg.cliPath": "Cesta k OmniRoute CLI používaná příkazem \"Configure Coding CLI\".",
   "cfg.dashboardOpen": "Kde se otevírá řídicí panel OmniRoute.",
   "cfg.dashboardOpen.editor": "Otevřít řídicí panel na kartě editoru VS Code (Simple Browser). Vyžaduje verzi OmniRoute, která umožňuje vkládání.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Nastavit klíč API",
   "cmd.showStatusPopup": "Zobrazit metriky tokenů a okno stavu",
   "view.connection": "Připojení",
-  "cmd.openSettings": "Otevřít nastavení"
+  "cmd.openSettings": "Otevřít nastavení",
+  "cfg.transport": "Drátový protokol používaný pro chat požadavky. Auto zachovává plán odvozený z katalogu (Responses preferováno, s protokolovým fallbackem); konkrétní hodnota vynutí tento jediný transport.",
+  "cfg.transport.auto": "Auto: použijte plán modelu odvozený z katalogu (Responses preferováno, s fallbackem).",
+  "cfg.transport.responses": "Responses: vždy použijte koncový bod /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: vždy použijte koncový bod /chat/completions.",
+  "cfg.transport.messages": "Messages: vždy použijte koncový bod /messages."
 }

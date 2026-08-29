@@ -117,6 +117,11 @@ export type ModelTransport = "responses" | "chatCompletions" | "messages";
  * emitted. This never includes legacy `/completions`. */
 export type ModelTransportPlan = readonly ModelTransport[];
 
+/** User-selectable transport override. `auto` keeps the catalog-derived plan
+ * (Responses preferred, with protocol fallback); a concrete value forces that
+ * single transport for every request. */
+export type TransportPreference = "auto" | ModelTransport;
+
 export interface ResponsesFunctionTool {
   type: "function";
   name: string;

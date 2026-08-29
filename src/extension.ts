@@ -11,7 +11,7 @@ import { OmniStatusPopup } from "./statusPopup";
 import { registerFixedTools, clearToolDiscoveryCache } from "./tools";
 
 const OMNIROUTE_REPO = "https://github.com/diegosouzapw/OmniRoute";
-const VENDOR = "omniroute";
+const VENDOR = "omniroute-dev";
 
 let activeProviders: OmniRouteChatProvider[] = [];
 let providerDisposables: vscode.Disposable[] = [];
@@ -21,7 +21,7 @@ let metricsTracker: MetricsTracker | undefined;
 let syncPromise: Promise<void> = Promise.resolve();
 
 function getConfig() {
-  return vscode.workspace.getConfiguration("omnicopilot");
+  return vscode.workspace.getConfiguration("omnicopilot-dev");
 }
 
 async function refreshAll(): Promise<void> {
@@ -52,7 +52,7 @@ async function doSyncProviders(
 
   const routes = await cachedLoadRoutes(context);
   const activeRoutes = routes.slice(0, 10);
-  await vscode.commands.executeCommand("setContext", "omnicopilot.routeCount", activeRoutes.length);
+  await vscode.commands.executeCommand("setContext", "omnicopilot-dev.routeCount", activeRoutes.length);
   const droppedRoutes = routes.slice(10);
   if (droppedRoutes.length > 0) {
     const names = droppedRoutes.map((r) => r.name.trim() || r.id).join(", ");
@@ -91,7 +91,7 @@ async function doSyncProviders(
     }
   } else {
     activeRoutes.forEach((route, index) => {
-      const vendorId = index === 0 ? VENDOR : `omniroute-${index + 1}`;
+      const vendorId = index === 0 ? VENDOR : `omniroute-dev-${index + 1}`;
       const p = new OmniRouteChatProvider(deps, route.id);
       try {
         const reg = vscode.lm.registerLanguageModelChatProvider(vendorId, p as unknown as vscode.LanguageModelChatProvider);
@@ -140,7 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration("omnicopilot")) return;
+      if (!e.affectsConfiguration("omnicopilot-dev")) return;
       log.info("Configuration changed — refreshing models and status");
       invalidateRouteCache();
       // Tool candidate discovery caches clients/routes; stale entries would
@@ -186,13 +186,13 @@ function registerCommands(
 
   // The management gear in "Manage Models" and the status-bar menu both land
   // on the visual panel (Activity Bar view) where URL + API key live.
-  register("omnicopilot.manage", () => panel?.focus());
-  register("omnicopilot.openSettings", async () =>
-    vscode.commands.executeCommand("workbench.action.openSettings", "omnicopilot")
+  register("omnicopilot-dev.manage", () => panel?.focus());
+  register("omnicopilot-dev.openSettings", async () =>
+    vscode.commands.executeCommand("workbench.action.openSettings", "omnicopilot-dev")
   );
-  register("omnicopilot.setApiKey", () => setApiKey(context, log));
+  register("omnicopilot-dev.setApiKey", () => setApiKey(context, log));
 
-  register("omnicopilot.refreshModels", async () => {
+  register("omnicopilot-dev.refreshModels", async () => {
     await onRefresh();
     const routes = await cachedLoadRoutes(context);
     if (activeProviders.length > 0) {
@@ -213,7 +213,7 @@ function registerCommands(
     }
   });
 
-  register("omnicopilot.checkConnection", async () => {
+  register("omnicopilot-dev.checkConnection", async () => {
     const ok = await statusBar?.checkNow();
     if (ok) {
       const routes = await cachedLoadRoutes(context);
@@ -223,13 +223,13 @@ function registerCommands(
     } else {
       void vscode.window.showWarningMessage(
         vscode.l10n.t(
-          "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot.routes is configured."
+          "OmniRoute is unreachable. Check that it is running (npx omniroute) and that omnicopilot-dev.routes is configured."
         )
       );
     }
   });
 
-  register("omnicopilot.openDashboard", async () => {
+  register("omnicopilot-dev.openDashboard", async () => {
     const routes = await cachedLoadRoutes(context);
     if (routes.length === 0) return;
     let targetRoute = routes[0];
@@ -270,11 +270,11 @@ function registerCommands(
     void vscode.env.openExternal(vscode.Uri.parse(root));
   });
 
-  register("omnicopilot.openGitHub", () => {
+  register("omnicopilot-dev.openGitHub", () => {
     void vscode.env.openExternal(vscode.Uri.parse(OMNIROUTE_REPO));
   });
 
-  register("omnicopilot.installOmniRoute", async () => {
+  register("omnicopilot-dev.installOmniRoute", async () => {
     const copyLabel = vscode.l10n.t("Copy install command");
     const githubLabel = vscode.l10n.t("Open GitHub");
     const pick = await vscode.window.showInformationMessage(
@@ -294,17 +294,17 @@ function registerCommands(
     }
   });
 
-  register("omnicopilot.configureCliTool", (toolId?: unknown) =>
+  register("omnicopilot-dev.configureCliTool", (toolId?: unknown) =>
     configureCliTool(context, log, typeof toolId === "string" ? toolId : undefined)
   );
 
-  register("omnicopilot.showStatusPopup", () => {
+  register("omnicopilot-dev.showStatusPopup", () => {
     if (metricsTracker && statusBar) {
       OmniStatusPopup.show(context, metricsTracker, log, statusBar);
     }
   });
 
-  register("omnicopilot.quickActions", () => {
+  register("omnicopilot-dev.quickActions", () => {
     if (metricsTracker && statusBar) {
       OmniStatusPopup.show(context, metricsTracker, log, statusBar);
     } else {
@@ -353,13 +353,13 @@ async function quickActions(context: vscode.ExtensionContext, log?: vscode.LogOu
 
   const picked = await vscode.window.showQuickPick(items, { title: "OmniRoute" });
   const commandByAction: Record<string, string> = {
-    check: "omnicopilot.checkConnection",
-    manage: "omnicopilot.manage",
-    refresh: "omnicopilot.refreshModels",
-    dashboard: "omnicopilot.openDashboard",
-    cli: "omnicopilot.configureCliTool",
-    github: "omnicopilot.openGitHub",
-    install: "omnicopilot.installOmniRoute",
+    check: "omnicopilot-dev.checkConnection",
+    manage: "omnicopilot-dev.manage",
+    refresh: "omnicopilot-dev.refreshModels",
+    dashboard: "omnicopilot-dev.openDashboard",
+    cli: "omnicopilot-dev.configureCliTool",
+    github: "omnicopilot-dev.openGitHub",
+    install: "omnicopilot-dev.installOmniRoute",
   };
   if (picked) void vscode.commands.executeCommand(commandByAction[picked.action]);
 }
@@ -415,7 +415,7 @@ async function checkFirstRun(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel
 ): Promise<void> {
-  const FLAG = "omnicopilot.welcomed";
+  const FLAG = "omnicopilot-dev.welcomed";
   if (context.globalState.get<boolean>(FLAG)) return;
   await context.globalState.update(FLAG, true);
 
@@ -447,9 +447,9 @@ async function checkFirstRun(
       configureLabel
     );
     if (pick === installLabel) {
-      void vscode.commands.executeCommand("omnicopilot.installOmniRoute");
+      void vscode.commands.executeCommand("omnicopilot-dev.installOmniRoute");
     } else if (pick === configureLabel) {
-      void vscode.commands.executeCommand("omnicopilot.manage");
+      void vscode.commands.executeCommand("omnicopilot-dev.manage");
     }
   }
 }

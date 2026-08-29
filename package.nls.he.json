@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "כתובת ה-URL הבסיסית של OmniRoute (תואמת OpenAI). כוונו אותה להתקנה המקומית שלכם או לכל מופע OmniRoute מרוחק.",
-  "cfg.baseUrlDeprecated": "לא בשימוש: השתמש ב-omnicopilot.routes במקום זאת (רשומה אחת לכל שרת). הערך הישן מועבר אוטומטית למסלול הראשון.",
+  "cfg.baseUrlDeprecated": "לא בשימוש: השתמש ב-omnicopilot-dev.routes במקום זאת (רשומה אחת לכל שרת). הערך הישן מועבר אוטומטית למסלול הראשון.",
   "cfg.cliPath": "הנתיב אל OmniRoute CLI, המשמש את הפקודה \"Configure Coding CLI\".",
   "cfg.dashboardOpen": "היכן נפתח לוח הבקרה של OmniRoute.",
   "cfg.dashboardOpen.editor": "פתיחת לוח הבקרה בכרטיסיית עורך של VS Code (Simple Browser). נדרשת גרסת OmniRoute המאפשרת הטמעה.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "הגדרת מפתח API",
   "cmd.showStatusPopup": "הצג מדדי טוקנים וחלון מצב",
   "view.connection": "חיבור",
-  "cmd.openSettings": "פתח הגדרות"
+  "cmd.openSettings": "פתח הגדרות",
+  "cfg.transport": "פרוטוקול חוט המשמש לבקשות צ'אט. אוטומטי שומר על התוכנית הנגזרת מהקטלוג (Responses מועדף, עם גיבוי פרוטוקול); ערך קונקרטי כופה את אותו תחבורה יחידה.",
+  "cfg.transport.auto": "אוטומטי: השתמש בתוכנית הנגזרת מהקטלוג של המודל (Responses מועדף, עם גיבוי).",
+  "cfg.transport.responses": "Responses: השתמש תמיד בנקודת הקצה /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: השתמש תמיד בנקודת הקצה /chat/completions.",
+  "cfg.transport.messages": "Messages: השתמש תמיד בנקודת הקצה /messages."
 }

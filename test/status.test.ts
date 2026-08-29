@@ -202,13 +202,13 @@ describe("OmniStatusPopup command handling", () => {
 
     await handleRunCommand.call({}, {
       cmd: "workbench.action.openSettings",
-      args: ["omnicopilot.fallbackMode"],
+      args: ["omnicopilot-dev.fallbackMode"],
     });
 
     expect(executeCommand).toHaveBeenCalledTimes(1);
     expect(executeCommand).toHaveBeenCalledWith(
       "workbench.action.openSettings",
-      "omnicopilot.fallbackMode"
+      "omnicopilot-dev.fallbackMode"
     );
   });
 

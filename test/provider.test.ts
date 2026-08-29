@@ -66,16 +66,16 @@ describe("OmniRouteChatProvider", () => {
     await provider.refresh();
     const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos).toEqual([]);
-    expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
+    expect(context.globalState.get("omnicopilot-dev.cachedCatalog.v1")).toEqual([]);
   });
 
   it("persists removal of a configured route even while the cache is fresh", async () => {
     const context = mockContext();
-    await context.globalState.update("omnicopilot.cachedCatalog.v1", [
+    await context.globalState.update("omnicopilot-dev.cachedCatalog.v1", [
       { entry: { routeId: "A", routeName: "A", modelId: "model-a", prefixedId: "A · model-a" }, model: { id: "model-a" } },
       { entry: { routeId: "B", routeName: "B", modelId: "model-b", prefixedId: "B · model-b" }, model: { id: "model-b" } },
     ]);
-    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now());
+    await context.globalState.update("omnicopilot-dev.cachedCatalogTime.v1", Date.now());
     OmniRouteChatProvider.loadPersistentCache(context);
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
       { id: "A", name: "A", baseUrl: "http://a/v1" },
@@ -85,7 +85,7 @@ describe("OmniRouteChatProvider", () => {
     const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     expect(infos.map((info) => info.omniModelId)).toEqual(["model-a"]);
-    await vi.waitFor(() => expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([
+    await vi.waitFor(() => expect(context.globalState.get("omnicopilot-dev.cachedCatalog.v1")).toEqual([
       expect.objectContaining({ entry: expect.objectContaining({ routeId: "A" }) }),
     ]));
   });
@@ -123,13 +123,13 @@ describe("OmniRouteChatProvider", () => {
     });
 
     // Populate cache with a route that will be deleted
-    await context.globalState.update("omnicopilot.cachedCatalog.v1", [
+    await context.globalState.update("omnicopilot-dev.cachedCatalog.v1", [
       {
         entry: { routeId: "deleted-route", routeName: "Old Server", modelId: "gpt-4", prefixedId: "Old Server · gpt-4" },
         model: { id: "gpt-4", owned_by: "openai", display_name: "GPT-4" },
       },
     ]);
-    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now());
+    await context.globalState.update("omnicopilot-dev.cachedCatalogTime.v1", Date.now());
     OmniRouteChatProvider.loadPersistentCache(context);
 
     // Active routes no longer include "deleted-route"
@@ -172,7 +172,7 @@ describe("OmniRouteChatProvider", () => {
 
     // persistCache is fire-and-forget; wait until it lands in globalState.
     await vi.waitFor(() => {
-      const saved = context.globalState.get("omnicopilot.cachedCatalog.v1") as unknown as Array<{
+      const saved = context.globalState.get("omnicopilot-dev.cachedCatalog.v1") as unknown as Array<{
         model: { capabilities: Record<string, unknown>; supported_endpoints: string[] };
       }>;
       expect(saved).toHaveLength(1);
@@ -183,7 +183,7 @@ describe("OmniRouteChatProvider", () => {
 
     // A reload served from this persisted cache keeps supportsReasoning.
     const provider2 = new OmniRouteChatProvider({ context, log: mockLog });
-    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now());
+    await context.globalState.update("omnicopilot-dev.cachedCatalogTime.v1", Date.now());
     OmniRouteChatProvider.loadPersistentCache(context);
     const infos = await provider2.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos).toHaveLength(1);
@@ -223,7 +223,7 @@ describe("OmniRouteChatProvider", () => {
     );
     expect(streamModel.mock.calls[0][0]).toMatchObject({ max_tokens: 8192 });
     await vi.waitFor(() => {
-      const saved = context.globalState.get("omnicopilot.cachedCatalog.v1") as Array<{
+      const saved = context.globalState.get("omnicopilot-dev.cachedCatalog.v1") as Array<{
         model: { max_output_tokens?: number };
       }>;
       expect(saved[0].model.max_output_tokens).toBe(8192);
@@ -266,13 +266,13 @@ describe("OmniRouteChatProvider", () => {
     expect(second).toHaveLength(1);
     expect(second[0].omniModelId).toBe("openai/gpt-4o");
     // The provider still reports a complete catalog (no transient wipe).
-    expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).not.toEqual([]);
+    expect(context.globalState.get("omnicopilot-dev.cachedCatalog.v1")).not.toEqual([]);
   });
 
   it("reconstructs sharedRouteCatalogs on loadPersistentCache so models survive startup discovery failure", async () => {
     const context = mockContext();
     // Simulate persistent cache on disk from a previous session
-    await context.globalState.update("omnicopilot.cachedCatalog.v1", [
+    await context.globalState.update("omnicopilot-dev.cachedCatalog.v1", [
       {
         entry: {
           routeId: "route-ashburn",
@@ -288,7 +288,7 @@ describe("OmniRouteChatProvider", () => {
         },
       },
     ]);
-    await context.globalState.update("omnicopilot.cachedCatalogTime.v1", Date.now() - 100_000_000); // stale TTL
+    await context.globalState.update("omnicopilot-dev.cachedCatalogTime.v1", Date.now() - 100_000_000); // stale TTL
 
     // On startup: load persistent cache
     OmniRouteChatProvider.loadPersistentCache(context);
@@ -333,7 +333,7 @@ describe("OmniRouteChatProvider", () => {
     const infos = await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     expect(infos).toEqual([]);
     // Nothing was invented out of thin air.
-    expect(context.globalState.get("omnicopilot.cachedCatalog.v1")).toEqual([]);
+    expect(context.globalState.get("omnicopilot-dev.cachedCatalog.v1")).toEqual([]);
   });
 
   it("forwards reported usage and cached tokens to onUsage callback", async () => {

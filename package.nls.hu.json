@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "Az OmniRoute alap URL-je (OpenAI-kompatibilis). Irányítsa a helyi telepítésre vagy bármely távoli OmniRoute-példányra.",
-  "cfg.baseUrlDeprecated": "Elavult: helyette használja az omnicopilot.routes beállítást (szerverenként egy bejegyzés). A régi érték automatikusan átkerül az első útvonalra.",
+  "cfg.baseUrlDeprecated": "Elavult: helyette használja az omnicopilot-dev.routes beállítást (szerverenként egy bejegyzés). A régi érték automatikusan átkerül az első útvonalra.",
   "cfg.cliPath": "Az OmniRoute CLI elérési útja, amelyet a \"Kódolási CLI konfigurálása\" parancs használ.",
   "cfg.dashboardOpen": "Hol nyíljon meg az OmniRoute irányítópultja.",
   "cfg.dashboardOpen.editor": "Az irányítópult megnyitása egy VS Code szerkesztőlapon (Simple Browser). Beágyazást engedélyező OmniRoute-verziót igényel.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API-kulcs beállítása",
   "cmd.showStatusPopup": "Token-metrikák és állapot előugró ablak megjelenítése",
   "view.connection": "Kapcsolat",
-  "cmd.openSettings": "Beállítások megnyitása"
+  "cmd.openSettings": "Beállítások megnyitása",
+  "cfg.transport": "Chat-kérésekhez használt vezetékes protokoll. Az Auto megtartja a katalógusból származtatott tervet (Responses előnyben, protokoll-visszaeséssel); egy konkrét érték kikényszeríti azt az egyetlen szállítást.",
+  "cfg.transport.auto": "Auto: használja a modell katalógusból származtatott tervét (Responses előnyben, visszaeséssel).",
+  "cfg.transport.responses": "Responses: mindig a /responses végpontot használja.",
+  "cfg.transport.chatCompletions": "Chat Completions: mindig a /chat/completions végpontot használja.",
+  "cfg.transport.messages": "Messages: mindig a /messages végpontot használja."
 }

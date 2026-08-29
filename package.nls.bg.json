@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "Базов URL адрес на OmniRoute (съвместим с OpenAI). Насочете го към локалната си инсталация или към който и да е отдалечен екземпляр на OmniRoute.",
-  "cfg.baseUrlDeprecated": "Остаряло: използвайте omnicopilot.routes вместо това (по един запис за сървър). Старата стойност автоматично мигрира към първия маршрут.",
+  "cfg.baseUrlDeprecated": "Остаряло: използвайте omnicopilot-dev.routes вместо това (по един запис за сървър). Старата стойност автоматично мигрира към първия маршрут.",
   "cfg.cliPath": "Път до CLI на OmniRoute, използван от командата \"Configure Coding CLI\".",
   "cfg.dashboardOpen": "Къде се отваря таблото на OmniRoute.",
   "cfg.dashboardOpen.editor": "Отваряне на таблото в раздел на редактора на VS Code (Simple Browser). Изисква версия на OmniRoute, която позволява вграждане.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Задаване на API ключ",
   "cmd.showStatusPopup": "Показване на прозореца с токени и статистика",
   "view.connection": "Връзка",
-  "cmd.openSettings": "Отвори настройките"
+  "cmd.openSettings": "Отвори настройките",
+  "cfg.transport": "Проводен протокол, използван за чат заявки. Автоматично запазва плана, извлечен от каталога (Responses е предпочитан, с протоколен fallback); конкретна стойност принуждава този единствен транспорт.",
+  "cfg.transport.auto": "Автоматично: използвайте плана на модела, извлечен от каталога (Responses е предпочитан, с fallback).",
+  "cfg.transport.responses": "Responses: винаги използвайте крайната точка /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: винаги използвайте крайната точка /chat/completions.",
+  "cfg.transport.messages": "Messages: винаги използвайте крайната точка /messages."
 }

@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRoute বেস URL (OpenAI-সামঞ্জস্যপূর্ণ)। এটিকে আপনার লোকাল ইনস্টল বা যেকোনো রিমোট OmniRoute ইনস্ট্যান্সের দিকে নির্দেশ করুন।",
-  "cfg.baseUrlDeprecated": "বাতিল: পরিবর্তে omnicopilot.routes ব্যবহার করুন (প্রতি সার্ভারে একটি এন্ট্রি)। পুরোনো মান স্বয়ংক্রিয়ভাবে প্রথম রুটে স্থানান্তরিত হয়।",
+  "cfg.baseUrlDeprecated": "বাতিল: পরিবর্তে omnicopilot-dev.routes ব্যবহার করুন (প্রতি সার্ভারে একটি এন্ট্রি)। পুরোনো মান স্বয়ংক্রিয়ভাবে প্রথম রুটে স্থানান্তরিত হয়।",
   "cfg.cliPath": "OmniRoute CLI-এর পাথ, যা \"Configure Coding CLI\" কমান্ড ব্যবহার করে।",
   "cfg.dashboardOpen": "OmniRoute ড্যাশবোর্ড কোথায় খুলবে।",
   "cfg.dashboardOpen.editor": "VS Code এডিটর ট্যাবে (Simple Browser) ড্যাশবোর্ড খুলুন। এম্বেডিং অনুমোদনকারী OmniRoute সংস্করণ প্রয়োজন।",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "API কী সেট করুন",
   "cmd.showStatusPopup": "টোকেন মেট্রিক্স ও স্ট্যাটাস পপআপ দেখান",
   "view.connection": "সংযোগ",
-  "cmd.openSettings": "সেটিংস খুলুন"
+  "cmd.openSettings": "সেটিংস খুলুন",
+  "cfg.transport": "চ্যাট অনুরোধের জন্য ব্যবহৃত ওয়্যার প্রোটোকল। অটো ক্যাটালগ-উদ্ভূত পরিকল্পনা রাখে (Responses পছন্দের, প্রোটোকল ফলব্যাক সহ); একটি নির্দিষ্ট মান সেই একক ট্রান্সপোর্ট বাধ্য করে।",
+  "cfg.transport.auto": "অটো: মডেলের ক্যাটালগ-উদ্ভূত পরিকল্পনা ব্যবহার করুন (Responses পছন্দের, ফলব্যাক সহ)।",
+  "cfg.transport.responses": "Responses: সর্বদা /responses এন্ডপয়েন্ট ব্যবহার করুন।",
+  "cfg.transport.chatCompletions": "Chat Completions: সর্বদা /chat/completions এন্ডপয়েন্ট ব্যবহার করুন।",
+  "cfg.transport.messages": "Messages: সর্বদা /messages এন্ডপয়েন্ট ব্যবহার করুন।"
 }

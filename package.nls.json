@@ -30,7 +30,7 @@
   "cfg.cliPath": "Path to the OmniRoute CLI, used by the \"Configure Coding CLI\" command.",
   "cmd.showStatusPopup": "Show OmniRoute Connection Status",
   "cfg.routes": "List of OmniRoute server routes with optional model whitelists, priorities, and fallback weights.",
-  "cfg.baseUrlDeprecated": "Base URL of your primary OmniRoute server. Note: for multi-server setups, configure omnicopilot.routes instead.",
+  "cfg.baseUrlDeprecated": "Base URL of your primary OmniRoute server. Note: for multi-server setups, configure omnicopilot-dev.routes instead.",
   "cfg.fallbackMode": "Cross-server model fallback strategy when a model request fails on the primary route.",
   "cfg.fallbackMode.sameModel": "Same model: retry the selected model on alternative servers.",
   "cfg.fallbackMode.sameFamily": "Same family: allow fallback to compatible models in the same provider family.",
@@ -44,5 +44,10 @@
   "cfg.compressionOverride.off": "Off: bypass token compression for this request.",
   "cfg.compressionOverride.default": "Default: use OmniRoute standard stacked compression pipeline.",
   "cfg.compressionOverride.rtk": "RTK Engine: compress terminal output, tool results, and repetitive code blocks.",
-  "cfg.compressionOverride.caveman": "Caveman Engine: aggressive conversational token compression."
+  "cfg.compressionOverride.caveman": "Caveman Engine: aggressive conversational token compression.",
+  "cfg.transport": "Wire protocol used for chat requests. Auto keeps the catalog-derived plan (Responses preferred, with protocol fallback); a concrete value forces that single transport.",
+  "cfg.transport.auto": "Auto: use the model's catalog-derived plan (Responses preferred, with fallback).",
+  "cfg.transport.responses": "Responses: always use the /responses endpoint.",
+  "cfg.transport.chatCompletions": "Chat Completions: always use the /chat/completions endpoint.",
+  "cfg.transport.messages": "Messages: always use the /messages endpoint."
 }

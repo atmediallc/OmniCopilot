@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "URL di base di OmniRoute (compatibile con OpenAI). Puntalo alla tua installazione locale o a qualsiasi istanza remota di OmniRoute.",
-  "cfg.baseUrlDeprecated": "Deprecato: usa invece omnicopilot.routes (una voce per server). Il valore precedente viene migrato automaticamente alla prima route.",
+  "cfg.baseUrlDeprecated": "Deprecato: usa invece omnicopilot-dev.routes (una voce per server). Il valore precedente viene migrato automaticamente alla prima route.",
   "cfg.cliPath": "Percorso della CLI di OmniRoute, usato dal comando \"Configura CLI di coding\".",
   "cfg.dashboardOpen": "Dove si apre la dashboard di OmniRoute.",
   "cfg.dashboardOpen.editor": "Apri la dashboard in una scheda dell'editor di VS Code (Simple Browser). Richiede una versione di OmniRoute che consenta l'incorporamento.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Imposta chiave API",
   "cmd.showStatusPopup": "Mostra metriche token e popup di stato",
   "view.connection": "Connessione",
-  "cmd.openSettings": "Apri impostazioni"
+  "cmd.openSettings": "Apri impostazioni",
+  "cfg.transport": "Protocollo di trasporto utilizzato per le richieste di chat. Auto mantiene il piano derivato dal catalogo (Responses preferito, con fallback di protocollo); un valore concreto forza quel singolo trasporto.",
+  "cfg.transport.auto": "Auto: usa il piano derivato dal catalogo del modello (Responses preferito, con fallback).",
+  "cfg.transport.responses": "Responses: usa sempre l'endpoint /responses.",
+  "cfg.transport.chatCompletions": "Chat Completions: usa sempre l'endpoint /chat/completions.",
+  "cfg.transport.messages": "Messages: usa sempre l'endpoint /messages."
 }

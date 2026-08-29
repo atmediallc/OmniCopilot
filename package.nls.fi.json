@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "OmniRouten perus-URL (OpenAI-yhteensopiva). Osoita se paikalliseen asennukseesi tai mihin tahansa OmniRoute-etäinstanssiin.",
-  "cfg.baseUrlDeprecated": "Vanhentunut: käytä sen sijaan omnicopilot.routes (yksi merkintä palvelinta kohden). Vanha arvo siirtyy automaattisesti ensimmäiselle reitille.",
+  "cfg.baseUrlDeprecated": "Vanhentunut: käytä sen sijaan omnicopilot-dev.routes (yksi merkintä palvelinta kohden). Vanha arvo siirtyy automaattisesti ensimmäiselle reitille.",
   "cfg.cliPath": "OmniRoute CLI:n polku, jota \"Configure Coding CLI\" -komento käyttää.",
   "cfg.dashboardOpen": "Missä OmniRouten hallintapaneeli avataan.",
   "cfg.dashboardOpen.editor": "Avaa hallintapaneeli VS Coden editorivälilehdessä (Simple Browser). Vaatii OmniRoute-version, joka sallii upottamisen.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "Aseta API-avain",
   "cmd.showStatusPopup": "Näytä token-mittarit ja tilaponi",
   "view.connection": "Yhteys",
-  "cmd.openSettings": "Avaa asetukset"
+  "cmd.openSettings": "Avaa asetukset",
+  "cfg.transport": "Chat-pyyntöihin käytetty siirtoprotokolla. Auto säilyttää luettelosta johdetun suunnitelman (Responses suositaan, protokollan varalla); konkreettinen arvo pakottaa kyseisen ainoan siirtotavan.",
+  "cfg.transport.auto": "Auto: käytä mallin luettelosta johdettua suunnitelmaa (Responses suositaan, varalla).",
+  "cfg.transport.responses": "Responses: käytä aina /responses-päätepistettä.",
+  "cfg.transport.chatCompletions": "Chat Completions: käytä aina /chat/completions-päätepistettä.",
+  "cfg.transport.messages": "Messages: käytä aina /messages-päätepistettä."
 }

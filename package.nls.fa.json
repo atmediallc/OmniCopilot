@@ -1,6 +1,6 @@
 {
   "cfg.baseUrl": "نشانی URL پایه OmniRoute (سازگار با OpenAI). آن را به نصب محلی خود یا هر نمونه راه دور OmniRoute اشاره دهید.",
-  "cfg.baseUrlDeprecated": "منسوخ: به جای آن از omnicopilot.routes استفاده کنید (یک ورودی برای هر سرور). مقدار قدیمی به‌طور خودکار به اولین مسیر منتقل می‌شود.",
+  "cfg.baseUrlDeprecated": "منسوخ: به جای آن از omnicopilot-dev.routes استفاده کنید (یک ورودی برای هر سرور). مقدار قدیمی به‌طور خودکار به اولین مسیر منتقل می‌شود.",
   "cfg.cliPath": "مسیر OmniRoute CLI که فرمان \"Configure Coding CLI\" از آن استفاده می‌کند.",
   "cfg.dashboardOpen": "محل باز شدن داشبورد OmniRoute.",
   "cfg.dashboardOpen.editor": "باز کردن داشبورد در یک زبانه ویرایشگر VS Code (Simple Browser). به نسخه‌ای از OmniRoute نیاز دارد که جاسازی را مجاز کند.",
@@ -37,5 +37,10 @@
   "cmd.setApiKey": "تنظیم کلید API",
   "cmd.showStatusPopup": "نمایش پنجره آمار توکن‌ها و وضعیت",
   "view.connection": "اتصال",
-  "cmd.openSettings": "باز کردن تنظیمات"
+  "cmd.openSettings": "باز کردن تنظیمات",
+  "cfg.transport": "پروتکل سیمی مورد استفاده برای درخواست‌های چت. خودکار برنامه مشتق‌شده از کاتالوگ را حفظ می‌کند (Responses ترجیح داده می‌شود، با بازگشت پروتکل)؛ مقدار مشخص آن تک‌حمل‌ونقل را اجباری می‌کند.",
+  "cfg.transport.auto": "خودکار: از برنامه مشتق‌شده از کاتالوگ مدل استفاده کنید (Responses ترجیح داده می‌شود، با بازگشت).",
+  "cfg.transport.responses": "Responses: همیشه از نقطه پایانی /responses استفاده کنید.",
+  "cfg.transport.chatCompletions": "Chat Completions: همیشه از نقطه پایانی /chat/completions استفاده کنید.",
+  "cfg.transport.messages": "Messages: همیشه از نقطه پایانی /messages استفاده کنید."
 }

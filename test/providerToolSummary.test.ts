@@ -45,7 +45,7 @@ async function prepare(
   transport: Transport,
   stream: (state: { cancelled: boolean }) => AsyncGenerator<StreamEvent>,
 ) {
-  configValues["omnicopilot"] = { retriesPerServer: 1, fallbackMode: "none" };
+  configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "none" };
   const cancellation = cancellationToken();
   const client = {
     baseUrl: "http://a/v1",

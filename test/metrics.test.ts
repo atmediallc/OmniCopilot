@@ -6,7 +6,7 @@ import type { Route } from "../src/routes";
 function mockContext(initialMetrics?: unknown) {
   const store = new Map<string, unknown>();
   if (initialMetrics !== undefined) {
-    store.set("omnicopilot.tokenMetrics.v1", initialMetrics);
+    store.set("omnicopilot-dev.tokenMetrics.v1", initialMetrics);
   }
   return {
     globalState: {
@@ -365,7 +365,7 @@ describe("MetricsTracker", () => {
     expect(suggestion).toMatchObject({
       id: "stream_stalls",
       actionLabel: "Check Server Health",
-      actionCommand: "omnicopilot.openDashboard",
+      actionCommand: "omnicopilot-dev.openDashboard",
     });
   });
 });
