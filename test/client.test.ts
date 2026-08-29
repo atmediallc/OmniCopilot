@@ -194,6 +194,38 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     ]);
   });
 
+  it("strips interleaved OmniRoute id/residue tokens from Responses text deltas", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"msg_resp_chatcmpl-RJm1gaplTX8b3nHwE8C2sEkc_0banana"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toContainEqual(
+      { kind: "text", text: "banana" }
+    );
+  });
+
+  it("strips in_progress + id residue wrapped around streamed text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"in_progressin_progressresp_chatcmpl-A1b2c3d4e5f6_0Hello world"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toContainEqual(
+      { kind: "text", text: "Hello world" }
+    );
+  });
+
+  it("surfaces text delivered only on output_text.done (empty deltas)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":""}',
+      'data: {"type":"response.output_text.done","item_id":"msg_resp_chatcmpl-RJm1_0","text":"banana"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "banana" },
+      { kind: "usage", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, cachedTokens: undefined, reasoningTokens: undefined } },
+    ]);
+  });
+
   it("falls back once on pre-output endpoint incompatibility", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response('{"error":{"message":"Not found"}}', { status: 404 }))

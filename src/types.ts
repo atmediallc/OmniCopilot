@@ -228,6 +228,8 @@ export interface MessagesStreamEvent {
 export interface ResponsesStreamEvent {
   type?: string;
   delta?: string;
+  /** Final text carried by `response.output_text.done` events. */
+  text?: string;
   item_id?: string;
   call_id?: string;
   name?: string;

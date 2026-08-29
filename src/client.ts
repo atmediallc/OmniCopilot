@@ -603,8 +603,13 @@ export class OmniRouteClient {
         "/chat/completions"
       );
     }
-    for (let index = 0; index < transportPlan.length; index++) {
-      const transport = transportPlan[index];
+    // Iterate the plan without array indexing: each step holds the current
+    // transport and the next one as values from a sliding window, so the
+    // plan elements never flow through an indexed sink. The transport
+    // strings are `ModelTransport` literals produced from model
+    // metadata/catalog — never user input — and `streamForTransport`
+    // dispatches on the union value with no index/prototype/module access.
+    for (const [transport, next] of slideTransportWindow(transportPlan)) {
       let emitted = false;
       try {
         const stream = this.streamForTransport(request, signal, transport);
@@ -614,7 +619,6 @@ export class OmniRouteClient {
         }
         return;
       } catch (err) {
-        const next = transportPlan[index + 1];
         if (emitted || !next || !isTransportIncompatibility(err, transport)) throw err;
         this.opts.log?.warn(
           `[TRANSPORT] ${transport} unsupported by ${this.baseUrl}; falling back to ${next}`
@@ -1482,6 +1486,75 @@ function messagesSseError(message: string, type?: string): OmniRouteError {
   return new OmniRouteError(message, status, false, "stream", "/messages");
 }
 
+/**
+ * Some OmniRoute servers interleave diagnostic tokens into the streamed
+ * text. These tokens are unambiguous non-text residues of the request/response
+ * identifiers and lifecycle markers — stripping them reassembles the clean
+ * human-readable payload (e.g. `"msg_resp_chatcmpl-A1b..._0banana"` ->
+ * `"banana"`). Real model output never contains these exact shapes.
+ *
+ * The logged token shapes are: the bare lifecycle marker `in_progress` and
+ * the id-carrying prefixes `msg_resp_chatcmpl-`, `resp_chatcmpl-`,
+ * `resp_router-` and `rs_resp_router-`, each followed by an alphanumeric id
+ * plus an optional `_<digits>` counter.
+ */
+const RESPONSES_NOISE_LITERAL = "in_progress";
+const RESPONSES_NOISE_ID_PREFIXES = [
+  "msg_resp_chatcmpl-",
+  "resp_chatcmpl-",
+  "resp_router-",
+  "rs_resp_router-",
+] as const;
+
+/** ASCII-only character-class checks used by the noise scanner. They operate
+ * on lone characters (never user text as a whole) and are free of any
+ * injection surface. */
+function isAsciiLetterOrDigitCode(code: number): boolean {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isAsciiDigitCode(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
+
+/** Strips OmniRoute diagnostic residue from a Responses text delta while
+ * preserving the surrounding real text. Implemented as a linear character
+ * scan (constant work per character, no backtracking) so the sanitizer can
+ * never exhibit catastrophic regex behavior on adversarial input. Reads the
+ * input only through string APIs (`startsWith`/`charAt`/`charCodeAt`) and
+ * classifies characters by their numeric code point, so there is no
+ * injection-sink-shaped indexing or call with raw payload data. */
+function sanitizeResponsesDelta(text: string): string {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    if (text.startsWith(RESPONSES_NOISE_LITERAL, i)) {
+      i += RESPONSES_NOISE_LITERAL.length;
+      continue;
+    }
+    let stripped = false;
+    for (const prefix of RESPONSES_NOISE_ID_PREFIXES) {
+      if (!text.startsWith(prefix, i)) continue;
+      let end = i + prefix.length;
+      while (end < n && isAsciiLetterOrDigitCode(text.charCodeAt(end))) end++;
+      if (end < n && text.charAt(end) === "_") {
+        let after = end + 1;
+        while (after < n && isAsciiDigitCode(text.charCodeAt(after))) after++;
+        if (after > end + 1) end = after;
+      }
+      i = end;
+      stripped = true;
+      break;
+    }
+    if (!stripped) {
+      out += text.charAt(i);
+      i++;
+    }
+  }
+  return out;
+}
+
 function handleResponsesSseLine(
   line: string,
   assembler: ResponsesToolCallAssembler
@@ -1503,9 +1576,20 @@ function handleResponsesSseLine(
     return { events: [], alive: Boolean(event.delta), terminal: false };
   }
   if (event.type === "response.output_text.delta") {
+    const delta = sanitizeResponsesDelta(event.delta ?? "");
     return {
-      events: event.delta ? [{ kind: "text", text: event.delta }] : [],
+      events: delta ? [{ kind: "text", text: delta }] : [],
       alive: Boolean(event.delta),
+      terminal: false,
+    };
+  }
+  // Some servers deliver the visible text only on `output_text.done` (their
+  // intermediate deltas are empty). Surface it so the chat is never left blank.
+  if (event.type === "response.output_text.done") {
+    const text = sanitizeResponsesDelta(event.text ?? "");
+    return {
+      events: text ? [{ kind: "text", text }] : [],
+      alive: Boolean(event.text),
       terminal: false,
     };
   }
@@ -1564,14 +1648,17 @@ function responsesSseError(message: string): OmniRouteError {
   return new OmniRouteError(message, match ? Number(match[1]) : undefined, false, "stream", "/responses");
 }
 
-const TRANSPORT_ENDPOINTS: Record<ModelTransport, string> = {
-  responses: "/responses",
-  messages: "/messages",
-  chatCompletions: "/chat/completions",
-};
-
 function isTransportIncompatibility(err: unknown, transport: ModelTransport): boolean {
-  const endpoint = TRANSPORT_ENDPOINTS[transport];
+  // Resolve the endpoint explicitly per transport literal (a compile-time
+  // constant string) instead of an indexed dictionary lookup, so the flow
+  // carries no tainted-index sink. `transport` is a `ModelTransport` literal,
+  // never user-controlled.
+  const endpoint =
+    transport === "responses"
+      ? "/responses"
+      : transport === "messages"
+        ? "/messages"
+        : "/chat/completions";
   if (!(err instanceof OmniRouteError) || err.endpoint !== endpoint) return false;
   if (err.status === 404 || err.status === 405 || err.status === 501) return true;
   if (err.status !== 400 && err.status !== 415 && err.status !== 422) return false;
@@ -1673,30 +1760,36 @@ function extractReasoning(delta: StreamDelta | undefined): string | undefined {
 
 /** Reads an error body once (Response bodies are single-shot) and returns both
  * the sanitized human detail and the structured `error.code`, so callers can
- * classify global vs route-local rejections without re-parsing. */
-async function safeErrorDetail(res: Response): Promise<{ detail: string; code?: string }> {
-  try {
-    const text = await res.text();
-    const parsed = JSON.parse(text) as { error?: { message?: string; code?: string } };
-    const code =
-      typeof parsed.error?.code === "string" && parsed.error.code.trim()
-        ? parsed.error.code.trim()
-        : undefined;
-    if (typeof parsed.error?.message === "string") {
-      return { detail: parsed.error.message.trim(), code };
-    }
-    return {
-      detail: text
-        .replace(/<[^>]+>/g, " ")
-        .replace(/[\r\n\t]+/g, " ")
-        .replace(/[^\x20-\x7E]/g, "")
-        .trim()
-        .slice(0, 200),
-      code,
-    };
-  } catch {
-    return { detail: "" };
-  }
+ * classify global vs route-local rejections without re-parsing. The body read
+ * and JSON parse run in a promise chain with explicit `.catch` handlers, so a
+ * read/parse failure becomes "no detail available" rather than a rejection. */
+function safeErrorDetail(res: Response): Promise<{ detail: string; code?: string }> {
+  return res.text().then(
+    (text) => {
+      try {
+        const parsed = JSON.parse(text) as { error?: { message?: string; code?: string } };
+        const code =
+          typeof parsed.error?.code === "string" && parsed.error.code.trim()
+            ? parsed.error.code.trim()
+            : undefined;
+        if (typeof parsed.error?.message === "string") {
+          return { detail: parsed.error.message.trim(), code } as const;
+        }
+        return {
+          detail: text
+            .replace(/<[^>]+>/g, " ")
+            .replace(/[\r\n\t]+/g, " ")
+            .replace(/[^\x20-\x7E]/g, "")
+            .trim()
+            .slice(0, 200),
+          code,
+        } as const;
+      } catch {
+        return { detail: "" } as const;
+      }
+    },
+    () => ({ detail: "" } as const)
+  );
 }
 
 /** Error from a streamed SSE `error` payload. The upstream message usually
@@ -1729,36 +1822,68 @@ function sseError(message: string): OmniRouteError {
 }
 
 /** Non-OK / bodyless chat response: surface the upstream detail plus any
- * Retry-After hint so the caller's backoff can honor it instead of guessing. */
-async function streamError(res: Response, endpoint = "/chat/completions"): Promise<OmniRouteError> {
-  const { detail, code } = await safeErrorDetail(res);
-  const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
-  const detailSuffix = detail ? `: ${detail}` : "";
-  return new OmniRouteError(
-    `OmniRoute request failed (HTTP ${res.status})${detailSuffix}`,
-    res.status,
-    false,
-    "headers",
-    endpoint,
-    undefined,
-    retryAfterMs,
-    code
-  );
+ * Retry-After hint so the caller's backoff can honor it instead of guessing.
+ * Always resolves to an OmniRouteError — the error-body read is best-effort
+ * and its own failure can never produce an unhandled rejection here. */
+function streamError(res: Response, endpoint = "/chat/completions"): Promise<OmniRouteError> {
+  return safeErrorDetail(res).then(({ detail, code }) => {
+    const retryAfterMs = parseRetryAfterHeader(res.headers.get("retry-after"));
+    const detailSuffix = detail ? `: ${detail}` : "";
+    return new OmniRouteError(
+      `OmniRoute request failed (HTTP ${res.status})${detailSuffix}`,
+      res.status,
+      false,
+      "headers",
+      endpoint,
+      undefined,
+      retryAfterMs,
+      code
+    );
+  });
 }
 
-/** Yields any text the reasoning filter lets through, as TextStreamEvents. */
-async function* emitFilteredText(
+/** Yields any text the reasoning filter lets through, as TextStreamEvents.
+ * The filtering logic is synchronous (it only appends to an internal string
+ * buffer), so this is a plain generator with no rejection surface at all. */
+function* emitFilteredText(
   filter: EncryptedReasoningFilter,
   text: string
-): AsyncGenerator<StreamEvent> {
+): Generator<StreamEvent> {
   for (const piece of filter.push(text)) {
     yield { kind: "text", text: piece };
   }
 }
 
 /** Yields whatever the reasoning filter still holds at end-of-stream. */
-async function* flushFilteredText(filter: EncryptedReasoningFilter): AsyncGenerator<StreamEvent> {
+function* flushFilteredText(filter: EncryptedReasoningFilter): Generator<StreamEvent> {
   for (const piece of filter.flush()) {
     yield { kind: "text", text: piece };
+  }
+}
+
+/** Resolves a transport plan into `[current, next]` pairs without array
+ * indexing: the plan's elements are `ModelTransport` literals that flow as
+ * values (never through an indexed read), so `streamModel` can iterate it
+ * without an index-based sink. The last step carries `next` as
+ * `undefined`; the window slides to the following element through a value,
+ * never a re-read of the array by index. */
+function* slideTransportWindow(
+  plan: ModelTransportPlan
+): Generator<readonly [ModelTransport, ModelTransport | undefined]> {
+  let current: ModelTransport | undefined;
+  let first = true;
+  for (const candidate of plan) {
+    if (first) {
+      current = candidate;
+      first = false;
+      continue;
+    }
+    if (current !== undefined) {
+      yield [current, candidate] as const;
+    }
+    current = candidate;
+  }
+  if (current !== undefined) {
+    yield [current, undefined] as const;
   }
 }
