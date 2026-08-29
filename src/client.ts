@@ -1142,10 +1142,19 @@ class ToolCallAssembler {
 }
 
 function toResponsesRequest(request: ChatRequest): ResponsesRequest {
+  const messages = request.messages.filter((message) => message.role !== "system");
   return {
     model: request.model,
-    input: request.messages.flatMap(toResponsesInputItems),
+    input: messages.flatMap(toResponsesInputItems),
     stream: true,
+    // The Responses API does not accept `role: "system"` inside `input`;
+    // system instructions are promoted to the top-level `instructions` field.
+    instructions:
+      request.messages
+        .filter((message) => message.role === "system")
+        .map((message) => contentText(message.content))
+        .filter((text) => text.trim().length > 0)
+        .join("\n\n") || undefined,
     tools: request.tools?.map((tool) => ({ type: "function", ...tool.function })),
     tool_choice: request.tool_choice,
     temperature: request.temperature,
@@ -1157,6 +1166,9 @@ function toResponsesRequest(request: ChatRequest): ResponsesRequest {
 function toResponsesInputItems(
   message: ChatRequest["messages"][number]
 ): ResponsesInputItem[] {
+  // The Responses API rejects `role: "system"` inside `input`; system
+  // messages are hoisted to top-level `instructions` by toResponsesRequest.
+  if (message.role === "system") return [];
   if (message.role === "tool") {
     return [{
       type: "function_call_output",

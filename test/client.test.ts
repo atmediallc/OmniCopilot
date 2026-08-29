@@ -84,6 +84,41 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     ]);
   });
 
+  it("promotes system messages to instructions and keeps them out of input", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const events: StreamEvent[] = [];
+    for await (const event of new OmniRouteClient({ baseUrl: "http://x/v1" }).streamModel(
+      {
+        model: "m",
+        stream: true,
+        messages: [
+          { role: "system", content: "Be precise." },
+          { role: "user", content: "hi" },
+        ],
+      },
+      new AbortController().signal,
+      ["responses"]
+    )) events.push(event);
+    expect(events).toEqual([
+      { kind: "usage", usage: { inputTokens: 3, outputTokens: 1, totalTokens: 4, cachedTokens: undefined, reasoningTokens: undefined } },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://x/v1/responses");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as {
+      instructions?: string;
+      input: Array<{ role: string }>;
+    };
+    expect(body.instructions).toBe("Be precise.");
+    expect(body.input).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+    ]);
+    expect(body.input.some((item) => item.role === "system")).toBe(false);
+  });
+
   it("preserves filtered text before a following tool call", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
       'data: {"type":"response.output_text.delta","delta":"OmniRoute: got req, sending to providerAnswer"}',

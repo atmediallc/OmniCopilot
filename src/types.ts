@@ -135,7 +135,7 @@ export type ResponsesContentPart =
 
 export interface ResponsesMessageItem {
   type: "message";
-  role: "system" | "developer" | "user" | "assistant";
+  role: "developer" | "user" | "assistant";
   content: ResponsesContentPart[];
 }
 
@@ -161,6 +161,9 @@ export interface ResponsesRequest {
   model: string;
   input: ResponsesInputItem[];
   stream: true;
+  /** System/developer instructions, promoted out of `input` (the Responses
+   * API rejects `role: "system"` items; instructions belong here). */
+  instructions?: string;
   tools?: ResponsesFunctionTool[];
   tool_choice?: "auto" | "required" | "none";
   temperature?: number;
