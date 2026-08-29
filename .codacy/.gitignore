@@ -3,8 +3,3 @@ tools-configs/
 .gitignore
 cli-config.yaml
 logs/
-generated/
-.codacy\codacy.config.baseline.json
-.codacy\codacy.config.json
-\codacy.config.baseline.json
-\codacy.config.json

@@ -171,11 +171,14 @@ export function resetAllCooldowns(): void {
   _routeCooldowns.clear();
 }
 
-/** Invalidate the route cache. Call on config change or after `saveRoutes`. */
-export function invalidateRouteCache(): void {
+/** Invalidate the route cache. Call on config change or after `saveRoutes`.
+ * When `keepCooldowns` is true (e.g. non-route config changes), the
+ * per-route cooldowns are preserved so servers recently punished for
+ * 429/408 errors are not prematurely retried. */
+export function invalidateRouteCache(keepCooldowns = false): void {
   _cachedRoutes = undefined;
   _clientPool.clear();
-  resetAllCooldowns();
+  if (!keepCooldowns) resetAllCooldowns();
 }
 
 /** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */

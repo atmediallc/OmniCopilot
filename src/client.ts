@@ -1226,6 +1226,22 @@ function toMessagesRequest(request: ChatRequest): MessagesRequest {
     .map((message) => contentText(message.content))
     .filter(Boolean)
     .join("\n\n");
+
+  // Map canonical reasoning_effort tier onto the Anthropic `thinking` block.
+  // OmniRoute translates the universal tier into provider-specific formats;
+  // when the extension sends directly to an Anthropic endpoint, the budget
+  // gives the upstream an explicit token ceiling for extended thinking.
+  const THINKING_BUDGET: Record<string, number> = {
+    none: 0,
+    low: 1024,
+    medium: 4096,
+    high: 8192,
+    xhigh: 16384,
+  };
+  const thinkingBudget = request.reasoning_effort
+    ? THINKING_BUDGET[request.reasoning_effort]
+    : undefined;
+
   return {
     model: request.model,
     system: system || undefined,
@@ -1246,6 +1262,9 @@ function toMessagesRequest(request: ChatRequest): MessagesRequest {
       ? { type: request.tool_choice === "required" ? "any" : "auto" }
       : undefined,
     temperature: request.temperature,
+    thinking: thinkingBudget !== undefined && thinkingBudget > 0
+      ? { type: "enabled", budget_tokens: thinkingBudget }
+      : undefined,
   };
 }
 

@@ -196,6 +196,15 @@ export class MetricsTracker {
     this._onDidChangeMetrics.fire();
   }
 
+  /** Clean up timers and event emitter on extension deactivation. */
+  dispose(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
+    this._onDidChangeMetrics.dispose();
+  }
+
   /** Record token usage from a chat response. */
   async recordUsage(usage: RecordedChatUsage): Promise<void> {
     const routeId = usage.routeId;

@@ -221,7 +221,10 @@ export class ConnectionStatusBar implements vscode.Disposable {
       const routes = await this.getRoutes();
       if (routes.length === 0) {
         this.health = [];
-        this.consecutiveFailures += 1;
+        // Do not escalate consecutiveFailures when there are zero routes —
+        // the exponential backoff would waste time probing an empty config.
+        // Keep the base interval so newly-added routes are picked up promptly.
+        this.consecutiveFailures = 0;
         this.lastCheckOk = false;
         this.setStatus("offline");
         this.scheduleNext();

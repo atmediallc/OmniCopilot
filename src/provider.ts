@@ -82,9 +82,13 @@ function delay(ms: number, token?: vscode.CancellationToken): Promise<void> {
       resolve();
       return;
     }
-    const timer = setTimeout(resolve, ms);
+    const timer = setTimeout(() => {
+      sub?.dispose();
+      resolve();
+    }, ms);
+    let sub: vscode.Disposable | undefined;
     if (token) {
-      token.onCancellationRequested(() => {
+      sub = token.onCancellationRequested(() => {
         clearTimeout(timer);
         resolve();
       });
@@ -142,7 +146,7 @@ function isGlobalRequestRejection(err: unknown): boolean {
  * when present (capped at 30s) so a misbehaving server can't stall a request. */
 function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number): number {
   const retryAfterMs = err instanceof OmniRouteError ? err.retryAfterMs : undefined;
-  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 10_000);
+  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, 30_000);
   const baseDelay = isThrottle ? 400 + crypto.randomInt(300) : 250;
   const maxDelay = isThrottle ? 1500 : 1000;
   return Math.min(maxDelay, baseDelay * (attempted + 1));

@@ -113,6 +113,7 @@ export function activate(context: vscode.ExtensionContext): void {
   OmniRouteChatProvider.loadPersistentCache(context);
 
   metricsTracker = new MetricsTracker(context);
+  context.subscriptions.push(metricsTracker);
 
   registerFixedTools(context, log);
 
@@ -142,7 +143,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration("omnicopilot-dev")) return;
       log.info("Configuration changed — refreshing models and status");
-      invalidateRouteCache();
+      // Only reset cooldowns when route-related config changes; other
+      // settings (fallbackMode, modelFilter, maxTools) must not clear
+      // per-server cooldowns that protect against 429/408 floods.
+      const routeChanged =
+        e.affectsConfiguration("omnicopilot-dev.routes") ||
+        e.affectsConfiguration("omnicopilot-dev.baseUrl") ||
+        e.affectsConfiguration("omnicopilot-dev.apiKey");
+      invalidateRouteCache(!routeChanged);
       // Tool candidate discovery caches clients/routes; stale entries would
       // keep serving requests through a removed/edited server for 60s.
       clearToolDiscoveryCache();

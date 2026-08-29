@@ -77,7 +77,12 @@ export async function configureCliTool(
 
   const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
   const configuredCliPath = cfg.get<string>("cliPath", "omniroute").trim();
-  if (/[&|;$`\r\n<>"'()^%!\\]/.test(configuredCliPath)) {
+  // On Windows, backslash is a valid path separator; only block cmd.exe
+  // metacharacters that survive double-quoting or enable injection.
+  const cliPathDangerous = process.platform === "win32"
+    ? /[&|;$`\r\n<>"'()^%!]/.test(configuredCliPath)
+    : /[&|;$`\r\n<>"'()^%!\\]/.test(configuredCliPath);
+  if (cliPathDangerous) {
     void vscode.window.showErrorMessage(vscode.l10n.t("Invalid CLI path: shell metacharacters are not allowed."));
     return;
   }

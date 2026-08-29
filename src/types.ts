@@ -190,6 +190,9 @@ export interface MessagesRequest {
   }>;
   tool_choice?: { type: "auto" | "any" };
   temperature?: number;
+  /** Extended thinking configuration. OmniRoute maps the universal
+   * `reasoning_effort` tier onto the Anthropic `thinking` block. */
+  thinking?: { type: "enabled"; budget_tokens: number };
 }
 
 /** Minimal Anthropic Messages streaming event subset consumed by the client. */
