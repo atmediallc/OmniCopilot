@@ -71,7 +71,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -125,7 +125,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -170,7 +170,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     await provider.provideLanguageModelChatResponse(
-      { id: "Server A · openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
       [],
       {} as never,
       { report: vi.fn() } as never,
@@ -219,7 +219,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -279,7 +279,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -336,7 +336,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-9",
+      id: "openai/gpt-9",
       omniModelId: "openai/gpt-9",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -377,7 +377,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -434,7 +434,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -524,7 +524,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -590,7 +590,7 @@ describe("full fallback at the request level", () => {
 
     await expect(provider.provideLanguageModelChatResponse(
       {
-        id: "Server A · openai/gpt-4o",
+        id: "openai/gpt-4o",
         omniModelId: "openai/gpt-4o",
         routeId: "A",
       } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0],
@@ -634,7 +634,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -673,7 +673,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -727,7 +727,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -801,7 +801,7 @@ describe("full fallback at the request level", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
 
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -860,7 +860,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -912,7 +912,7 @@ describe("full fallback at the request level", () => {
     const progress = { report: vi.fn() };
 
     await provider.provideLanguageModelChatResponse(
-      { id: "Server A · openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
       [],
       {} as never,
       progress as never,
@@ -948,7 +948,7 @@ describe("full fallback at the request level", () => {
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];

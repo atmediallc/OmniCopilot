@@ -83,7 +83,7 @@ describe("P2-01 regression: global 400 must not blind-replay across candidates",
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -143,7 +143,7 @@ describe("P2-01 regression: global 400 must not blind-replay across candidates",
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-4o",
+      id: "openai/gpt-4o",
       omniModelId: "openai/gpt-4o",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
@@ -198,7 +198,7 @@ describe("P2-01 regression: global 400 must not blind-replay across candidates",
     await provider.refresh();
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const model = {
-      id: "Server A · openai/gpt-9",
+      id: "openai/gpt-9",
       omniModelId: "openai/gpt-9",
       routeId: "A",
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];

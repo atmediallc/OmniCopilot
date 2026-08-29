@@ -37,16 +37,13 @@ describe("newRouteId", () => {
 });
 
 describe("prefixedId", () => {
-  it("sanea el nombre y compone name · model", () => {
-    expect(prefixedId("My Server", "r1", "openai/gpt-4o", new Set())).toBe("My Server · openai/gpt-4o");
+  it("usa el id del modelo tal cual, sin prefijo de servidor", () => {
+    expect(prefixedId("My Server", "r1", "openai/gpt-4o", new Set())).toBe("openai/gpt-4o");
+    expect(prefixedId("   ", "r1", "kimi/k2", new Set())).toBe("kimi/k2");
   });
-  it("limpia caracteres raros y usa routeId si el nombre queda vacío", () => {
-    expect(prefixedId("a/b:c*", "r1", "kimi/k2", new Set())).toBe("abc · kimi/k2");
-    expect(prefixedId("   ", "r1", "kimi/k2", new Set())).toBe("r1 · kimi/k2");
-  });
-  it("sufija #routeId en colisiones", () => {
-    const taken = new Set(["My · openai/gpt-4o"]);
-    expect(prefixedId("My", "r2", "openai/gpt-4o", taken)).toBe("My · openai/gpt-4o #r2");
+  it("sufija #routeId solo en colisiones del mismo id de modelo", () => {
+    const taken = new Set(["openai/gpt-4o"]);
+    expect(prefixedId("My", "r2", "openai/gpt-4o", taken)).toBe("openai/gpt-4o #r2");
   });
 });
 
@@ -57,17 +54,17 @@ describe("buildCatalog", () => {
       { routeId: "r2", name: "B", models: [model("kimi/k2")] },
     ]);
     expect(catalog).toEqual([
-      { entry: { routeId: "r1", routeName: "A", modelId: "openai/gpt-4o", prefixedId: "A · openai/gpt-4o" }, model: model("openai/gpt-4o") },
-      { entry: { routeId: "r2", routeName: "B", modelId: "kimi/k2", prefixedId: "B · kimi/k2" }, model: model("kimi/k2") },
+      { entry: { routeId: "r1", routeName: "A", modelId: "openai/gpt-4o", prefixedId: "openai/gpt-4o" }, model: model("openai/gpt-4o") },
+      { entry: { routeId: "r2", routeName: "B", modelId: "kimi/k2", prefixedId: "kimi/k2" }, model: model("kimi/k2") },
     ]);
   });
-  it("desambigua el mismo modelo id de dos rutas con nombres iguales", () => {
+  it("desambigua el mismo modelo id de dos rutas con un sufijo #routeId", () => {
     const catalog = buildCatalog([
       { routeId: "r1", name: "Same", models: [model("openai/gpt-4o")] },
       { routeId: "r2", name: "Same", models: [model("openai/gpt-4o")] },
     ]);
-    expect(catalog[0].entry.prefixedId).toBe("Same · openai/gpt-4o");
-    expect(catalog[1].entry.prefixedId).toBe("Same · openai/gpt-4o #r2");
+    expect(catalog[0].entry.prefixedId).toBe("openai/gpt-4o");
+    expect(catalog[1].entry.prefixedId).toBe("openai/gpt-4o #r2");
   });
   it("ignora id de modelo vacío", () => {
     const catalog = buildCatalog([{ routeId: "r1", name: "A", models: [{ id: "" }, model("x/y")] }]);
@@ -127,7 +124,7 @@ describe("pickFallbackCandidates", () => {
     { routeId: "r1", name: "A", models: [model("openai/gpt-4o", true), model("openai/gpt-4o-mini", false)] },
     { routeId: "r2", name: "B", models: [model("openai/gpt-4o"), model("kimi/k2")] },
   ]);
-  const gpt4o = cat.find((c) => c.entry.prefixedId === "A · openai/gpt-4o")!.entry;
+  const gpt4o = cat.find((c) => c.entry.prefixedId === "openai/gpt-4o")!.entry;
 
   it("pone primero el mismo modelo en otra ruta, luego familia en la misma ruta", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false);

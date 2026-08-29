@@ -311,7 +311,10 @@ describe("OmniRouteChatProvider", () => {
     // Models from Ashburn must survive!
     expect(infos).toHaveLength(1);
     expect(infos[0].omniModelId).toBe("openai/gpt-4o");
-    expect(infos[0].name).toContain("Ashburn");
+    // The picker shows the model's catalog id plus the server name —
+    // `openai/gpt-4o (Ashburn)` — matching the import list in OmniRoute.
+    expect(infos[0].name).toBe("openai/gpt-4o (Ashburn)");
+    expect(infos[0].tooltip).toContain("Ashburn");
   });
 
   it("returns no models when discovery fails and there is nothing cached", async () => {

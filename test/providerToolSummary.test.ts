@@ -65,7 +65,7 @@ async function prepare(
   await provider.refresh();
   await provider.provideLanguageModelChatInformation({ silent: true }, cancellation.token);
   const model = {
-    id: "A · model-a", omniModelId: "model-a", routeId: "A",
+    id: "model-a", omniModelId: "model-a", routeId: "A",
   } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
   const progress = { report: vi.fn() };
   return { provider, model, client, progress, ...cancellation };

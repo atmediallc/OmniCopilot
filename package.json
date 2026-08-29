@@ -119,60 +119,60 @@
     "languageModelChatProviders": [
       {
         "vendor": "omniroute-dev",
-        "displayName": "OmniRoute",
+        "displayName": "OmniRoute (Dev)",
         "configuration": "omnicopilot-dev"
       },
       {
         "vendor": "omniroute-dev-2",
-        "displayName": "OmniRoute #2",
+        "displayName": "OmniRoute (Dev) #2",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 2"
       },
       {
         "vendor": "omniroute-dev-3",
-        "displayName": "OmniRoute #3",
+        "displayName": "OmniRoute (Dev) #3",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 3"
       },
       {
         "vendor": "omniroute-dev-4",
-        "displayName": "OmniRoute #4",
+        "displayName": "OmniRoute (Dev) #4",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 4"
       },
       {
         "vendor": "omniroute-dev-5",
-        "displayName": "OmniRoute #5",
+        "displayName": "OmniRoute (Dev) #5",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 5"
       },
       {
         "vendor": "omniroute-dev-6",
-        "displayName": "OmniRoute #6",
+        "displayName": "OmniRoute (Dev) #6",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 6"
       },
       {
         "vendor": "omniroute-dev-7",
-        "displayName": "OmniRoute #7",
+        "displayName": "OmniRoute (Dev) #7",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 7"
       },
       {
         "vendor": "omniroute-dev-8",
-        "displayName": "OmniRoute #8",
+        "displayName": "OmniRoute (Dev) #8",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 8"
       },
       {
         "vendor": "omniroute-dev-9",
-        "displayName": "OmniRoute #9",
+        "displayName": "OmniRoute (Dev) #9",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 9"
       },
       {
         "vendor": "omniroute-dev-10",
-        "displayName": "OmniRoute #10",
+        "displayName": "OmniRoute (Dev) #10",
         "configuration": "omnicopilot-dev",
         "when": "omnicopilot-dev.routeCount >= 10"
       }

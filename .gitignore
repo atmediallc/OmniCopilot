@@ -10,7 +10,7 @@ scripts/
 .superpowers
 .qodo
 .vscode
-.codacy
+
 
 # Secrets — never commit (publish tokens live here)
 .env

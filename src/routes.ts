@@ -281,13 +281,15 @@ export interface RouteCatalog {
 
 /** Sanitized, prefixed, unique model id. Collisions get ` #<routeId>` appended. */
 export function prefixedId(
-  routeName: string,
+  _routeName: string,
   routeId: string,
   modelId: string,
   taken: ReadonlySet<string>
 ): string {
-  const clean = routeName.trim().replace(/[^A-Za-z0-9 _.+-]/g, "").slice(0, 20);
-  const base = `${clean || routeId} · ${modelId}`;
+  // Base id is the model's own id, exactly as OmniRoute lists it in the
+  // catalog (`cc/claude-sonnet-4-6`). The route name is NOT prepended: it is
+  // displayed in the picker tooltip instead, keeping the model list clean.
+  const base = modelId;
   return taken.has(base) ? `${base} #${routeId}` : base;
 }
 

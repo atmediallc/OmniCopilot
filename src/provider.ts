@@ -509,11 +509,14 @@ export class OmniRouteChatProvider
     const maxOutputTokens = Math.min(catalogMaxOutput ?? maxOutput, maxOutput);
     const caps = model.capabilities ?? {};
     const isCombo = model.owned_by === "combo";
-    const displayName = model.display_name?.trim() || model.name?.trim() || model.id;
     const supportsReasoning = isReasoningModel(model);
-    const name = c.entry.routeName
-      ? `${displayName} (${c.entry.routeName})`
-      : displayName;
+    // The picker shows the model's catalog id as-is plus the server name in
+    // parentheses — `oc/big-pickle (HomeNAS)` — so every entry is instantly
+    // attributable to its server and reads like OmniRoute's own import list.
+    // The internal `id` stays unique (route suffix on collision) and is what
+    // the provider resolves back to a catalog entry.
+    const routeHint = c.entry.routeName || "OmniRoute";
+    const name = `${model.id} (${routeHint})`;
 
     const ctxTag = `${formatContextLength(contextLength)} ctx`;
     const capsTags: string[] = [ctxTag];

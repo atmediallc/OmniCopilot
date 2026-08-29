@@ -47,7 +47,7 @@ async function prepare(primaryStream: () => AsyncGenerator<unknown>, fallbackStr
   await provider.refresh();
   await provider.provideLanguageModelChatInformation({ silent: true }, token);
   const model = {
-    id: "A · anthropic/claude", omniModelId: "anthropic/claude", routeId: "A",
+    id: "anthropic/claude", omniModelId: "anthropic/claude", routeId: "A",
   } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
   return { provider, model, clientA, clientB };
 }
