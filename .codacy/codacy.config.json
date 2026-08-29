@@ -6,12 +6,13 @@
     "organization": "atmediallc",
     "repositoryId": "898997",
     "repositoryName": "OmniCopilot",
-    "createdAt": "2026-08-29T20:46:39.691Z",
-    "updatedAt": "2026-08-29T20:46:39.691Z",
+    "createdAt": "2026-08-29T21:08:18.982Z",
+    "updatedAt": "2026-08-29T21:08:18.982Z",
     "languages": [
       "Javascript",
       "JSON",
       "Markdown",
+      "Shell",
       "TypeScript",
       "YAML"
     ]
@@ -48,6 +49,65 @@
         },
         {
           "patternId": "Trivy_secret"
+        }
+      ]
+    },
+    {
+      "toolId": "shellcheck",
+      "patterns": [
+        {
+          "patternId": "shellcheck_SC2156"
+        },
+        {
+          "patternId": "shellcheck_SC2115"
+        },
+        {
+          "patternId": "shellcheck_SC2035"
+        },
+        {
+          "patternId": "shellcheck_SC2025"
+        },
+        {
+          "patternId": "shellcheck_SC2029"
+        },
+        {
+          "patternId": "shellcheck_SC2001"
+        },
+        {
+          "patternId": "shellcheck_SC2024"
+        },
+        {
+          "patternId": "shellcheck_SC2004"
+        },
+        {
+          "patternId": "shellcheck_SC2002"
+        },
+        {
+          "patternId": "shellcheck_SC2026"
+        },
+        {
+          "patternId": "shellcheck_SC2033"
+        },
+        {
+          "patternId": "shellcheck_SC2015"
+        },
+        {
+          "patternId": "shellcheck_SC2034"
+        },
+        {
+          "patternId": "shellcheck_SC2020"
+        },
+        {
+          "patternId": "shellcheck_SC2027"
+        },
+        {
+          "patternId": "shellcheck_SC2036"
+        },
+        {
+          "patternId": "shellcheck_SC2031"
+        },
+        {
+          "patternId": "shellcheck_SC2022"
         }
       ]
     },
