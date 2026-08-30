@@ -119,6 +119,20 @@ function isExplicitAdmissionCapacityError(err: unknown): boolean {
     message.includes("chat admission capacity is temporarily unavailable");
 }
 
+/** True when the entire fallback chain failed exclusively due to admission
+ * saturation — every route returned 429/503 with throttle indicators. In this
+ * case a global cooldown + short wait may let the upstream recover, so the
+ * caller can retry the full chain once more before giving up. */
+function allFailuresWereAdmissionSaturated(outcome: ChatPlanOutcome): boolean {
+  if (outcome.kind !== "failed") return false;
+  return isAdmissionSaturationError(outcome.error);
+}
+
+/** Global retry delay (ms) when every route reports admission saturation.
+ * Short enough to feel responsive; long enough for upstream capacity to
+ * recycle. */
+const GLOBAL_ADMISSION_RETRY_DELAY_MS = 3_000;
+
 /** Structured `error.code` values OmniRoute reserves for request-GLOBAL
  * rejections (`VALID_*`, `COMBO_*`, `SECURITY_*` — see v3.8.50
  * src/shared/constants/errorCodes.ts). The same body would be rejected by
@@ -178,18 +192,23 @@ interface ChatPlan {
   retriesPerServer: number;
 }
 
-/** Shared context for streaming against one fallback candidate. */
+/** Max times the full candidate chain is retried when every route reports
+ * admission saturation. One extra pass (after the initial failure) is enough
+ * for most transient upstream capacity blips. */
+const MAX_GLOBAL_ADMISSION_RETRIES = 1;
+
+/** Context passed through the fallback chain for one chat request. */
 interface ChatCandidateContext {
   cand: FallbackCandidate;
   client: OmniRouteClient;
   i: number;
   request: ChatRequest;
-  routeName: string;
   inputTokens: number;
   progress: vscode.Progress<vscode.LanguageModelResponsePart>;
   token: vscode.CancellationToken;
   abort: AbortController;
   log: vscode.LogOutputChannel;
+  routeName: string;
   retriesPerServer: number;
 }
 
@@ -776,7 +795,32 @@ export class OmniRouteChatProvider
     let requestSettled = false;
 
     try {
-      const outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
+      let outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
+
+      // Global admission-saturation retry: when every route returns 429/503
+      // with capacity indicators (chat_admission_busy, etc.), the upstream may
+      // recover within a few seconds. Clear all cooldowns and retry the full
+      // chain once before giving up.
+      if (outcome.kind === "failed" && allFailuresWereAdmissionSaturated(outcome)) {
+        for (let retry = 0; retry < MAX_GLOBAL_ADMISSION_RETRIES; retry++) {
+          if (token.isCancellationRequested) break;
+          this.deps.log.warn(
+            `[ADMISSION RETRY] All routes admission-saturated for ${plan.modelId}; ` +
+            `waiting ${GLOBAL_ADMISSION_RETRY_DELAY_MS}ms before retry pass ${retry + 1}/${MAX_GLOBAL_ADMISSION_RETRIES}`
+          );
+          await delay(GLOBAL_ADMISSION_RETRY_DELAY_MS, token);
+          if (token.isCancellationRequested) break;
+          // Clear cooldowns so saturated routes become candidates again.
+          for (const [routeId] of plan.clientByRoute) {
+            clearRouteCooldown(routeId);
+          }
+          outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
+          if (outcome.kind !== "failed" || !allFailuresWereAdmissionSaturated(outcome)) {
+            break; // success, cancellation, or a different error — stop retrying
+          }
+        }
+      }
+
       requestSettled = true;
       if (outcome.kind === "succeeded") {
         this.deps.onRequestEnd?.(true, undefined, outcome.fallbacksUsed);

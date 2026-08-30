@@ -600,7 +600,8 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    expect(client.streamModel).toHaveBeenCalledTimes(1);
+    // Initial pass (1 call) + global admission retry (1 call) = 2
+    expect(client.streamModel).toHaveBeenCalledTimes(2);
     expect(client.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
   });
 
@@ -686,7 +687,8 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    expect.soft(client.streamModel).toHaveBeenCalledTimes(1);
+    // Initial pass (1 call) + global admission retry (1 call) = 2
+    expect.soft(client.streamModel).toHaveBeenCalledTimes(2);
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
 
