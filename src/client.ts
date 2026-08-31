@@ -1,5 +1,7 @@
 import * as crypto from "node:crypto";
 import { isFramingAllowed } from "./embed";
+import { EncryptedReasoningFilter } from "./reasoningFilter";
+export { EncryptedReasoningFilter } from "./reasoningFilter";
 import type {
   ChatRequest,
   MessagesContentBlock,
@@ -170,42 +172,25 @@ export function isTransientHttpError(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 504);
 }
 
+/** Throttle-related keywords that appear in upstream error messages. */
+const THROTTLE_KEYWORDS = [
+  "rate limit", "ratelimit", "concurrency", "concurrent",
+  "overloaded", "busy", "resource_exhausted", "resource has been exhausted",
+  "quota", "too many requests", "throttled", "try again", "capacity",
+];
+
+function matchesThrottleKeyword(msg: string): boolean {
+  return THROTTLE_KEYWORDS.some((kw) => msg.includes(kw));
+}
+
 /** Detects upstream rate limits, capacity constraints, quota issues, or concurrency limits. */
 export function isThrottleError(err: unknown): boolean {
   if (err instanceof OmniRouteError) {
-    if (err.status === 429 || err.status === 503) return true;
-    const msg = err.message.toLowerCase();
-    return (
-      msg.includes("rate limit") ||
-      msg.includes("ratelimit") ||
-      msg.includes("concurrency") ||
-      msg.includes("concurrent") ||
-      msg.includes("overloaded") ||
-      msg.includes("busy") ||
-      msg.includes("resource_exhausted") ||
-      msg.includes("resource has been exhausted") ||
-      msg.includes("quota") ||
-      msg.includes("too many requests") ||
-      msg.includes("throttled") ||
-      msg.includes("try again") ||
-      msg.includes("capacity")
-    );
+    return err.status === 429 || err.status === 503 || matchesThrottleKeyword(err.message.toLowerCase());
   }
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
-    return (
-      msg.includes("429") ||
-      msg.includes("503") ||
-      msg.includes("rate limit") ||
-      msg.includes("ratelimit") ||
-      msg.includes("concurrency") ||
-      msg.includes("concurrent") ||
-      msg.includes("overloaded") ||
-      msg.includes("busy") ||
-      msg.includes("resource_exhausted") ||
-      msg.includes("quota") ||
-      msg.includes("throttled")
-    );
+    return /429|503/.test(msg) || matchesThrottleKeyword(msg);
   }
   return false;
 }
@@ -1682,80 +1667,6 @@ function isTransportIncompatibility(err: unknown, transport: ModelTransport): bo
   if (err.status === 404 || err.status === 405 || err.status === 501) return true;
   if (err.status !== 400 && err.status !== 415 && err.status !== 422) return false;
   return /(?:unsupported|unknown|invalid|not found).{0,40}(?:endpoint|route|url)|(?:responses|messages|chat(?: completions)?).{0,40}(?:unsupported|not supported)/i.test(err.message);
-}
-
-/** Filters out OmniRoute encrypted/private reasoning notice messages,
- * even when streamed across multiple incremental SSE text chunks. */
-export class EncryptedReasoningFilter {
-  private buffer = "";
-  private static readonly NOTICE =
-    "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.";
-  private static readonly REQUEST_NOTICE = "omniroute: got req, sending to provider";
-  private static readonly NOTICE_VARIANT =
-    "codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover the plaintext.";
-  private static readonly REQUEST_NOTICE_VARIANT = "omniroute: got request, sending to provider";
-  private static readonly COMPLETE_NOTICE_PATTERN = /codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning\. omniroute cannot recover plaintext\.|omniroute: got req, sending to provider|codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning\. omniroute cannot recover the plaintext\.|omniroute: got request, sending to provider/g;
-
-  private static readonly KNOWN_PATTERNS = [
-    "codex is reasoning, but upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover plaintext.",
-    "codex is reasoning, but the upstream responses api exposed this reasoning block only as encrypted private reasoning. omniroute cannot recover the plaintext.",
-    "omniroute: got req, sending to provider",
-    "omniroute: got request, sending to provider",
-    "upstream responses api exposed this reasoning block only as encrypted private reasoning",
-    "encrypted private reasoning. omniroute cannot recover plaintext",
-    "omniroute cannot recover plaintext",
-    "encrypted private reasoning",
-  ];
-
-  public push(chunk: string): string[] {
-    if (!chunk && !this.buffer) return [];
-    this.buffer += chunk;
-    const normalized = this.buffer.toLowerCase();
-    const output: string[] = [];
-    let cursor = 0;
-
-    for (const match of normalized.matchAll(EncryptedReasoningFilter.COMPLETE_NOTICE_PATTERN)) {
-      const matchIndex = match.index;
-      const before = this.buffer.slice(cursor, matchIndex);
-      if (before) output.push(before);
-      cursor = matchIndex + match[0].length;
-    }
-
-    const remainingNormalized = normalized.slice(cursor);
-    let prefixLength = 0;
-    const maxNoticeLength = Math.max(
-      EncryptedReasoningFilter.NOTICE.length,
-      EncryptedReasoningFilter.NOTICE_VARIANT.length
-    );
-    for (let length = Math.min(maxNoticeLength - 1, remainingNormalized.length); length >= 5; length--) {
-      if (remainingNormalized.endsWith(EncryptedReasoningFilter.NOTICE.slice(0, length)) ||
-          remainingNormalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE.slice(0, length)) ||
-          remainingNormalized.endsWith(EncryptedReasoningFilter.NOTICE_VARIANT.slice(0, length)) ||
-          remainingNormalized.endsWith(EncryptedReasoningFilter.REQUEST_NOTICE_VARIANT.slice(0, length))) {
-        prefixLength = length;
-        break;
-      }
-    }
-
-    const emitEnd = this.buffer.length - prefixLength;
-    if (emitEnd > cursor) output.push(this.buffer.slice(cursor, emitEnd));
-    this.buffer = this.buffer.slice(emitEnd);
-    return output;
-  }
-
-  public flush(): string[] {
-    if (!this.buffer) return [];
-    const normalized = this.buffer.trim().toLowerCase().replace(/\s+/g, " ");
-    for (const pattern of EncryptedReasoningFilter.KNOWN_PATTERNS) {
-      if (normalized.includes(pattern) || pattern.startsWith(normalized)) {
-        this.buffer = "";
-        return [];
-      }
-    }
-    const out = this.buffer;
-    this.buffer = "";
-    return [out];
-  }
 }
 
 /** Extracts reasoning text from a streaming delta, across the shapes

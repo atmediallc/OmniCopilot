@@ -83,7 +83,7 @@ export class OmniStatusPopup {
       this.disposables
     );
 
-    this.panel.webview.html = this.getHtmlForWebview();
+    this.applyWebviewHtml();
   }
 
   public static show(
@@ -416,15 +416,15 @@ export class OmniStatusPopup {
     }
   }
 
-  private getHtmlForWebview(): string {
+  private applyWebviewHtml(): void {
     const nonce = crypto.randomBytes(16).toString("hex");
-    return `<!DOCTYPE html>
+    this.panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data: https:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-` + nonce + `'; img-src data: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OmniRoute Status & Metrics</title>
+  <title>OmniRoute Status &amp; Metrics</title>
   <style>
     :root {
       --bg: var(--vscode-sideBar-background, #1e1e1e);
@@ -808,7 +808,7 @@ export class OmniStatusPopup {
     </div>
   </div>
 
-  <script nonce="${nonce}">
+  <script nonce="` + nonce + `">
     const vscode = acquireVsCodeApi();
 
     // Delegated handlers — no inline event attributes (CSP: script-src 'nonce-…')

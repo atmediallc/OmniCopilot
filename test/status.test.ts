@@ -141,13 +141,16 @@ describe("statusTooltip", () => {
 
 
 describe("OmniStatusPopup telemetry rendering", () => {
-  type GetHtml = () => string;
-  const getHtml = (
-    OmniStatusPopup.prototype as unknown as { getHtmlForWebview: GetHtml }
-  ).getHtmlForWebview;
+  type ApplyHtml = () => void;
+  const applyHtml = (
+    OmniStatusPopup.prototype as unknown as { applyWebviewHtml: ApplyHtml }
+  ).applyWebviewHtml;
+  let html = "";
+  applyHtml.call({
+    panel: { webview: { set html(v: string) { html = v; } } },
+  } as unknown);
 
   it("renders conditional subset telemetry and per-side provenance metrics", () => {
-    const html = getHtml.call({});
     expect(html).toContain('id="subset-tokens-row"');
     expect(html).toContain("display:none");
     expect(html).toContain("subsetTokensRow.style.display");
@@ -225,11 +228,16 @@ describe("OmniStatusPopup command handling", () => {
 });
 
 describe("OmniStatusPopup online status rendering", () => {
-  type GetHtml = () => string;
-  const getHtml = (
-    OmniStatusPopup.prototype as unknown as { getHtmlForWebview: GetHtml }
-  ).getHtmlForWebview;
-  const html = getHtml.call({});
+  type ApplyHtml = () => void;
+  const applyHtml = (
+    OmniStatusPopup.prototype as unknown as { applyWebviewHtml: ApplyHtml }
+  ).applyWebviewHtml;
+  // Call applyWebviewHtml with a mock `this` that captures the HTML
+  // assigned to panel.webview.html.
+  let html = "";
+  applyHtml.call({
+    panel: { webview: { set html(v: string) { html = v; } } },
+  } as unknown);
   const latencyExpression = html.match(/\$\{(s\.online \?[^}]+: "Offline")\}/)?.[1];
 
   if (!latencyExpression) {
