@@ -977,3 +977,167 @@ describe("full fallback at the request level", () => {
     });
   });
 });
+
+describe("cross-route fallback isolation", () => {
+  afterEach(() => {
+    routesModule.resetAllCooldowns();
+    delete configValues["omnicopilot-dev"];
+    vi.restoreAllMocks();
+  });
+
+  it("route-scoped fallback does NOT fall back to another route's model when crossRouteFallback is false", async () => {
+    configValues["omnicopilot-dev"] = {
+      retriesPerServer: 0,
+      fallbackMode: "full",
+      crossRouteFallback: false,
+    };
+    const onRequestEnd = vi.fn();
+    // Provider scoped to route A — two models on A, one on B
+    const provider = new OmniRouteChatProvider(
+      { context: mockContext(), log: mockLog, onRequestEnd },
+      "A" // filterRouteId
+    );
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "openai/gpt-4o" },
+        { id: "openai/gpt-4o-mini" },
+      ]),
+      streamModel: vi.fn().mockRejectedValue(
+        new OmniRouteError("unavailable", 503, false, "headers")
+      ),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "server b answered" }]),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => route.id === "A" ? clientA : clientB) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const progress = { report: vi.fn() };
+
+    try {
+      await provider.provideLanguageModelChatResponse(
+        { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+        [],
+        {} as never,
+        progress as never,
+        dummyToken
+      );
+    } catch {
+      // Expected to throw — all route-A candidates exhausted
+    }
+
+    // clientA.streamModel was called (primary + mini fallback, both on route A)
+    expect(clientA.streamModel).toHaveBeenCalled();
+    // clientB was NEVER called — cross-route fallback is disabled
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    // onRequestEnd reports failure with 0 fallbacks (no cross-route spill)
+    expect(onRequestEnd).toHaveBeenCalledWith(
+      false,
+      expect.any(String),
+      expect.any(Number)
+    );
+  });
+
+  it("cross-route fallback DOES fall back to another route when crossRouteFallback is true", async () => {
+    configValues["omnicopilot-dev"] = {
+      retriesPerServer: 0,
+      fallbackMode: "full",
+      crossRouteFallback: true,
+    };
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider(
+      { context: mockContext(), log: mockLog, onRequestEnd },
+      "A"
+    );
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockRejectedValue(
+        new OmniRouteError("unavailable", 503, false, "headers")
+      ),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "server b answered" }]),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => route.id === "A" ? clientA : clientB) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    // clientA failed, clientB was tried and succeeded
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "server b answered" }));
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+  });
+
+  it("single-route provider still uses same-route fallback even when crossRouteFallback is false", async () => {
+    configValues["omnicopilot-dev"] = {
+      retriesPerServer: 0,
+      fallbackMode: "full",
+      crossRouteFallback: false,
+    };
+    const onRequestEnd = vi.fn();
+    const provider = new OmniRouteChatProvider(
+      { context: mockContext(), log: mockLog, onRequestEnd },
+      "A"
+    );
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "openai/gpt-4o" },
+        { id: "anthropic/claude-haiku" },
+      ]),
+      streamModel: vi.fn()
+        .mockRejectedValueOnce(new OmniRouteError("primary down", 503, false, "headers"))
+        .mockReturnValueOnce((async function* () { yield { kind: "text", text: "mini fallback answered" }; })()),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      clientA as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+    const progress = { report: vi.fn() };
+
+    await provider.provideLanguageModelChatResponse(
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    // Primary failed, same-route fallback succeeded
+    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
+    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "mini fallback answered" }));
+    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+  });
+});

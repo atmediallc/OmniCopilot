@@ -376,6 +376,11 @@
           "maximum": 5,
           "description": "%cfg.retriesPerServer%"
         },
+        "omnicopilot-dev.crossRouteFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cfg.crossRouteFallback%"
+        },
         "omnicopilot-dev.maxTools": {
           "type": "number",
           "default": 0,

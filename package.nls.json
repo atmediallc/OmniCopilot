@@ -37,6 +37,7 @@
   "cfg.fallbackMode.full": "Full: allow fallback to any compatible model.",
   "cfg.fallbackMode.none": "None: do not attempt fallback if the request fails.",
   "cfg.retriesPerServer": "Maximum number of retry attempts per server on transient errors before failing over.",
+  "cfg.crossRouteFallback": "Allow requests to fall back across different servers. When disabled (default), each server operates independently so one failing server does not overload the other.",
   "cfg.maxTools": "Maximum number of tools to send in a single chat request. Extra tools will be omitted defensively.",
   "cfg.modelCacheTtlMinutes": "Time-to-live in minutes for model catalog cache before automatic background refresh.",
   "cfg.compressionOverride": "Prompt compression mode sent to OmniRoute servers (x-omniroute-compression header).",

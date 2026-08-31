@@ -128,10 +128,12 @@ function allFailuresWereAdmissionSaturated(outcome: ChatPlanOutcome): boolean {
   return isAdmissionSaturationError(outcome.error);
 }
 
-/** Global retry delay (ms) when every route reports admission saturation.
+/** Base retry delay (ms) when every route reports admission saturation.
  * Short enough to feel responsive; long enough for upstream capacity to
- * recycle. */
-const GLOBAL_ADMISSION_RETRY_DELAY_MS = 3_000;
+ * recycle. Actual delay is jittered [BASE, BASE+JITTER] to prevent
+ * concurrent requests from retrying in lockstep (thundering herd). */
+const GLOBAL_ADMISSION_RETRY_BASE_MS = 2_500;
+const GLOBAL_ADMISSION_RETRY_JITTER_MS = 2_000;
 
 /** Structured `error.code` values OmniRoute reserves for request-GLOBAL
  * rejections (`VALID_*`, `COMBO_*`, `SECURITY_*` — see v3.8.50
@@ -166,6 +168,12 @@ function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number):
   return Math.min(maxDelay, baseDelay * (attempted + 1));
 }
 
+/** Jittered global admission retry delay. Prevents concurrent requests from
+ * retrying in lockstep (thundering herd) by randomizing within [BASE, BASE+JITTER]. */
+function jitteredAdmissionRetryMs(): number {
+  return GLOBAL_ADMISSION_RETRY_BASE_MS + crypto.randomInt(GLOBAL_ADMISSION_RETRY_JITTER_MS);
+}
+
 /** Parses a tool-call's JSON args defensively; `{}` on malformed input. */
 function parseToolCallArgs(
   event: { args: string; name: string },
@@ -190,6 +198,10 @@ interface ChatPlan {
   serverCount: number;
   modelId: string;
   retriesPerServer: number;
+  /** Route IDs that THIS request put into cooldown during the fallback chain.
+   * Used by the admission retry to only clear its own cooldowns, preserving
+   * backpressure signals set by other concurrent requests. */
+  cooledByThisRequest: Set<string>;
 }
 
 /** Max times the full candidate chain is retried when every route reports
@@ -210,6 +222,10 @@ interface ChatCandidateContext {
   log: vscode.LogOutputChannel;
   routeName: string;
   retriesPerServer: number;
+  /** Mutable set shared across all candidates in this request — tracks which
+   * routes THIS request put into cooldown so the admission retry can clear
+   * only its own cooldowns. */
+  cooledByThisRequest: Set<string>;
 }
 
 /** Outcome of a single stream attempt. */
@@ -698,10 +714,23 @@ export class OmniRouteChatProvider
     // User-selected transport override: `auto` keeps the catalog-derived plan;
     // a concrete value narrows every candidate to that single protocol.
     const preference = getConfig().get<TransportPreference>("transport", "auto");
+    // When crossRouteFallback is disabled (default), each provider only
+    // considers models from its own route as fallback candidates. This
+    // prevents a failing server from spilling its traffic onto another
+    // server that is already busy handling its own requests (503 cascade).
+    const crossRouteFallback = getConfig().get<boolean>("crossRouteFallback", false);
+    const fallbackCatalog = crossRouteFallback || !this.filterRouteId
+      ? this.cachedModels
+      : this.cachedModels.filter((c) => c.entry.routeId === this.filterRouteId);
+    if (!crossRouteFallback && this.filterRouteId) {
+      log.info(
+        `[FALLBACK] Route-scoped mode: fallback candidates limited to route ${this.filterRouteId} (${fallbackCatalog.length} models). Set "crossRouteFallback": true to allow cross-server fallback.`
+      );
+    }
     const fallbacks = (primaryEntry
       ? pickFallbackCandidates(
           primaryEntry,
-          this.cachedModels,
+          fallbackCatalog,
           Boolean(options.tools?.length),
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
@@ -777,6 +806,7 @@ export class OmniRouteChatProvider
       serverCount,
       modelId: model.omniModelId,
       retriesPerServer,
+      cooledByThisRequest: new Set<string>(),
     };
   }
 
@@ -799,19 +829,24 @@ export class OmniRouteChatProvider
 
       // Global admission-saturation retry: when every route returns 429/503
       // with capacity indicators (chat_admission_busy, etc.), the upstream may
-      // recover within a few seconds. Clear all cooldowns and retry the full
-      // chain once before giving up.
+      // recover within a few seconds. Clear only cooldowns set by THIS
+      // request (tracked in `cooledByThisRequest`) and retry the full
+      // chain once before giving up. The delay is jittered to prevent
+      // concurrent requests from retrying in lockstep (thundering herd).
       if (outcome.kind === "failed" && allFailuresWereAdmissionSaturated(outcome)) {
         for (let retry = 0; retry < MAX_GLOBAL_ADMISSION_RETRIES; retry++) {
           if (token.isCancellationRequested) break;
+          const retryDelayMs = jitteredAdmissionRetryMs();
           this.deps.log.warn(
             `[ADMISSION RETRY] All routes admission-saturated for ${plan.modelId}; ` +
-            `waiting ${GLOBAL_ADMISSION_RETRY_DELAY_MS}ms before retry pass ${retry + 1}/${MAX_GLOBAL_ADMISSION_RETRIES}`
+            `waiting ${retryDelayMs}ms (jittered) before retry pass ${retry + 1}/${MAX_GLOBAL_ADMISSION_RETRIES}`
           );
-          await delay(GLOBAL_ADMISSION_RETRY_DELAY_MS, token);
+          await delay(retryDelayMs, token);
           if (token.isCancellationRequested) break;
-          // Clear cooldowns so saturated routes become candidates again.
-          for (const [routeId] of plan.clientByRoute) {
+          // Clear only cooldowns that THIS request established, not cooldowns
+          // set by other concurrent requests. This preserves backpressure from
+          // other providers while allowing this request to retry.
+          for (const routeId of plan.cooledByThisRequest) {
             clearRouteCooldown(routeId);
           }
           outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
@@ -890,6 +925,7 @@ export class OmniRouteChatProvider
         log: this.deps.log,
         routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
         retriesPerServer: plan.retriesPerServer,
+        cooledByThisRequest: plan.cooledByThisRequest,
       });
       if (outcome.kind === "succeeded" || outcome.kind === "cancelled") {
         return { kind: outcome.kind, fallbacksUsed: i };
@@ -986,6 +1022,7 @@ export class OmniRouteChatProvider
       );
       if (attempt.stall) {
         markRouteCooldown(cand.routeId, 15_000, 408, "Stream stall");
+        ctx.cooledByThisRequest.add(cand.routeId);
         this.deps.onStall?.(cand.routeId);
         break;
       }
@@ -997,8 +1034,10 @@ export class OmniRouteChatProvider
       if (attempt.throttle) {
         const delayMs = computeBackoffMs(attempt.error, true, attempted);
         markRouteCooldown(cand.routeId, delayMs, errorStatus(attempt.error) ?? 429, "Admission throttle");
+        ctx.cooledByThisRequest.add(cand.routeId);
       } else if (candError instanceof OmniRouteError && candError.phase === "connect") {
         markRouteCooldown(cand.routeId, 10_000, undefined, "Connection failure");
+        ctx.cooledByThisRequest.add(cand.routeId);
       }
       if (isExplicitAdmissionCapacityError(candError)) {
         markRouteCooldown(
@@ -1007,6 +1046,7 @@ export class OmniRouteChatProvider
           errorStatus(candError) ?? 503,
           "Admission capacity unavailable"
         );
+        ctx.cooledByThisRequest.add(cand.routeId);
         attempted++;
         break;
       }
