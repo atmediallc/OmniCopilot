@@ -557,7 +557,7 @@ describe("full fallback at the request level", () => {
     }
   });
 
-  it("propagates explicit admission rejection without retrying or trying same-route fallback models", async () => {
+  it("propagates explicit admission rejection without retrying or trying same-route fallback models", { timeout: 15_000 }, async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const failure = new OmniRouteError(
@@ -600,8 +600,8 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    // Initial pass (1 call) + global admission retry (1 call) = 2
-    expect(client.streamModel).toHaveBeenCalledTimes(2);
+    // Initial pass (1 call) + 2 global admission retries = 3
+    expect(client.streamModel).toHaveBeenCalledTimes(3);
     expect(client.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
   });
 
@@ -653,7 +653,7 @@ describe("full fallback at the request level", () => {
     expect(clientB.streamModel).toHaveBeenCalledTimes(1);
   });
 
-  it("rethrows an exhausted admission failure without showing extension error UI", async () => {
+  it("rethrows an exhausted admission failure without showing extension error UI", { timeout: 15_000 }, async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     const showErrorMessage = vi.spyOn(vscode.window, "showErrorMessage");
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
@@ -687,8 +687,8 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toBe(failure);
 
-    // Initial pass (1 call) + global admission retry (1 call) = 2
-    expect.soft(client.streamModel).toHaveBeenCalledTimes(2);
+    // Initial pass (1 call) + 2 global admission retries = 3
+    expect.soft(client.streamModel).toHaveBeenCalledTimes(3);
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
 

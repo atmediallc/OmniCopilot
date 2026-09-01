@@ -169,9 +169,13 @@ function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number):
 }
 
 /** Jittered global admission retry delay. Prevents concurrent requests from
- * retrying in lockstep (thundering herd) by randomizing within [BASE, BASE+JITTER]. */
-function jitteredAdmissionRetryMs(): number {
-  return GLOBAL_ADMISSION_RETRY_BASE_MS + crypto.randomInt(GLOBAL_ADMISSION_RETRY_JITTER_MS);
+ * retrying in lockstep (thundering herd) by randomizing within
+ * [BASE, BASE+JITTER]. Accepts an optional retry index (0-based) for
+ * progressive backoff: each subsequent retry adds BASE_MS extra delay so
+ * the upstream has more time to recycle capacity. */
+function jitteredAdmissionRetryMs(retryIndex = 0): number {
+  const progressiveBase = GLOBAL_ADMISSION_RETRY_BASE_MS * (retryIndex + 1);
+  return progressiveBase + crypto.randomInt(GLOBAL_ADMISSION_RETRY_JITTER_MS);
 }
 
 /** Parses a tool-call's JSON args defensively; `{}` on malformed input. */
@@ -205,9 +209,11 @@ interface ChatPlan {
 }
 
 /** Max times the full candidate chain is retried when every route reports
- * admission saturation. One extra pass (after the initial failure) is enough
- * for most transient upstream capacity blips. */
-const MAX_GLOBAL_ADMISSION_RETRIES = 1;
+ * admission saturation. Two extra passes (after the initial failure) cover
+ * typical upstream capacity recycling windows (server says "Retry shortly"
+ * which may need 3-6 s). Each pass uses progressively longer jittered delays
+ * to avoid thundering-herd amplification. */
+const MAX_GLOBAL_ADMISSION_RETRIES = 2;
 
 /** Context passed through the fallback chain for one chat request. */
 interface ChatCandidateContext {
@@ -836,7 +842,7 @@ export class OmniRouteChatProvider
       if (outcome.kind === "failed" && allFailuresWereAdmissionSaturated(outcome)) {
         for (let retry = 0; retry < MAX_GLOBAL_ADMISSION_RETRIES; retry++) {
           if (token.isCancellationRequested) break;
-          const retryDelayMs = jitteredAdmissionRetryMs();
+          const retryDelayMs = jitteredAdmissionRetryMs(retry);
           this.deps.log.warn(
             `[ADMISSION RETRY] All routes admission-saturated for ${plan.modelId}; ` +
             `waiting ${retryDelayMs}ms (jittered) before retry pass ${retry + 1}/${MAX_GLOBAL_ADMISSION_RETRIES}`
