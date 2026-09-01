@@ -58,7 +58,7 @@ export function renderStatusText(snap: StatusSnapshot): string {
       break;
   }
 
-  let text = `${icon} OmniRoute`;
+  let text = `${icon} OmniCopilot`;
   const online = snap.servers.filter((s) => s.online).length;
   if (snap.servers.length > 0) {
     text += ` ${online}/${snap.servers.length}`;

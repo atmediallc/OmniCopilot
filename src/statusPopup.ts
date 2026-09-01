@@ -99,7 +99,7 @@ export class OmniStatusPopup {
 
     const panel = vscode.window.createWebviewPanel(
       "omniRouteStatusPopup",
-      vscode.l10n.t("OmniRoute — Status & Metrics"),
+      vscode.l10n.t("OmniCopilot — Status & Metrics"),
       {
         viewColumn: vscode.ViewColumn.Active,
         preserveFocus: false,
@@ -424,7 +424,7 @@ export class OmniStatusPopup {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-` + nonce + `'; img-src data: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OmniRoute Status &amp; Metrics</title>
+  <title>OmniCopilot Status &amp; Metrics</title>
   <style>
     :root {
       --bg: var(--vscode-sideBar-background, #1e1e1e);
@@ -680,7 +680,7 @@ export class OmniStatusPopup {
     <div class="header">
       <div class="header-title">
         <span id="header-dot" class="dot dot-offline"></span>
-        <span>OmniRoute</span>
+        <span>OmniCopilot</span>
         <span id="header-badge" class="badge badge-danger">Loading...</span>
       </div>
       <div class="header-actions">
@@ -746,7 +746,7 @@ export class OmniStatusPopup {
     <!-- Quick Settings & Options -->
     <div class="section">
       <div class="section-title">
-        <span>OmniRoute Quick Settings</span>
+        <span>OmniCopilot Quick Settings</span>
         <button class="btn btn-secondary btn-sm" data-action="sendMessage" data-msg="snooze">Snooze (5m)</button>
       </div>
 
@@ -804,7 +804,7 @@ export class OmniStatusPopup {
     <div class="footer-links">
       <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.configureCliTool">⚡ Configure CLI Bridge (Aider/Claude)</a>
       <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.checkConnection">🩺 Check Server Health</a>
-      <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.openGitHub">⭐ OmniRoute on GitHub</a>
+      <a href="#" data-action="runCommand" data-cmd="omnicopilot-dev.openGitHub">⭐ OmniCopilot on GitHub</a>
     </div>
   </div>
 

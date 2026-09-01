@@ -106,7 +106,7 @@ async function doSyncProviders(
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const log = vscode.window.createOutputChannel("OmniRoute for Copilot", { log: true });
+  const log = vscode.window.createOutputChannel("OmniCopilot", { log: true });
   context.subscriptions.push(log);
   log.info(`Activating v${context.extension.packageJSON.version}`);
 
@@ -359,7 +359,7 @@ async function quickActions(context: vscode.ExtensionContext, log?: vscode.LogOu
     });
   }
 
-  const picked = await vscode.window.showQuickPick(items, { title: "OmniRoute" });
+  const picked = await vscode.window.showQuickPick(items, { title: "OmniCopilot" });
   const commandByAction: Record<string, string> = {
     check: "omnicopilot-dev.checkConnection",
     manage: "omnicopilot-dev.manage",

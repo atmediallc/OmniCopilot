@@ -21,7 +21,7 @@ const base: StatusSnapshot = {
 
 describe("statusRenderer", () => {
   it("renders server tally only", () => {
-    expect(renderStatusText(base)).toBe("$(circle-filled) OmniRoute 1/2");
+    expect(renderStatusText(base)).toBe("$(circle-filled) OmniCopilot 1/2");
   });
 
   it("shows streaming icon while generating", () => {
@@ -33,13 +33,13 @@ describe("statusRenderer", () => {
     };
     const text = renderStatusText(snap);
     expect(text).toContain("$(loading~spin)");
-    expect(text).toContain("OmniRoute 1/2");
+    expect(text).toContain("OmniCopilot 1/2");
   });
 
   it("uses the error icon on failure and the outline icon when offline", () => {
     expect(renderStatusText({ ...base, status: "error" })).toMatch(/^\$\(error\)/);
     expect(renderStatusText({ ...base, status: "offline", servers: [] })).toBe(
-      "$(circle-outline) OmniRoute"
+      "$(circle-outline) OmniCopilot"
     );
   });
 

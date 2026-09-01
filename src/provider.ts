@@ -560,7 +560,7 @@ export class OmniRouteChatProvider
     // attributable to its server and reads like OmniRoute's own import list.
     // The internal `id` stays unique (route suffix on collision) and is what
     // the provider resolves back to a catalog entry.
-    const routeHint = c.entry.routeName || "OmniRoute";
+    const routeHint = c.entry.routeName || "OmniCopilot";
     const name = `${model.id} (${routeHint})`;
 
     const ctxTag = `${formatContextLength(contextLength)} ctx`;
@@ -573,7 +573,7 @@ export class OmniRouteChatProvider
     const surfaceTags = transportSurfaceLabel(transportPlanForModel(model));
     capsTags.push(surfaceTags);
 
-    const routeLabel = c.entry.routeName || "OmniRoute";
+    const routeLabel = c.entry.routeName || "OmniCopilot";
     const tooltip = `${routeLabel} · ${model.id} (${capsTags.join(" · ")})`;
 
     return {
@@ -720,19 +720,13 @@ export class OmniRouteChatProvider
     // User-selected transport override: `auto` keeps the catalog-derived plan;
     // a concrete value narrows every candidate to that single protocol.
     const preference = getConfig().get<TransportPreference>("transport", "auto");
-    // When crossRouteFallback is disabled (default), each provider only
-    // considers models from its own route as fallback candidates. This
-    // prevents a failing server from spilling its traffic onto another
-    // server that is already busy handling its own requests (503 cascade).
-    const crossRouteFallback = getConfig().get<boolean>("crossRouteFallback", false);
-    const fallbackCatalog = crossRouteFallback || !this.filterRouteId
-      ? this.cachedModels
-      : this.cachedModels.filter((c) => c.entry.routeId === this.filterRouteId);
-    if (!crossRouteFallback && this.filterRouteId) {
-      log.info(
-        `[FALLBACK] Route-scoped mode: fallback candidates limited to route ${this.filterRouteId} (${fallbackCatalog.length} models). Set "crossRouteFallback": true to allow cross-server fallback.`
-      );
-    }
+    // Always include all models as fallback candidates. Route-affinity
+    // sorting ensures same-route models are tried first; cross-route
+    // models serve as a last resort when the primary route is
+    // admission-saturated (503). This prevents a single route's capacity
+    // exhaustion from blocking the user entirely when other routes are
+    // available.
+    const fallbackCatalog = this.cachedModels;
     const fallbacks = (primaryEntry
       ? pickFallbackCandidates(
           primaryEntry,
@@ -781,11 +775,19 @@ export class OmniRouteChatProvider
       return 2;
     };
     const candidates = [primary, ...fallbacks].sort((a, b) => {
+      // Quality tier first: same-model > same-family > any other.
       const tierDifference = qualityTier(a) - qualityTier(b);
       if (tierDifference !== 0) return tierDifference;
+      // Then cooldown: healthy routes before cooling ones.
       const aCooling = isRouteInCooldown(a.routeId) ? 1 : 0;
       const bCooling = isRouteInCooldown(b.routeId) ? 1 : 0;
       if (aCooling !== bCooling) return aCooling - bCooling;
+      // Route affinity: same-route before cross-route when quality and
+      // health are equal. Cross-route models serve as a last resort
+      // when the primary route is admission-saturated (503).
+      const aSameRoute = a.routeId === primary.routeId ? 0 : 1;
+      const bSameRoute = b.routeId === primary.routeId ? 0 : 1;
+      if (aSameRoute !== bSameRoute) return aSameRoute - bSameRoute;
       if (knownOnline.size > 0) {
         const aOnline = knownOnline.has(a.routeId) ? 0 : 1;
         const bOnline = knownOnline.has(b.routeId) ? 0 : 1;

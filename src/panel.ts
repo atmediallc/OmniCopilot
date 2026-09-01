@@ -94,7 +94,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
         await this.handleMessage(msg);
       } catch (err) {
         this.log.error(`Panel message failed: ${formatErrorValue(err)}`);
-        void vscode.window.showErrorMessage(`OmniRoute: ${formatErrorValue(err)}`);
+        void vscode.window.showErrorMessage(`OmniCopilot: ${formatErrorValue(err)}`);
       }
     });
 
@@ -193,7 +193,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
     const t = vscode.l10n.t;
     const S = {
-      title: t("OmniRoute for Copilot"),
+      title: t("OmniCopilot"),
       add: t("Add server"),
       remove: t("Remove this server"),
       serverName: t("Name"),

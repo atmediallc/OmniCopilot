@@ -61,5 +61,7 @@
   "You have consumed {0} tokens in this session. Monitor your quotas.": "You have consumed {0} tokens in this session. Monitor your quotas.",
   "OmniRoute status popup reloaded after configuration change.": "OmniRoute status popup reloaded after configuration change.",
   "Token metrics reset.": "Token metrics reset.",
-  "OmniRoute status popup snoozed for 5 minutes.": "OmniRoute status popup snoozed for 5 minutes."
+  "OmniRoute status popup snoozed for 5 minutes.": "OmniRoute status popup snoozed for 5 minutes.",
+  "OmniCopilot": "OmniCopilot",
+  "OmniCopilot — Status & Metrics": "OmniCopilot — Status & Metrics"
 }

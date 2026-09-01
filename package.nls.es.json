@@ -25,7 +25,6 @@
   "cfg.modelCacheTtlMinutes": "Time-to-live in minutes for model catalog cache before automatic background refresh.",
   "cfg.modelFilter": "Subcadena o expresión regular opcional (sin distinción de mayúsculas y minúsculas) para limitar qué modelos se muestran en el selector (p. ej., \"glm|kimi\"). Vacío muestra todo.",
   "cfg.retriesPerServer": "Número de intentos completos que recibe cada servidor antes de probar el siguiente. El modelo seleccionado se intenta este número de veces primero en su propio servidor.",
-  "cfg.crossRouteFallback": "Permitir que las solicitudes cambien a otro servidor cuando falla. Cuando está desactivado (predeterminado), cada servidor funciona de forma independiente para que un servidor con errores no sobrecargue al otro.",
   "cfg.routes": "Lista de servidores OmniRoute (rutas) desde los que exponer modelos. Cada uno necesita un id, un nombre para mostrar y una URL base; las claves de API se guardan de forma segura por ruta.",
   "cfg.statusBar": "Mostrar el indicador de conexión de OmniRoute en la barra de estado.",
   "cfg.transport": "Protocolo de transporte utilizado para las solicitudes de chat. Auto conserva el plan derivado del catálogo (Responses preferido, con respaldo de protocolo); un valor concreto fuerza ese único transporte.",

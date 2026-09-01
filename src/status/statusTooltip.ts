@@ -24,7 +24,7 @@ export function buildStatusTooltip(
   const md = new vscode.MarkdownString();
   md.supportThemeIcons = true;
 
-  md.appendMarkdown(`### $(symbol-enum-member) OmniRoute\n`);
+  md.appendMarkdown(`### $(symbol-enum-member) OmniCopilot\n`);
   md.appendMarkdown(`**${main}**\n\n`);
 
   appendActiveRequest(md, snap);

@@ -985,7 +985,7 @@ describe("cross-route fallback isolation", () => {
     vi.restoreAllMocks();
   });
 
-  it("route-scoped fallback does NOT fall back to another route's model when crossRouteFallback is false", async () => {
+  it("falls back to another route's model when the primary route is admission-saturated", async () => {
     configValues["omnicopilot-dev"] = {
       retriesPerServer: 0,
       fallbackMode: "full",
@@ -1023,26 +1023,26 @@ describe("cross-route fallback isolation", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const progress = { report: vi.fn() };
 
-    try {
-      await provider.provideLanguageModelChatResponse(
-        { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
-        [],
-        {} as never,
-        progress as never,
-        dummyToken
-      );
-    } catch {
-      // Expected to throw — all route-A candidates exhausted
-    }
+    await provider.provideLanguageModelChatResponse(
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      progress as never,
+      dummyToken
+    );
 
     // clientA.streamModel was called (primary + mini fallback, both on route A)
     expect(clientA.streamModel).toHaveBeenCalled();
-    // clientB was NEVER called — cross-route fallback is disabled
-    expect(clientB.streamModel).not.toHaveBeenCalled();
-    // onRequestEnd reports failure with 0 fallbacks (no cross-route spill)
+    // clientB IS called — cross-route fallback serves as a last resort when
+    // the primary route is admission-saturated (503).
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(progress.report).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "server b answered" })
+    );
+    // onRequestEnd reports success via the cross-route spill
     expect(onRequestEnd).toHaveBeenCalledWith(
-      false,
-      expect.any(String),
+      true,
+      undefined,
       expect.any(Number)
     );
   });

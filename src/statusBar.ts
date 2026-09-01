@@ -63,7 +63,7 @@ export class ConnectionStatusBar implements vscode.Disposable {
     private readonly metricsTracker?: MetricsTracker
   ) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
-    this.item.name = "OmniRoute";
+    this.item.name = "OmniCopilot";
     this.item.command = "omnicopilot-dev.showStatusPopup";
     this.render();
   }
