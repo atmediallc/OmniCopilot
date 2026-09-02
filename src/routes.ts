@@ -197,19 +197,21 @@ export function getClientForRoute(
   route: Route,
   log?: OmniLogger,
   streamFirstByteTimeoutMs?: number,
-  compressionOverride?: string
+  compressionOverride?: string,
+  streamIdleTimeoutMs?: number
 ): OmniRouteClient {
   const existing = _clientPool.get(route.id);
   if (
     existing?.baseUrl === normalizeBaseUrl(route.baseUrl) &&
     existing.options.apiKey === route.apiKey &&
     existing.options.streamFirstByteTimeoutMs === streamFirstByteTimeoutMs &&
+    existing.options.streamIdleTimeoutMs === streamIdleTimeoutMs &&
     existing.options.compressionOverride === compressionOverride &&
     existing.options.log === log
   ) {
     return existing;
   }
-  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs, compressionOverride);
+  const client = makeClientForRoute(route, log, streamFirstByteTimeoutMs, compressionOverride, streamIdleTimeoutMs);
   _clientPool.set(route.id, client);
   return client;
 }
@@ -220,13 +222,15 @@ export function makeClientForRoute(
   route: Route,
   log?: OmniLogger,
   streamFirstByteTimeoutMs?: number,
-  compressionOverride?: string
+  compressionOverride?: string,
+  streamIdleTimeoutMs?: number
 ): OmniRouteClient {
   return new OmniRouteClient({
     baseUrl: route.baseUrl,
     apiKey: route.apiKey,
     chatMaxAttempts: 1,
     streamFirstByteTimeoutMs,
+    streamIdleTimeoutMs,
     compressionOverride,
     log,
   });

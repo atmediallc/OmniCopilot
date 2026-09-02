@@ -14,6 +14,8 @@
   "cfg.statusBar": "Show the OmniRoute connection indicator in the status bar.",
   "cfg.healthCheckIntervalSeconds": "How often the status bar probes the OmniRoute server (seconds).",
   "cfg.firstByteTimeoutSeconds": "Maximum time in seconds to wait for the first byte of a stream from OmniRoute.",
+  "cfg.idleTimeoutSeconds": "Maximum time in seconds a stream may go silent (no tokens) before OmniRoute aborts it. Increase if slow reasoners or long tool calls hit \"went silent\" errors.",
+  "cfg.exposeToAgentsWindow": "Expose the OmniRoute agent to the VS Code agents window (custom agents).",
   "cfg.maxOutputTokens": "Maximum output tokens reserved per response.",
   "cfg.defaultContextLength": "Context length assumed for models whose catalog entry does not declare one.",
   "cfg.modelFilter": "Optional case-insensitive substring or regex to limit which models are listed in the picker (e.g. \"glm|kimi\"). Empty lists everything.",

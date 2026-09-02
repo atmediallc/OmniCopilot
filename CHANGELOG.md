@@ -1,5 +1,17 @@
 # Change Log
 
+## Unreleased
+
+- **Agents window (experimental, opt-in).** `omnicopilot-dev.exposeToAgentsWindow` registers a
+  second, agent-host-scoped set of entries for every tool-calling OmniRoute model, so they
+  appear in the **Copilot Agents window** model picker. Requires the experimental VS Code
+  setting `chat.agentHost.byokModels.enabled` and an agent-host restart; built on the proposed
+  `targetChatSessionType` API, hence default-off. Closes
+  [#14](https://github.com/diegosouzapw/OmniCopilot/issues/14).
+- **Configurable stream idle timeout.** `omnicopilot-dev.idleTimeoutSeconds` lets you raise the
+  30s default for slow reasoners or long tool calls that otherwise abort with
+  *"OmniRoute went silent"*. Mirrors the existing `firstByteTimeoutSeconds` wiring.
+
 ## 1.2.0
 
 - **The panel now shows your key's own spend.** A **My usage** section reads OmniRoute's

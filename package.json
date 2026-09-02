@@ -363,6 +363,12 @@
           "order": 9,
           "description": "%cfg.cliPath%"
         },
+        "omnicopilot-dev.exposeToAgentsWindow": {
+          "type": "boolean",
+          "default": false,
+          "order": 10,
+          "description": "%cfg.exposeToAgentsWindow%"
+        },
         "omnicopilot-dev.routes": {
           "type": "array",
           "default": [],
@@ -395,6 +401,13 @@
           "minimum": 5,
           "maximum": 600,
           "description": "%cfg.firstByteTimeoutSeconds%"
+        },
+        "omnicopilot-dev.idleTimeoutSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 600,
+          "description": "%cfg.idleTimeoutSeconds%"
         },
         "omnicopilot-dev.fallbackMode": {
           "type": "string",

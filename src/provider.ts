@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isThrottleError, isTransientHttpError } from "./client";
 import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
+import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
 import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
@@ -28,6 +29,10 @@ interface OmniModelInfo extends vscode.LanguageModelChatInformation {
   /** Derived from the catalog entry's capabilities (reasoning/thinking):
    * gates sending `reasoning_effort` on models that support it. */
   supportsReasoning?: boolean;
+  /** #14 — proposed-API (`chatProvider`) field read by the host via duck
+   * typing; scopes an entry to one chat session type (the Agents window's
+   * agent host) and removes it from the general picker. See agentsWindow.ts. */
+  targetChatSessionType?: string;
 }
 
 export interface ProviderDeps {
@@ -523,7 +528,12 @@ export class OmniRouteChatProvider
       if (!this.isModelEligible(c, filter, validRouteIds)) continue;
       infos.push(this.toModelInfo(c, maxOutput, defaultContext));
     }
-    return infos;
+    // #14: opt-in second set of entries scoped to the Copilot Agents window.
+    // Same omniModelId → the chat path needs no change for these clones.
+    return expandForAgentsWindow(
+      infos,
+      cfg.get<boolean>(EXPOSE_TO_AGENTS_WINDOW_SETTING, false)
+    );
   }
 
   /** Route/filter gating for one catalog entry: must belong to a valid route
@@ -704,9 +714,11 @@ export class OmniRouteChatProvider
     const routes = await cachedLoadRoutes(this.deps.context);
     const firstByteTimeoutMs =
       cfg.get<number>("firstByteTimeoutSeconds", 120) * 1000;
+    const streamIdleTimeoutMs =
+      cfg.get<number>("idleTimeoutSeconds", 30) * 1000;
     const compressionOverride = cfg.get<string>("compressionOverride", "serverDefault");
     const clientByRoute = new Map(
-      routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs, compressionOverride)])
+      routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs, compressionOverride, streamIdleTimeoutMs)])
     );
     const nameByRoute = new Map(routes.map((r) => [r.id, r.name]));
 

@@ -97,6 +97,8 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 | `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser, or in a VS Code tab (`editor`) — see below |
 | `omnicopilot.defaultReasoningEffort` | *(unset)* | Effort for models with extended thinking — `none`/`low`/`medium`/`high`/`xhigh`; see below |
 | `omnicopilot.cliPath` | `omniroute` | Path to the OmniRoute CLI |
+| `omnicopilot.idleTimeoutSeconds` | `30` | Max seconds a stream may go silent (no tokens) before OmniRoute aborts it. Raise this (e.g. `120`) if slow reasoners or long tool calls hit "went silent" errors |
+| `omnicopilot.exposeToAgentsWindow` | `false` | Experimental: also list the models in the Copilot Agents window — see below |
 
 ### Reasoning effort
 
@@ -112,6 +114,17 @@ server downshifts a tier a model does not implement, so asking for `xhigh` is al
 The default is applied **only** to models the catalog marks as reasoning-capable: sending the
 field to a model without thinking support is ignored at best and rejected with a 400 at worst.
 An explicit choice from the chat UI always wins over the setting.
+
+### Agents window (experimental)
+
+`omnicopilot.exposeToAgentsWindow` (default `false`) adds a second, agent-host-scoped copy of
+every tool-calling OmniRoute model to the model list, so they show up in the **Copilot Agents
+window** picker alongside the built-in custom agents.
+
+It relies on the proposed VS Code API field `targetChatSessionType` and requires the
+experimental setting `chat.agentHost.byokModels.enabled` to be on for the host to surface the
+entries — restart the agent host after changing it. The clones are only usable from Agents
+sessions; they never appear in the normal chat picker.
 
 ### Your usage in the panel
 
