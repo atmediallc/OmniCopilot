@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 1.3.0
 
 - **Agents window (experimental, opt-in).** `omnicopilot-dev.exposeToAgentsWindow` registers a
   second, agent-host-scoped set of entries for every tool-calling OmniRoute model, so they
