@@ -7,6 +7,17 @@ import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agents
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
 import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
+import {
+  ContextBudgetError,
+  enforceContextBudget,
+  formatContextTokens,
+  MODEL_CONTEXT_SETTINGS_KEY,
+  modelContextSettingsKey,
+  normalizeProviderMaxContext,
+  readStoredContextSettings,
+  resolveContextBudget,
+  type ModelContextSettings,
+} from "./contextBudget";
 import { containsVisibleText } from "./visibleText";
 import {
   applyTransportPreference,
@@ -57,17 +68,6 @@ export interface ProviderDeps {
 
 function getConfig() {
   return vscode.workspace.getConfiguration("omnicopilot-dev");
-}
-
-function formatContextLength(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    const m = tokens / 1_000_000;
-    return `${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${Math.round(tokens / 1_000)}k`;
-  }
-  return `${tokens}`;
 }
 
 /** Builds a bounded, case-insensitive literal model filter. Treating the
@@ -559,7 +559,7 @@ export class OmniRouteChatProvider
     defaultContext: number
   ): OmniModelInfo {
     const model = c.model;
-    const contextLength = model.context_length ?? defaultContext;
+    const contextLength = normalizeProviderMaxContext(model.context_length, defaultContext).tokens;
     const catalogMaxOutput = model.max_output_tokens ?? model.max_completion_tokens;
     const maxOutputTokens = Math.min(catalogMaxOutput ?? maxOutput, maxOutput);
     const caps = model.capabilities ?? {};
@@ -573,7 +573,7 @@ export class OmniRouteChatProvider
     const routeHint = c.entry.routeName || "OmniCopilot";
     const name = `${model.id} (${routeHint})`;
 
-    const ctxTag = `${formatContextLength(contextLength)} ctx`;
+    const ctxTag = `${formatContextTokens(contextLength)} ctx`;
     const capsTags: string[] = [ctxTag];
     if (supportsReasoning) capsTags.push("extended thinking");
     if (caps.vision === true) capsTags.push("vision");
@@ -639,11 +639,8 @@ export class OmniRouteChatProvider
     const abort = new AbortController();
     const cancelSub = token.onCancellationRequested(() => abort.abort());
 
-    // Estimate the input side of the request for the usage readout.
-    const inputTokens = messages.reduce((n, msg) => n + estimateTokens(msg), 0);
-
     try {
-      await this.executeChatPlan(plan, request, inputTokens, progress, token, abort);
+      await this.executeChatPlan(plan, request, progress, token, abort);
     } finally {
       cancelSub.dispose();
     }
@@ -836,7 +833,6 @@ export class OmniRouteChatProvider
   private async executeChatPlan(
     plan: ChatPlan,
     request: ChatRequest,
-    inputTokens: number,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
     abort: AbortController
@@ -845,7 +841,7 @@ export class OmniRouteChatProvider
     let requestSettled = false;
 
     try {
-      let outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
+      let outcome = await this.runChatCandidates(plan, request, progress, token, abort);
 
       // Global admission-saturation retry: when every route returns 429/503
       // with capacity indicators (chat_admission_busy, etc.), the upstream may
@@ -869,7 +865,7 @@ export class OmniRouteChatProvider
           for (const routeId of plan.cooledByThisRequest) {
             clearRouteCooldown(routeId);
           }
-          outcome = await this.runChatCandidates(plan, request, inputTokens, progress, token, abort);
+          outcome = await this.runChatCandidates(plan, request, progress, token, abort);
           if (outcome.kind !== "failed" || !allFailuresWereAdmissionSaturated(outcome)) {
             break; // success, cancellation, or a different error — stop retrying
           }
@@ -906,7 +902,6 @@ export class OmniRouteChatProvider
   private async runChatCandidates(
     plan: ChatPlan,
     request: ChatRequest,
-    inputTokens: number,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
     abort: AbortController
@@ -933,12 +928,27 @@ export class OmniRouteChatProvider
         i++;
         continue;
       }
+      let candidateRequest: ChatRequest;
+      let candidateInputTokens: number;
+      try {
+        const prepared = await this.prepareCandidateRequest(cand, request);
+        candidateRequest = prepared.request;
+        candidateInputTokens = prepared.inputTokens;
+      } catch (error) {
+        if (!(error instanceof ContextBudgetError)) throw error;
+        lastError = error;
+        this.deps.log.warn(
+          `Skipping context-incompatible candidate ${cand.modelId} @${cand.routeId}: ${error.code}`
+        );
+        i++;
+        continue;
+      }
       const outcome = await this.tryCandidate({
         cand,
         client,
         i,
-        request,
-        inputTokens,
+        request: candidateRequest,
+        inputTokens: candidateInputTokens,
         progress,
         token,
         abort,
@@ -979,6 +989,73 @@ export class OmniRouteChatProvider
       fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
       error: lastError ?? new OmniRouteError("No configured route served this model", undefined),
     };
+  }
+
+  /** Resolve and enforce context independently from the immutable original
+   * request for the actual route/model candidate. */
+  private async prepareCandidateRequest(
+    candidate: FallbackCandidate,
+    originalRequest: ChatRequest
+  ): Promise<{ request: ChatRequest; inputTokens: number }> {
+    const cfg = getConfig();
+    const defaultContext = cfg.get<number>("defaultContextLength", 128_000);
+    const globalMaxOutput = cfg.get<number>("maxOutputTokens", 16_384);
+    const catalog = this.cachedModels.find(
+      (item) => item.entry.routeId === candidate.routeId && item.entry.modelId === candidate.modelId
+    );
+    const candidateOutput = Math.min(
+      catalog?.model.max_output_tokens ?? catalog?.model.max_completion_tokens ?? globalMaxOutput,
+      globalMaxOutput
+    );
+    const settingsKey = modelContextSettingsKey(candidate.routeId, candidate.modelId);
+    const stored = readStoredContextSettings(
+      this.deps.context.globalState.get<unknown>(MODEL_CONTEXT_SETTINGS_KEY, {})
+    );
+    const settings = stored?.[settingsKey];
+    const budget = resolveContextBudget({
+      providerMaxContext: catalog?.model.context_length,
+      fallbackMaxContext: defaultContext,
+      settings,
+      requestedOutputTokens: candidateOutput,
+      safetyMarginTokens: cfg.get<number>("contextSafetyMarginTokens", 1_024),
+    });
+    if (budget.configuredLimitClamped && settings) {
+      const corrected: ModelContextSettings = {
+        ...settings,
+        maxContextTokens: budget.correctedMaxContextTokens,
+      };
+      await this.deps.context.globalState.update(MODEL_CONTEXT_SETTINGS_KEY, {
+        ...stored,
+        [settingsKey]: corrected,
+      });
+      this.deps.log.warn(
+        `Context ceiling reconciled for ${candidate.modelId} @${candidate.routeId}: ${budget.configuredMaxContext}`
+      );
+    }
+    const enforced = enforceContextBudget({
+      messages: originalRequest.messages,
+      tools: originalRequest.tools,
+      budget,
+    });
+    this.deps.log.info(
+      `Context budget model=${candidate.modelId} route=${candidate.routeId} mode=${budget.mode} ` +
+      `providerMax=${budget.providerMaxContext} configuredMax=${budget.configuredMaxContext} ` +
+      `effectiveMax=${budget.effectiveMaxContext} input=${enforced.accounting.totalInputTokens} ` +
+      `available=${budget.availableInputTokens} output=${budget.reservedOutputTokens} ` +
+      `margin=${budget.safetyMarginTokens} droppedMessages=${enforced.droppedMessageIndexes.length}`
+    );
+    const candidateRequest: ChatRequest = {
+      ...originalRequest,
+      model: candidate.modelId,
+      messages: enforced.messages,
+      tools: enforced.tools.length > 0 ? enforced.tools : undefined,
+      max_tokens: budget.reservedOutputTokens,
+    };
+    // Defense in depth at the provider boundary, using the canonical result.
+    if (enforced.accounting.totalInputTokens > budget.availableInputTokens) {
+      throw new ContextBudgetError("PROTECTED_CONTEXT_OVERFLOW", "Final provider request exceeds context budget");
+    }
+    return { request: candidateRequest, inputTokens: enforced.accounting.totalInputTokens };
   }
 
   /** Skips redundant same-route fallbacks after admission throttling. */
@@ -1123,7 +1200,7 @@ export class OmniRouteChatProvider
     try {
       const consumed = await this.consumeStream(
         client,
-        { ...request, model: cand.modelId },
+        request,
         abort,
         progress,
         token,

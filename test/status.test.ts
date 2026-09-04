@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { ConnectionStatusBar } from "../src/statusBar";
 import { OmniStatusPopup } from "../src/statusPopup";
+import * as routesModule from "../src/routes";
 import {
   renderStatusText,
   statusColorTokens,
@@ -162,6 +163,124 @@ describe("OmniStatusPopup telemetry rendering", () => {
     expect(html).toContain("totalReasoningTokens");
     expect(html).toContain("inputTokenProvenance");
     expect(html).toContain("outputTokenProvenance");
+  });
+});
+
+describe("OmniStatusPopup model-context relocation contract", () => {
+  type ApplyHtml = () => void;
+  const applyHtml = (
+    OmniStatusPopup.prototype as unknown as { applyWebviewHtml: ApplyHtml }
+  ).applyWebviewHtml;
+
+  function popupHtml(): string {
+    let html = "";
+    applyHtml.call({
+      panel: { webview: { set html(value: string) { html = value; } } },
+    } as unknown);
+    return html;
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("renders exactly one model selector and one compact context editor", () => {
+    const html = popupHtml();
+
+    expect(html.match(/id=["']model-context-select["']/g)).toHaveLength(1);
+    expect(html.match(/id=["']model-context-editor["']/g)).toHaveLength(1);
+    expect(html).toContain('class="compact-context-editor"');
+    expect(html).toContain('data-context-field="mode"');
+    expect(html).toContain('data-context-field="maxContextTokens"');
+    expect(html).toContain('data-context-field="autoPreset"');
+  });
+
+  it("posts the save contract for the model selected in the dropdown", () => {
+    const html = popupHtml();
+
+    expect(html).toContain("command: 'saveContextSettings'");
+    expect(html).toContain("routeId: selectedModel.routeId");
+    expect(html).toContain("modelId: selectedModel.modelId");
+    expect(html).toContain("revision: selectedModel.revision");
+  });
+
+  it("posts the reset contract for the model selected in the dropdown", () => {
+    const html = popupHtml();
+
+    expect(html).toContain("command: 'resetContextSettings'");
+    expect(html).toContain("routeId: selectedModel.routeId");
+    expect(html).toContain("modelId: selectedModel.modelId");
+  });
+
+  it("includes catalog models in the state posted to the popup", async () => {
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-a", name: "Server A", baseUrl: "http://a.test/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
+      baseUrl: "http://a.test/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "vendor/model-a", context_length: 128_000, max_output_tokens: 8_000 },
+      ]),
+    } as never);
+
+    let receive: ((message: { command: string; value?: unknown }) => Promise<void>) | undefined;
+    const posted: Array<{ command?: string; state?: Record<string, unknown> }> = [];
+    const panel = {
+      visible: true,
+      webview: {
+        html: "",
+        onDidReceiveMessage: vi.fn((handler) => {
+          receive = handler;
+          return { dispose: () => {} };
+        }),
+        postMessage: vi.fn(async (message) => { posted.push(message); return true; }),
+      },
+      onDidDispose: vi.fn(() => ({ dispose: () => {} })),
+      dispose: vi.fn(),
+    } as unknown as vscode.WebviewPanel;
+    const context = {
+      extensionUri: { scheme: "file", path: "/extension" },
+      globalState: { get: vi.fn((_key: string, fallback: unknown) => fallback), update: vi.fn() },
+    } as unknown as vscode.ExtensionContext;
+    const metrics = {
+      onDidChangeMetrics: vi.fn(() => ({ dispose: () => {} })),
+      getMetrics: vi.fn(() => ({
+        servers: {}, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0,
+        totalCachedTokens: 0, totalReasoningTokens: 0,
+        inputTokenProvenance: { reported: 0, estimated: 0, unknown: 0 },
+        outputTokenProvenance: { reported: 0, estimated: 0, unknown: 0 },
+        totalRequests: 0,
+      })),
+      generateSuggestions: vi.fn(() => []),
+    };
+    const statusBar = {
+      onDidChangeSnapshot: vi.fn(() => ({ dispose: () => {} })),
+      getSnapshot: vi.fn(() => ({ ...base, servers: [
+        { routeId: "route-a", name: "Server A", online: true, latencyMs: 5, tokens: 0, requests: 0 },
+      ] })),
+    };
+    type PopupConstructor = new (
+      panel: vscode.WebviewPanel,
+      context: vscode.ExtensionContext,
+      metricsArg: typeof metrics,
+      log: { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> },
+      statusBarArg: typeof statusBar
+    ) => OmniStatusPopup;
+    const Popup = OmniStatusPopup as unknown as PopupConstructor;
+    new Popup(panel, context, metrics, { info: vi.fn(), error: vi.fn() }, statusBar);
+
+    expect(receive).toBeDefined();
+    await receive?.({ command: "ready" });
+
+    expect(posted).toContainEqual(expect.objectContaining({
+      command: "updateState",
+      state: expect.objectContaining({
+        models: [expect.objectContaining({
+          routeId: "route-a",
+          routeName: "Server A",
+          modelId: "vendor/model-a",
+          providerMaxContext: 128_000,
+        })],
+      }),
+    }));
   });
 });
 

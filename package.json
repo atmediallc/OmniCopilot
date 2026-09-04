@@ -315,10 +315,17 @@
           "order": 5,
           "description": "%cfg.defaultContextLength%"
         },
+        "omnicopilot-dev.contextSafetyMarginTokens": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 0,
+          "order": 6,
+          "description": "%cfg.contextSafetyMarginTokens%"
+        },
         "omnicopilot-dev.modelFilter": {
           "type": "string",
           "default": "",
-          "order": 6,
+          "order": 7,
           "description": "%cfg.modelFilter%"
         },
         "omnicopilot-dev.dashboardOpen": {

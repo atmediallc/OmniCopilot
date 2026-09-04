@@ -1,11 +1,36 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { formatErrorValue } from "./client";
+import {
+  MODEL_CONTEXT_SETTINGS_KEY,
+  modelContextSettingsKey,
+  readStoredContextSettings,
+  resolveContextBudget,
+  validateModelContextSettings,
+  type ContextAutoPreset,
+  type ContextCapabilitySource,
+  type ContextMode,
+  type ModelContextSettings,
+} from "./contextBudget";
 import type { MetricsTracker } from "./metrics";
 import { fmtTokens } from "./metrics";
-import { cachedLoadRoutes, type Route } from "./routes";
+import { cachedLoadRoutes, getClientForRoute, type Route } from "./routes";
 import type { ConnectionStatusBar } from "./statusBar";
 import type { StatusSnapshot } from "./status/statusRenderer";
+
+interface PopupModelContext {
+  routeId: string;
+  routeName: string;
+  modelId: string;
+  providerMaxContext: number;
+  providerLimitSource: ContextCapabilitySource;
+  configuredMaxContext: number;
+  effectiveMaxContext: number;
+  configuredLimitClamped: boolean;
+  mode: ContextMode;
+  autoPreset?: ContextAutoPreset;
+  revision: number;
+}
 
 export class OmniStatusPopup {
   private static currentPanel: vscode.WebviewPanel | undefined;
@@ -68,6 +93,12 @@ export class OmniStatusPopup {
             break;
           case "changeTransport":
             await this.handleChangeTransport(msg.value);
+            break;
+          case "saveContextSettings":
+            await this.handleSaveContextSettings(msg.value);
+            break;
+          case "resetContextSettings":
+            await this.handleResetContextSettings(msg.value);
             break;
           case "runCommand":
             await this.handleRunCommand(msg.value);
@@ -189,6 +220,62 @@ export class OmniStatusPopup {
     await this.updateStateData();
   }
 
+  private async resolveLiveModel(routeId: string, modelId: string) {
+    const route = (await cachedLoadRoutes(this.context)).find((candidate) => candidate.id === routeId);
+    if (!route) throw new Error("Unknown model route");
+    const model = (await getClientForRoute(route, this.log).listModels())
+      .find((candidate) => candidate.id === modelId);
+    if (!model) throw new Error("Unknown model");
+    return model;
+  }
+
+  private async handleSaveContextSettings(value: unknown): Promise<void> {
+    const payload = value as { routeId?: unknown; modelId?: unknown; settings?: unknown };
+    const routeId = typeof payload?.routeId === "string" ? payload.routeId : "";
+    const modelId = typeof payload?.modelId === "string" ? payload.modelId : "";
+    if (!routeId || !modelId) throw new Error("Invalid model identity");
+    const settings = validateModelContextSettings(payload.settings);
+    const model = await this.resolveLiveModel(routeId, modelId);
+    const stored = readStoredContextSettings(
+      this.context.globalState.get<unknown>(MODEL_CONTEXT_SETTINGS_KEY, {})
+    );
+    const key = modelContextSettingsKey(routeId, modelId);
+    const currentRevision = stored[key]?.revision ?? 0;
+    if ((settings.revision ?? currentRevision) !== currentRevision) {
+      throw new Error("Stale context configuration; refresh and try again");
+    }
+    const cfg = vscode.workspace.getConfiguration("omnicopilot-dev");
+    const checked = resolveContextBudget({
+      providerMaxContext: model.context_length,
+      fallbackMaxContext: cfg.get<number>("defaultContextLength", 128_000),
+      settings,
+      requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 16_384),
+      safetyMarginTokens: 0,
+    });
+    if (checked.configuredLimitClamped) throw new Error("Configured context exceeds provider maximum");
+    await this.context.globalState.update(MODEL_CONTEXT_SETTINGS_KEY, {
+      ...stored,
+      [key]: { ...settings, revision: currentRevision + 1 },
+    });
+    this.lastUpdateMs = 0;
+    await this.updateStateData();
+  }
+
+  private async handleResetContextSettings(value: unknown): Promise<void> {
+    const payload = value as { routeId?: unknown; modelId?: unknown };
+    const routeId = typeof payload?.routeId === "string" ? payload.routeId : "";
+    const modelId = typeof payload?.modelId === "string" ? payload.modelId : "";
+    if (!routeId || !modelId) throw new Error("Invalid model identity");
+    await this.resolveLiveModel(routeId, modelId);
+    const stored = readStoredContextSettings(
+      this.context.globalState.get<unknown>(MODEL_CONTEXT_SETTINGS_KEY, {})
+    );
+    delete stored[modelContextSettingsKey(routeId, modelId)];
+    await this.context.globalState.update(MODEL_CONTEXT_SETTINGS_KEY, stored);
+    this.lastUpdateMs = 0;
+    await this.updateStateData();
+  }
+
   /** Run an allow-listed command coming from the webview. */
   private async handleRunCommand(value: unknown): Promise<void> {
     const payload = value as { cmd?: unknown; args?: unknown[] };
@@ -221,6 +308,7 @@ export class OmniStatusPopup {
         transport: string;
         statusBarEnabled: boolean;
         retriesPerServer: number;
+        models: PopupModelContext[];
       }
     | undefined;
 
@@ -345,6 +433,7 @@ export class OmniStatusPopup {
       transport: "auto",
       statusBarEnabled: true,
       retriesPerServer: 1,
+      models: [],
     };
     const state = {
       ...prev,
@@ -367,6 +456,7 @@ export class OmniStatusPopup {
         formattedOutputTokens: fmtTokens(metrics.totalOutputTokens),
       },
       servers,
+      models: prev.models,
     };
     await this.panel.webview.postMessage({ command: "updateState", state });
     this.lastState = {
@@ -377,6 +467,7 @@ export class OmniStatusPopup {
       transport: state.transport,
       statusBarEnabled: state.statusBarEnabled,
       retriesPerServer: state.retriesPerServer,
+      models: state.models,
     };
     this.lastUsedRoutes = routes;
   }
@@ -394,6 +485,7 @@ export class OmniStatusPopup {
       const transport = cfg.get<string>("transport", "auto");
       const statusBarEnabled = cfg.get<boolean>("statusBar", true);
       const retriesPerServer = cfg.get<number>("retriesPerServer", 1);
+      const models = await this.buildModelContexts(routes, cfg);
       const snapshot = this.statusBar.getSnapshot();
       const suggestions = this.metricsTracker.generateSuggestions(
         routes,
@@ -408,12 +500,64 @@ export class OmniStatusPopup {
         statusBarEnabled,
         retriesPerServer,
       });
+      if (this.lastState) {
+        this.lastState = { ...this.lastState, models };
+        await this.panel.webview.postMessage({ command: "updateState", state: this.lastState });
+      }
       this.lastUsedRoutes = routes;
     } catch (err) {
       this.log.error(`Error updating status popup state: ${formatErrorValue(err)}`);
     } finally {
       this.isUpdating = false;
     }
+  }
+
+  private async buildModelContexts(
+    routes: readonly Route[],
+    cfg: vscode.WorkspaceConfiguration
+  ): Promise<PopupModelContext[]> {
+    const stored = readStoredContextSettings(
+      this.context.globalState.get<unknown>(MODEL_CONTEXT_SETTINGS_KEY, {})
+    );
+    const models: PopupModelContext[] = [];
+    for (const route of routes) {
+      try {
+        const catalog = await getClientForRoute(route, this.log).listModels();
+        for (const model of catalog) {
+          if (!model?.id) continue;
+          const key = modelContextSettingsKey(route.id, model.id);
+          const saved = stored[key];
+          const budget = resolveContextBudget({
+            providerMaxContext: model.context_length,
+            fallbackMaxContext: cfg.get<number>("defaultContextLength", 128_000),
+            settings: saved,
+            requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 16_384),
+            safetyMarginTokens: cfg.get<number>("contextSafetyMarginTokens", 1_024),
+          });
+          if (budget.configuredLimitClamped && saved) {
+            const corrected: ModelContextSettings = { ...saved, maxContextTokens: budget.configuredMaxContext };
+            stored[key] = corrected;
+            await this.context.globalState.update(MODEL_CONTEXT_SETTINGS_KEY, stored);
+          }
+          models.push({
+            routeId: route.id,
+            routeName: route.name,
+            modelId: model.id,
+            providerMaxContext: budget.providerMaxContext,
+            providerLimitSource: budget.providerLimitSource,
+            configuredMaxContext: budget.configuredMaxContext,
+            effectiveMaxContext: budget.effectiveMaxContext,
+            configuredLimitClamped: budget.configuredLimitClamped,
+            mode: budget.mode,
+            revision: saved?.revision ?? 0,
+            ...(budget.autoPreset ? { autoPreset: budget.autoPreset } : {}),
+          });
+        }
+      } catch (error) {
+        this.log.debug(`Status popup model catalog error for ${route.id}: ${formatErrorValue(error)}`);
+      }
+    }
+    return models.sort((a, b) => `${a.modelId} ${a.routeName}`.localeCompare(`${b.modelId} ${b.routeName}`));
   }
 
   private applyWebviewHtml(): void {
@@ -627,6 +771,27 @@ export class OmniStatusPopup {
       border-radius: 4px;
       font-size: 12px;
     }
+    input[type="number"] {
+      background: var(--vscode-input-background, #3c3c3c);
+      color: var(--vscode-input-foreground, #ffffff);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      min-width: 90px;
+    }
+    .compact-context-editor {
+      display: grid;
+      grid-template-columns: minmax(190px, 2fr) repeat(3, minmax(90px, 1fr)) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .context-meta {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      opacity: 0.72;
+    }
+    .context-actions { display: flex; gap: 6px; }
 
     /* Suggestions */
     .suggestions-list {
@@ -743,6 +908,30 @@ export class OmniStatusPopup {
       </div>
     </div>
 
+    <!-- Compact single-model context editor -->
+    <div class="section">
+      <div class="section-title"><span>Model Context</span></div>
+      <div id="model-context-editor" class="compact-context-editor">
+        <select id="model-context-select" aria-label="Model"></select>
+        <select id="model-context-mode" data-context-field="mode" aria-label="Context mode">
+          <option value="manual">Manual</option>
+          <option value="automatic">Auto</option>
+        </select>
+        <select id="model-context-preset" data-context-field="autoPreset" aria-label="Auto preset">
+          <option value="conservative">Conservative</option>
+          <option value="balanced">Balanced</option>
+          <option value="large">Large</option>
+          <option value="maximum">Maximum</option>
+        </select>
+        <input id="model-context-max" data-context-field="maxContextTokens" type="number" min="1" step="1" aria-label="Configured maximum tokens">
+        <div class="context-actions">
+          <button id="model-context-save" class="btn btn-sm">Save</button>
+          <button id="model-context-reset" class="btn btn-secondary btn-sm">Reset</button>
+        </div>
+        <div id="model-context-meta" class="context-meta">Select a model to configure its context ceiling.</div>
+      </div>
+    </div>
+
     <!-- Quick Settings & Options -->
     <div class="section">
       <div class="section-title">
@@ -849,6 +1038,72 @@ export class OmniStatusPopup {
       vscode.postMessage({ command: 'changeTransport', value: transport });
     }
 
+    let contextModels = [];
+    let selectedModel;
+    const modelSelect = document.getElementById('model-context-select');
+    const contextMode = document.getElementById('model-context-mode');
+    const contextPreset = document.getElementById('model-context-preset');
+    const contextMax = document.getElementById('model-context-max');
+    const contextMeta = document.getElementById('model-context-meta');
+
+    function renderSelectedModel() {
+      selectedModel = contextModels.find(model => modelSelect.value === JSON.stringify([model.routeId, model.modelId]));
+      const disabled = !selectedModel;
+      [contextMode, contextPreset, contextMax].forEach(control => { control.disabled = disabled; });
+      document.getElementById('model-context-save').disabled = disabled;
+      document.getElementById('model-context-reset').disabled = disabled;
+      if (!selectedModel) {
+        contextMeta.textContent = 'No model selected.';
+        return;
+      }
+      contextMode.value = selectedModel.mode;
+      contextPreset.value = selectedModel.autoPreset || 'balanced';
+      contextPreset.disabled = selectedModel.mode !== 'automatic';
+      contextMax.value = String(selectedModel.configuredMaxContext);
+      contextMax.max = String(selectedModel.providerMaxContext);
+      contextMeta.textContent = 'Provider max: ' + fmtTokens(selectedModel.providerMaxContext) +
+        ' · Configured: ' + fmtTokens(selectedModel.configuredMaxContext) +
+        ' · Effective: ' + fmtTokens(selectedModel.effectiveMaxContext) +
+        (selectedModel.providerLimitSource === 'fallback' ? ' · fallback capability' : '');
+    }
+
+    function renderContextModels(models) {
+      const previous = modelSelect.value;
+      contextModels = Array.isArray(models) ? models : [];
+      modelSelect.textContent = '';
+      contextModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = JSON.stringify([model.routeId, model.modelId]);
+        option.textContent = model.modelId + ' · ' + model.routeName;
+        modelSelect.appendChild(option);
+      });
+      if (contextModels.some(model => JSON.stringify([model.routeId, model.modelId]) === previous)) modelSelect.value = previous;
+      renderSelectedModel();
+    }
+
+    modelSelect.addEventListener('change', renderSelectedModel);
+    contextMode.addEventListener('change', () => { contextPreset.disabled = contextMode.value !== 'automatic'; });
+    document.getElementById('model-context-save').addEventListener('click', () => {
+      if (!selectedModel) return;
+      vscode.postMessage({ command: 'saveContextSettings', value: {
+        routeId: selectedModel.routeId,
+        modelId: selectedModel.modelId,
+        settings: {
+          mode: contextMode.value,
+          maxContextTokens: Number(contextMax.value),
+          revision: selectedModel.revision,
+          ...(contextMode.value === 'automatic' ? { autoPreset: contextPreset.value } : {}),
+        },
+      }});
+    });
+    document.getElementById('model-context-reset').addEventListener('click', () => {
+      if (!selectedModel) return;
+      vscode.postMessage({ command: 'resetContextSettings', value: {
+        routeId: selectedModel.routeId,
+        modelId: selectedModel.modelId,
+      }});
+    });
+
     function getSuggestionIcon(type) {
       switch (type) {
         case "optimization": return "💡";
@@ -880,6 +1135,7 @@ export class OmniStatusPopup {
       const msg = event.data;
       if (!msg || msg.command !== 'updateState' || !msg.state) return;
       const state = msg.state;
+      renderContextModels(state.models);
 
       // Update Header Status
       const servers = state.servers || [];

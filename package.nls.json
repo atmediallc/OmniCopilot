@@ -18,6 +18,7 @@
   "cfg.exposeToAgentsWindow": "Expose the OmniRoute agent to the VS Code agents window (custom agents).",
   "cfg.maxOutputTokens": "Maximum output tokens reserved per response.",
   "cfg.defaultContextLength": "Context length assumed for models whose catalog entry does not declare one.",
+  "cfg.contextSafetyMarginTokens": "Tokens reserved as a conservative safety margin when enforcing model context limits.",
   "cfg.modelFilter": "Optional case-insensitive substring or regex to limit which models are listed in the picker (e.g. \"glm|kimi\"). Empty lists everything.",
   "cfg.dashboardOpen": "Where the OmniRoute dashboard opens.",
   "cfg.dashboardOpen.external": "Open the dashboard in your default web browser.",

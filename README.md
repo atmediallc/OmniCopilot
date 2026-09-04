@@ -92,6 +92,25 @@ Run **`OmniRoute: Configure Coding CLI`** and pick a tool — the extension driv
 | `omnicopilot.modelFilter` | *(empty)* | Substring/regex to limit which models are listed |
 | `omnicopilot.maxOutputTokens` | `16384` | Output budget reserved per response |
 | `omnicopilot.defaultContextLength` | `128000` | Context assumed when the catalog omits it |
+| `omnicopilot-dev.contextSafetyMarginTokens` | `1024` | Conservative token margin reserved before every provider request |
+
+### Dynamic model context
+
+The management view distinguishes the model's **Provider max** capability from
+the persistent **Configured max** application ceiling and the **Effective max**
+used by the selected Manual or Auto policy. Auto presets use deterministic
+token ceilings (Conservative, Balanced, Large, and Maximum); none can exceed
+the configured or provider ceiling. Before any Chat Completions, Responses, or
+Messages request, OmniCopilot reserves the candidate model's output tokens and
+the configured safety margin, then removes the oldest complete conversation
+turns if needed. System instructions, the current user request, tool schemas,
+and complete tool-call/result structures are never sliced. If protected
+content cannot fit, that fallback is skipped or the request fails locally.
+
+Catalogs that omit a valid context capability use `defaultContextLength` as an
+explicit application fallback rather than being treated as unlimited. Because
+the built-in token counter is a fast model-agnostic estimate, the safety margin
+provides conservative headroom for provider tokenizer differences.
 | `omnicopilot.statusBar` | `true` | Show the connection dot |
 | `omnicopilot.healthCheckIntervalSeconds` | `30` | Probe frequency |
 | `omnicopilot.dashboardOpen` | `external` | Open the dashboard in the browser, or in a VS Code tab (`editor`) — see below |
