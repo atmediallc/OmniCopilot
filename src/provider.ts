@@ -6,7 +6,7 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
-import { estimateTokens, toolCallSummary, toOpenAiMessages, toOpenAiTools } from "./convert";
+import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
 import {
   ContextBudgetError,
   enforceContextBudget,
@@ -18,7 +18,6 @@ import {
   resolveContextBudget,
   type ModelContextSettings,
 } from "./contextBudget";
-import { containsVisibleText } from "./visibleText";
 import {
   applyTransportPreference,
   buildCatalog,
@@ -1221,9 +1220,6 @@ export class OmniRouteChatProvider
       if (token.isCancellationRequested) {
         return { kind: "cancelled" };
       }
-      if (!consumed.hasVisibleText && consumed.toolNames.length > 0) {
-        progress.report(new vscode.LanguageModelTextPart(toolCallSummary(consumed.toolNames)));
-      }
       const finishedAt = Date.now();
       const outputCount = consumed.reportedUsage?.outputTokens ?? estimateTokens(streamed);
       const cachedSuffix = consumed.reportedUsage?.cachedTokens
@@ -1252,22 +1248,17 @@ export class OmniRouteChatProvider
     streamed: string;
     reportedAny: boolean;
     firstTokenAt: number | undefined;
-    hasVisibleText: boolean;
-    toolNames: string[];
     reportedUsage?: ChatUsageInfo;
   }> {
     let streamed = "";
     let reportedAny = false;
     let firstTokenAt: number | undefined;
-    let hasVisibleText = false;
-    const toolNames: string[] = [];
     let reportedUsage: ChatUsageInfo | undefined;
     for await (const event of client.streamModel(request, abort.signal, transportPlan)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
         firstTokenAt ??= Date.now();
         streamed += event.text;
-        hasVisibleText ||= containsVisibleText(event.text);
         reportedAny = true;
         onReported();
         progress.report(new vscode.LanguageModelTextPart(event.text));
@@ -1284,7 +1275,6 @@ export class OmniRouteChatProvider
       } else {
         const toolEvent = event as { id: string; name: string; args: string };
         if (toolEvent.name) {
-          if (!toolNames.includes(toolEvent.name)) toolNames.push(toolEvent.name);
           reportedAny = true;
           onReported();
           progress.report(
@@ -1293,7 +1283,7 @@ export class OmniRouteChatProvider
         }
       }
     }
-    return { streamed, reportedAny, firstTokenAt, hasVisibleText, toolNames, reportedUsage };
+    return { streamed, reportedAny, firstTokenAt, reportedUsage };
   }
 
   /** Classifies a failed attempt: cancellation → cancelled, mid-stream →

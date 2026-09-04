@@ -77,7 +77,7 @@ describe("toOpenAiMessages", () => {
     ]);
   });
 
-  it("preserves assistant text that exactly matches a visible tool summary", () => {
+  it("preserves model-authored text even when it starts like a tool summary", () => {
     const out = toOpenAiMessages([
       msg(vscode.LanguageModelChatMessageRole.Assistant, [
         new vscode.LanguageModelToolCallPart("call_1", "read_file", { path: "a.ts" }),
