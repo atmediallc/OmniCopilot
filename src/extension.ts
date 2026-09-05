@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { formatErrorValue, serverRootUrl } from "./client";
+import { OmniRouteError, formatErrorValue, serverRootUrl } from "./client";
 import { configureCliTool } from "./cliBridge";
 import { OmniPanelProvider } from "./panel";
 import { OmniRouteChatProvider } from "./provider";
@@ -382,6 +382,69 @@ function registerCommands(
       void quickActions(context, log);
     }
   });
+
+  register("omnicopilot-dev.copyDiagnostics", async () => {
+    const text = await buildDiagnostics(context, log);
+    await vscode.env.clipboard.writeText(text);
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t("Diagnostics copied — paste them into your issue or chat.")
+    );
+  });
+}
+
+/** One-shot diagnostic bundle for issues and support chats. Never includes
+ * API keys — only route names/URLs, settings, token totals and the last
+ * request outcome. */
+export async function buildDiagnostics(
+  context: vscode.ExtensionContext,
+  log?: vscode.LogOutputChannel
+): Promise<string> {
+  const cfg = getConfig();
+  const version = (context.extension.packageJSON as { version?: string }).version ?? "?";
+  const routes = await cachedLoadRoutes(context).catch(() => []);
+  const online = statusBar && routes.length > 0
+    ? await Promise.all(routes.map((r) => getClientForRoute(r, log).ping(4000)))
+    : [];
+  const lines = [
+    "OmniCopilot diagnostics",
+    `- Extension: v${version}`,
+    routes.length === 0
+      ? "- Routes: none configured"
+      : `- Routes: ${routes.map((r, i) => `${r.name} (${online[i] ? "online" : "unreachable"})`).join(", ")}`,
+    `- Settings: transport=${cfg.get<string>("transport", "auto")}, ` +
+    `fallbackMode=${cfg.get<string>("fallbackMode", "sameModel")}, ` +
+    `maxTools=${cfg.get<number>("maxTools", 32)}, ` +
+    `maxOutputTokens=${cfg.get<number>("maxOutputTokens", 8192)}`,
+  ];
+  const metrics = metricsTracker?.getMetrics();
+  if (metrics) {
+    const cached = metrics.totalCachedTokens ?? 0;
+    lines.push(
+      `- Session: ${metrics.totalRequests} requests, ` +
+      `in=${fmtSessionTokens(metrics.totalInputTokens)} / out=${fmtSessionTokens(metrics.totalOutputTokens)} / cached=${fmtSessionTokens(cached)}`
+    );
+    const spends = Object.values(metrics.models ?? {});
+    spends.sort((a, b) => b.totalTokens - a.totalTokens);
+    const top = spends[0];
+    if (top && top.totalTokens > 0) {
+      lines.push(`- Top model: ${top.modelName} (${fmtSessionTokens(top.totalTokens)} tokens, ${top.requestCount} requests)`);
+    }
+  }
+  const snap = statusBar?.getSnapshot();
+  if (snap?.usage) {
+    lines.push(
+      `- Last request: ${snap.usage.modelName} @ ${snap.usage.serverName} ` +
+      `(in=${snap.usage.inputTokens} / out=${snap.usage.outputTokens}, fallbacks=${snap.fallbackCount})`
+    );
+  }
+  if (snap?.lastError) lines.push(`- Last error: ${snap.lastError}`);
+  return lines.join("\n");
+}
+
+function fmtSessionTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 
@@ -481,7 +544,8 @@ async function setApiKey(
   if (!optionalFlow) await refreshAll();
 }
 
-/** One-time welcome: point users at the model picker or at installing OmniRoute. */
+/** One-time welcome: stepped setup (connectivity → auth → model suggestion)
+ * instead of a single generic message, so a fresh install lands working. */
 async function checkFirstRun(
   context: vscode.ExtensionContext,
   log: vscode.LogOutputChannel
@@ -489,39 +553,121 @@ async function checkFirstRun(
   const FLAG = "omnicopilot-dev.welcomed";
   if (context.globalState.get<boolean>(FLAG)) return;
   await context.globalState.update(FLAG, true);
+  try {
+    await runSetupWizard(context, log);
+  } catch (err) {
+    log.warn(`Setup wizard failed (non-fatal): ${formatErrorValue(err)}`);
+  }
+}
 
+/** Step 1 (connectivity) + Step 2 (auth) + Step 3 (model suggestion). Every
+ * step degrades to the next message instead of throwing: the wizard must
+ * never break activation. */
+export async function runSetupWizard(
+  context: vscode.ExtensionContext,
+  log: vscode.LogOutputChannel
+): Promise<void> {
   const routes = await cachedLoadRoutes(context);
-  const results = await Promise.all(routes.map((r) => getClientForRoute(r).ping()));
-  const online = results.some(Boolean);
-  log.info(`First run — OmniRoute ${online ? "detected" : "not detected"} (${routes.length} route(s))`);
+  if (routes.length === 0) {
+    return showOfflineWelcome();
+  }
+  const pings = await Promise.all(routes.map((r) => getClientForRoute(r, log).ping(5000)));
+  const onlineRoutes = routes.filter((_, i) => pings[i]);
+  log.info(`First run — ${onlineRoutes.length}/${routes.length} route(s) online`);
+  if (onlineRoutes.length === 0) {
+    return showOfflineWelcome();
+  }
 
-  if (online) {
-    const pick = await vscode.window.showInformationMessage(
-      vscode.l10n.t(
-        "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model."
-      ),
-      vscode.l10n.t("How to pick a model")
-    );
-    if (pick) {
-      void vscode.env.openExternal(
-        vscode.Uri.parse("https://code.visualstudio.com/docs/agent-customization/language-models")
-      );
+  // Step 2: auth — a 401/403 here means the key is wrong; offer the fix now
+  // instead of letting the user discover it on the first chat message.
+  for (const route of onlineRoutes) {
+    try {
+      await getClientForRoute(route, log).listModels();
+    } catch (err) {
+      if (err instanceof OmniRouteError && (err.status === 401 || err.status === 403)) {
+        log.warn(`Setup wizard: route "${route.name}" rejected its API key (HTTP ${err.status})`);
+        const fixLabel = vscode.l10n.t("Set API key");
+        const pick = await vscode.window.showWarningMessage(
+          vscode.l10n.t('Server "{0}" is online but rejected its API key. Set it now to light up your models.', route.name),
+          fixLabel
+        );
+        if (pick === fixLabel) {
+          await setApiKey(context, log, true);
+          await refreshAll();
+        }
+        return;
+      }
+      log.warn(`Setup wizard: model probe on "${route.name}" failed: ${formatErrorValue(err)}`);
     }
-  } else {
-    const installLabel = vscode.l10n.t("Install OmniRoute");
-    const configureLabel = vscode.l10n.t("Configure connection");
-    const pick = await vscode.window.showInformationMessage(
-      vscode.l10n.t(
-        "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet."
-      ),
-      installLabel,
-      configureLabel
+  }
+
+  // Step 3: suggest concrete models so the 1200-entry picker is not a wall.
+  const suggestion = await suggestStarterModels(onlineRoutes, log);
+  const where = onlineRoutes.map((r) => r.name).join(", ");
+  const pick = await vscode.window.showInformationMessage(
+    suggestion
+      ? vscode.l10n.t(
+          "OmniRoute ready on {0}. Suggested: {1} for Agent mode, {2} for long context — open the Copilot Chat model picker to choose.",
+          where, suggestion.agent, suggestion.longContext
+        )
+      : vscode.l10n.t(
+          "OmniRoute detected! Your models are ready — open the Copilot Chat model picker and choose any OmniRoute model."
+        ),
+    vscode.l10n.t("How to pick a model")
+  );
+  if (pick) {
+    void vscode.env.openExternal(
+      vscode.Uri.parse("https://code.visualstudio.com/docs/agent-customization/language-models")
     );
-    if (pick === installLabel) {
-      void vscode.commands.executeCommand("omnicopilot-dev.installOmniRoute");
-    } else if (pick === configureLabel) {
-      void vscode.commands.executeCommand("omnicopilot-dev.manage");
+  }
+}
+
+/** Cheapest guidance without pricing data: the largest-context tool-capable
+ * model for Agent mode, and the largest context overall for long documents. */
+async function suggestStarterModels(
+  routes: Array<{ id: string; name: string; baseUrl: string; apiKey?: string }>,
+  log: vscode.LogOutputChannel
+): Promise<{ agent: string; longContext: string } | undefined> {
+  const seen = new Map<string, { id: string; context: number; tools: boolean }>();
+  for (const route of routes) {
+    let models: Array<{
+      id?: string; context_length?: number; capabilities?: { tool_calling?: boolean };
+    }> = [];
+    try {
+      models = await getClientForRoute(route, log).listModels();
+    } catch {
+      continue;
     }
+    for (const m of models) {
+      if (!m?.id || seen.has(m.id)) continue;
+      seen.set(m.id, {
+        id: m.id,
+        context: typeof m.context_length === "number" && m.context_length > 0 ? m.context_length : 0,
+        tools: m.capabilities?.tool_calling === true,
+      });
+    }
+  }
+  const all = [...seen.values()].filter((m) => m.context > 0);
+  if (all.length === 0) return undefined;
+  const byContext = [...all].sort((a, b) => b.context - a.context);
+  const agent = byContext.find((m) => m.tools) ?? byContext[0];
+  return { agent: agent.id, longContext: byContext[0].id };
+}
+
+async function showOfflineWelcome(): Promise<void> {
+  const installLabel = vscode.l10n.t("Install OmniRoute");
+  const configureLabel = vscode.l10n.t("Configure connection");
+  const pick = await vscode.window.showInformationMessage(
+    vscode.l10n.t(
+      "OmniCopilot: bring 1200+ AI models to Copilot Chat with OmniRoute — 90+ free providers, free forever. No OmniRoute server detected yet."
+    ),
+    installLabel,
+    configureLabel
+  );
+  if (pick === installLabel) {
+    void vscode.commands.executeCommand("omnicopilot-dev.installOmniRoute");
+  } else if (pick === configureLabel) {
+    void vscode.commands.executeCommand("omnicopilot-dev.manage");
   }
 }
 

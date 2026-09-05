@@ -6,7 +6,8 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
-import { estimateTokens, toOpenAiMessages, toOpenAiTools } from "./convert";
+import { estimateTokens, toOpenAiMessages, toOpenAiTools, trailingIdenticalToolCalls, MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS } from "./convert";
+import { actionableFailureMessage } from "./chatErrors";
 import {
   ContextBudgetError,
   enforceContextBudget,
@@ -634,6 +635,16 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken
   ): Promise<void> {
     const log = this.deps.log;
+    const loop = trailingIdenticalToolCalls(messages);
+    if (loop && loop.count >= MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS) {
+      const message =
+        `Stopped before sending: the conversation already holds ${loop.count} consecutive identical calls ` +
+        `to tool "${loop.name}" — the model is looping instead of answering. Rephrase the request, switch to a ` +
+        `more capable model, or start a fresh chat rather than spending more tokens on identical iterations.`;
+      log.warn(`Loop guard refused chat with ${model.omniModelId}: ${loop.count}x "${loop.name}"`);
+      this.deps.onRequestEnd?.(false, message, 0);
+      throw new OmniRouteError(message, undefined);
+    }
     const request = this.buildChatRequest(model, messages, options, log);
     const plan = await this.resolveChatPlan(model, request, options, log);
 
@@ -885,6 +896,7 @@ export class OmniRouteChatProvider
       }
       this.reportChatFailure({
         routeId: outcome.routeId,
+        routeName: outcome.routeId ? plan.nameByRoute.get(outcome.routeId) : undefined,
         fallbacksUsed: outcome.fallbacksUsed,
         err: outcome.error,
         modelId: plan.modelId,
@@ -1334,20 +1346,35 @@ export class OmniRouteChatProvider
     };
   }
 
-  /** Reports the final failure to extension state, then lets VS Code surface it. */
+  /** Reports the final failure to extension state, then lets VS Code surface
+   * an actionable message (what to do next) instead of the raw upstream text. */
   private reportChatFailure(args: {
     routeId: string | undefined;
+    routeName: string | undefined;
     fallbacksUsed: number;
     err: unknown;
     modelId: string;
     serverCount: number;
     candidateCount: number;
   }): never {
-    const { routeId, fallbacksUsed, err, candidateCount } = args;
+    const { routeId, routeName, fallbacksUsed, err, candidateCount, modelId } = args;
+    const actionable = actionableFailureMessage(err, modelId, routeName);
     this.deps.onActivity?.(false, routeId);
     this.deps.log.error(`Chat request failed after ${candidateCount} model(s): ${formatErrorValue(err)}`);
-    this.deps.onRequestEnd?.(false, describeFetchError(err), fallbacksUsed);
-    throw err;
+    this.deps.onRequestEnd?.(false, actionable, fallbacksUsed);
+    if (err instanceof OmniRouteError) {
+      throw new OmniRouteError(
+        actionable,
+        err.status,
+        err.stall,
+        err.phase,
+        err.endpoint,
+        err.latencyMs,
+        err.retryAfterMs,
+        err.code
+      );
+    }
+    throw new Error(actionable);
   }
 
   // ── Token counting ──────────────────────────────────────────────────────

@@ -144,6 +144,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
           "omnicopilot-dev.installOmniRoute",
           "omnicopilot-dev.openGitHub",
           "omnicopilot-dev.openSettings",
+          "omnicopilot-dev.copyDiagnostics",
         ]);
         if (typeof msg.command !== "string" || !allowedCommands.has(msg.command)) break;
         await vscode.commands.executeCommand(msg.command);
@@ -210,6 +211,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       linkRefresh: t("Refresh models in the picker"),
       linkDashboard: t("Open a dashboard"),
       linkCli: t("Configure a coding CLI (Codex, Claude Code…)"),
+      linkCopyDiagnostics: t("Copy diagnostics to clipboard"),
       linkInstall: t("Install OmniRoute"),
       linkGitHub: t("OmniRoute on GitHub"),
       linkSettings: t("Extension settings"),
@@ -259,6 +261,7 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   <div class="link" data-cmd="omnicopilot-dev.refreshModels"><span class="codicon codicon-sync"></span> ${S.linkRefresh}</div>
   <div class="link" data-cmd="omnicopilot-dev.openDashboard"><span class="codicon codicon-dashboard"></span> ${S.linkDashboard}</div>
   <div class="link" data-cmd="omnicopilot-dev.configureCliTool"><span class="codicon codicon-terminal"></span> ${S.linkCli}</div>
+  <div class="link" data-cmd="omnicopilot-dev.copyDiagnostics"><span class="codicon codicon-clippy"></span> ${S.linkCopyDiagnostics}</div>
   <div class="link" data-cmd="omnicopilot-dev.installOmniRoute"><span class="codicon codicon-cloud-download"></span> ${S.linkInstall}</div>
   <div class="link" data-cmd="omnicopilot-dev.openGitHub"><span class="codicon codicon-github"></span> ${S.linkGitHub}</div>
   <div class="link" data-cmd="omnicopilot-dev.openSettings"><span class="codicon codicon-settings-gear"></span> ${S.linkSettings}</div>

@@ -598,7 +598,7 @@ describe("full fallback at the request level", () => {
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       { report: vi.fn() } as unknown as vscode.Progress<unknown>,
       dummyToken
-    )).rejects.toBe(failure);
+    )).rejects.toMatchObject({ status: 503, message: expect.stringContaining("busy or rate-limited") });
 
     // Initial pass (1 call) + 2 global admission retries = 3
     expect(client.streamModel).toHaveBeenCalledTimes(3);
@@ -685,7 +685,7 @@ describe("full fallback at the request level", () => {
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       { report: vi.fn() } as unknown as vscode.Progress<unknown>,
       dummyToken
-    )).rejects.toBe(failure);
+    )).rejects.toMatchObject({ status: 503, message: expect.stringContaining("busy or rate-limited") });
 
     // Initial pass (1 call) + 2 global admission retries = 3
     expect.soft(client.streamModel).toHaveBeenCalledTimes(3);

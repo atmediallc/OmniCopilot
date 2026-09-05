@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { formatErrorValue } from "./client";
+import { estimateTextTokens } from "./contextBudget";
 import type { ChatContentPart, ChatMessage, ChatTool } from "./types";
 
 /**
@@ -17,6 +18,42 @@ export function toOpenAiMessages(
     appendMessage(out, msg);
   }
   return reorderSystemMessages(out);
+}
+
+/** Consecutive identical tool calls tolerated before the request is refused.
+ * Agent loops ("Ran Initial Instructions" ×20) re-bill the full history on
+ * every iteration, so stopping early with a clear message saves real tokens.
+ * Five is generous: legitimate flows rarely repeat the exact same call
+ * (same name + same args) even twice in a row. */
+export const MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 5;
+
+export interface IdenticalToolCallRun {
+  name: string;
+  count: number;
+}
+
+/** Trailing run of identical (name + args) tool calls in VS Code history.
+ * Returns the run length so the provider can refuse an obvious model loop
+ * instead of paying for one more identical iteration. */
+export function trailingIdenticalToolCalls(
+  messages: readonly vscode.LanguageModelChatRequestMessage[]
+): IdenticalToolCallRun | undefined {
+  const keys: string[] = [];
+  for (const msg of messages) {
+    const parts = Array.isArray(msg.content) ? msg.content : [];
+    for (const part of parts) {
+      if (part instanceof vscode.LanguageModelToolCallPart) {
+        const args = typeof part.input === "string" ? part.input : JSON.stringify(part.input ?? {});
+        keys.push(`${part.name}\n${args}`);
+      }
+    }
+  }
+  if (keys.length === 0) return undefined;
+  const last = keys[keys.length - 1];
+  let count = 0;
+  for (let i = keys.length - 1; i >= 0 && keys[i] === last; i--) count++;
+  const name = last.slice(0, last.indexOf("\n"));
+  return { name, count };
 }
 
 type ChatRequestParts = vscode.LanguageModelChatRequestMessage["content"];
@@ -186,10 +223,22 @@ export function isEmptyContent(content: string | ChatContentPart[] | null): bool
 export const MAX_TOOL_RESULT_CHARS = 12_000;
 
 function truncateToolText(text: string): string {
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
+  return smartTruncate(text, MAX_TOOL_RESULT_CHARS);
+}
+
+/** Truncates long text keeping head + tail instead of only the head: tool
+ * outputs (terminal logs, search results) usually carry the cause at the
+ * start and the outcome at the end, so middle-out truncation preserves both
+ * for the same token budget. */
+export function smartTruncate(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const headChars = Math.ceil(maxChars * (2 / 3));
+  const tailChars = maxChars - headChars;
+  const dropped = text.length - maxChars;
   return (
-    text.slice(0, MAX_TOOL_RESULT_CHARS) +
-    `\n…[truncated ${text.length - MAX_TOOL_RESULT_CHARS} chars to save context]`
+    text.slice(0, headChars) +
+    `\n…[truncated ${dropped} middle chars to save context]…\n` +
+    text.slice(text.length - tailChars)
   );
 }
 
@@ -227,23 +276,23 @@ export function toOpenAiTools(
   }));
 }
 
-/** Cheap token estimate (chars/4) — the heuristic used by the official
- * sample and the Hugging Face provider. Must stay fast: VS Code calls it a lot. */
+/** Token estimate shared with the context budget (chars/4 with non-ASCII
+ * weighting). Must stay fast: VS Code calls it a lot. */
 export function estimateTokens(text: string | vscode.LanguageModelChatRequestMessage): number {
-  if (typeof text === "string") return Math.ceil(text.length / 4);
+  if (typeof text === "string") return estimateTextTokens(text);
 
   const parts = Array.isArray(text.content) ? text.content : [];
-  let chars = 0;
+  let tokens = 0;
   for (const part of parts) {
     if (part instanceof vscode.LanguageModelTextPart) {
-      chars += part.value.length;
+      tokens += estimateTextTokens(part.value);
     } else if (part instanceof vscode.LanguageModelToolCallPart) {
-      chars += part.name.length + JSON.stringify(part.input ?? {}).length;
+      tokens += estimateTextTokens(part.name + JSON.stringify(part.input ?? {}));
     } else if (part instanceof vscode.LanguageModelToolResultPart) {
-      chars += extractToolResultText(part.content).length;
+      tokens += estimateTextTokens(extractToolResultText(part.content));
     } else if (part instanceof vscode.LanguageModelDataPart) {
-      chars += 4000 * 4; // flat estimate per image/binary attachment
+      tokens += 4000; // flat estimate per image/binary attachment
     }
   }
-  return Math.ceil(chars / 4);
+  return tokens;
 }

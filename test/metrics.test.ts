@@ -355,6 +355,31 @@ describe("MetricsTracker", () => {
     expect(suggestions.some((s) => s.id === "single_route")).toBe(true);
   });
 
+  it("tracks per-model spend and surfaces the top spender", async () => {
+    const usage = (modelName: string, inputTokens: number, outputTokens: number) => ({
+      routeId: "route-1",
+      serverName: "Primary Server",
+      baseUrl: "http://localhost:8080",
+      modelName,
+      inputTokens,
+      outputTokens,
+      inputTokenProvenance: "reported" as const,
+      outputTokenProvenance: "reported" as const,
+    });
+    await tracker.recordUsage(usage("small/model", 10, 10));
+    await tracker.recordUsage(usage("big/model", 100, 100));
+    await tracker.recordUsage(usage("big/model", 100, 100));
+    await tracker.recordUsage(usage("big/model", 100, 100));
+    await tracker.recordUsage(usage("big/model", 100, 100));
+    await tracker.recordUsage(usage("big/model", 100, 100));
+
+    expect(tracker.getTopModel()).toMatchObject({ modelName: "big/model", requestCount: 5 });
+    const suggestion = tracker
+      .generateSuggestions([{ id: "route-1", name: "S", baseUrl: "http://x" }], new Set(["route-1"]))
+      .find((s) => s.id === "top_spend_model");
+    expect(suggestion?.title).toContain("big/model");
+  });
+
   it("opens the dashboard from the stream stalls suggestion", async () => {
     await tracker.recordStall("route-1", "Primary Server", "http://localhost:8080");
 

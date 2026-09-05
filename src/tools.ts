@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { isTransientHttpError, OmniRouteClient, OmniRouteError } from "./client";
+import { smartTruncate } from "./convert";
 import { cachedLoadRoutes, getClientForRoute } from "./routes";
 import { normalizeSupportedEndpoint } from "./supportedEndpoints";
 import type { OmniLogger } from "./client";
@@ -84,11 +85,7 @@ function validateRerank(input: RerankToolInput): Omit<RerankRequest, "model"> {
   if (input.documents.some((document) => typeof document !== "string")) {
     throw new Error("documents must contain only strings");
   }
-  const documents = input.documents.map((document) =>
-    document.length > MAX_RERANK_DOC_CHARS
-      ? document.slice(0, MAX_RERANK_DOC_CHARS) + `\n…[truncated ${document.length - MAX_RERANK_DOC_CHARS} chars]`
-      : document
-  );
+  const documents = input.documents.map((document) => smartTruncate(document, MAX_RERANK_DOC_CHARS));
   if (input.top_n !== undefined) {
     if (!Number.isInteger(input.top_n) || input.top_n < 1) throw new Error("top_n must be a positive integer");
     if (input.top_n > input.documents.length) throw new Error("top_n cannot exceed the number of documents");
@@ -121,9 +118,7 @@ function result(value: unknown): vscode.LanguageModelToolResult {
     json = "[unserializable]";
   }
   if (json.length > MAX_TOOL_RESPONSE_CHARS) {
-    json =
-      json.slice(0, MAX_TOOL_RESPONSE_CHARS) +
-      `\n…[truncated ${json.length - MAX_TOOL_RESPONSE_CHARS} chars to save context]`;
+    json = smartTruncate(json, MAX_TOOL_RESPONSE_CHARS);
   }
   return new vscode.LanguageModelToolResult([
     new vscode.LanguageModelTextPart(json),

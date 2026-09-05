@@ -4,8 +4,10 @@ import {
   estimateTokens,
   extractToolResultText,
   isEmptyContent,
+  smartTruncate,
   toOpenAiMessages,
   toOpenAiTools,
+  trailingIdenticalToolCalls,
 } from "../src/convert";
 import { normalizeBaseUrl, serverRootUrl } from "../src/client";
 
@@ -164,6 +166,47 @@ describe("toOpenAiMessages", () => {
   });
 });
 
+describe("trailingIdenticalToolCalls", () => {
+  const call = (id: string, name: string, input: unknown) =>
+    msg(vscode.LanguageModelChatMessageRole.Assistant, [
+      new vscode.LanguageModelToolCallPart(id, name, input as never),
+    ]);
+
+  it("returns undefined when history holds no tool calls", () => {
+    expect(
+      trailingIdenticalToolCalls([
+        msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("hi")]),
+      ])
+    ).toBeUndefined();
+  });
+
+  it("counts a trailing run of identical name+args", () => {
+    const messages = [
+      call("c1", "search", { q: "x" }),
+      call("c2", "search", { q: "x" }),
+      call("c3", "search", { q: "x" }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 3 });
+  });
+
+  it("resets the run when a different call intervenes", () => {
+    const messages = [
+      call("c1", "search", { q: "x" }),
+      call("c2", "search", { q: "x" }),
+      call("c3", "read", { f: "a" }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "read", count: 1 });
+  });
+
+  it("treats same name with different args as different calls", () => {
+    const messages = [
+      call("c1", "search", { q: "x" }),
+      call("c2", "search", { q: "y" }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 1 });
+  });
+});
+
 describe("toOpenAiTools", () => {
   it("returns undefined without tools", () => {
     expect(toOpenAiTools(undefined)).toBeUndefined();
@@ -200,7 +243,23 @@ describe("helpers", () => {
     ).toBe("abc");
   });
 
+  it("smartTruncate keeps head and tail of long text", () => {
+    const text = `START-${"x".repeat(100)}-END`;
+    const out = smartTruncate(text, 30);
+    expect(out.length).toBeLessThan(text.length);
+    expect(out.startsWith("START-")).toBe(true);
+    expect(out.endsWith("-END")).toBe(true);
+    expect(out).toContain("truncated");
+    expect(smartTruncate("short", 30)).toBe("short");
+  });
+
   it("estimateTokens uses chars/4 for strings", () => {
+    expect(estimateTokens("abcdefgh")).toBe(2);
+  });
+
+  it("estimateTokens weights non-ASCII higher than plain chars/4", () => {
+    // 4 CJK chars: naive chars/4 says 1 token, weighted says 2 (closer to real).
+    expect(estimateTokens("你好世界")).toBe(2);
     expect(estimateTokens("abcdefgh")).toBe(2);
   });
 });

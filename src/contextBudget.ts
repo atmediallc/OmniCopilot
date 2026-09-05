@@ -56,6 +56,21 @@ export class ContextBudgetError extends Error {
 export const MODEL_CONTEXT_SETTINGS_KEY = "omnicopilot-dev.modelContextSettings.v1";
 const MESSAGE_WIRE_OVERHEAD_TOKENS = 16;
 
+/** Token estimate for raw text without a tokenizer. Plain chars/4 (the
+ * official-sample heuristic) undercounts non-ASCII scripts (CJK, emoji,
+ * accented text) by up to 4x — those tokenize near 1 token/char and caused
+ * phantom context overflows on non-English prompts. Weighting non-ASCII as
+ * double keeps the estimator conservative where it was blind, without
+ * changing a thing for pure-ASCII prompts. Iterates code points so surrogate
+ * pairs (emoji) count once, not twice. */
+export function estimateTextTokens(text: string): number {
+  let weighted = 0;
+  for (const ch of text) {
+    weighted += (ch.codePointAt(0) ?? 0) > 127 ? 2 : 1;
+  }
+  return Math.ceil(weighted / 4);
+}
+
 export function modelContextSettingsKey(routeId: string, modelId: string): string {
   return JSON.stringify([routeId, modelId]);
 }
@@ -165,12 +180,12 @@ export function resolveContextBudget(input: {
 }
 
 function contentTokens(content: ChatMessage["content"]): { tokens: number; attachments: number } {
-  if (typeof content === "string") return { tokens: Math.ceil(content.length / 4), attachments: 0 };
+  if (typeof content === "string") return { tokens: estimateTextTokens(content), attachments: 0 };
   if (!Array.isArray(content)) return { tokens: 0, attachments: 0 };
   let tokens = 0;
   let attachments = 0;
   for (const part of content) {
-    if (part.type === "text") tokens += Math.ceil(part.text.length / 4);
+    if (part.type === "text") tokens += estimateTextTokens(part.text);
     else {
       tokens += 4_000;
       attachments += 4_000;
@@ -186,15 +201,15 @@ function messageTokens(message: ChatMessage): { tokens: number; attachments: num
   // model-agnostic and provider tokenizers differ.
   let tokens = content.tokens + MESSAGE_WIRE_OVERHEAD_TOKENS;
   for (const call of message.tool_calls ?? []) {
-    tokens += Math.ceil((call.function.name.length + call.function.arguments.length) / 4) + 4;
+    tokens += estimateTextTokens(call.function.name + call.function.arguments) + 4;
   }
-  if (message.tool_call_id) tokens += Math.ceil(message.tool_call_id.length / 4);
+  if (message.tool_call_id) tokens += estimateTextTokens(message.tool_call_id);
   return { tokens, attachments: content.attachments };
 }
 
 function toolsTokens(tools: readonly ChatTool[]): number {
   if (tools.length === 0) return 0;
-  return Math.ceil(JSON.stringify(tools).length / 4) + tools.length * 4;
+  return estimateTextTokens(JSON.stringify(tools)) + tools.length * 4;
 }
 
 function findCurrentUserIndex(messages: readonly ChatMessage[]): number {

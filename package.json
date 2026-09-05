@@ -276,6 +276,11 @@
         "command": "omnicopilot-dev.openSettings",
         "category": "OmniRoute",
         "title": "%cmd.openSettings%"
+      },
+      {
+        "command": "omnicopilot-dev.copyDiagnostics",
+        "category": "OmniRoute",
+        "title": "Copy Diagnostics to Clipboard"
       }
     ],
     "configuration": {

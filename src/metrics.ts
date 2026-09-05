@@ -31,6 +31,15 @@ export interface ServerMetric {
   lastActiveTimestamp?: number;
 }
 
+export interface ModelSpend {
+  modelName: string;
+  routeId: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requestCount: number;
+}
+
 export interface SessionMetrics {
   sessionStartTime: number;
   totalInputTokens: number;
@@ -44,6 +53,9 @@ export interface SessionMetrics {
   totalRequests: number;
   totalStalls: number;
   servers: Record<string, ServerMetric>;
+  /** Spend per model (`routeId::model` key) — powers the top-spender hint so
+   * users see which model burns their session budget. */
+  models: Record<string, ModelSpend>;
 }
 
 export interface ImprovementSuggestion {
@@ -138,7 +150,26 @@ function normalizeMetrics(saved: Record<string, unknown>): SessionMetrics {
     totalRequests: nonNegativeNumber(saved.totalRequests),
     totalStalls: nonNegativeNumber(saved.totalStalls),
     servers,
+    models: normalizeModelSpend(isRecord(saved.models) ? saved.models : {}),
   };
+}
+
+function normalizeModelSpend(saved: Record<string, unknown>): Record<string, ModelSpend> {
+  const out: Record<string, ModelSpend> = {};
+  for (const [key, value] of Object.entries(saved)) {
+    if (!isRecord(value)) continue;
+    const inputTokens = nonNegativeNumber(value.inputTokens);
+    const outputTokens = nonNegativeNumber(value.outputTokens);
+    out[key] = {
+      modelName: typeof value.modelName === "string" ? value.modelName : key,
+      routeId: typeof value.routeId === "string" ? value.routeId : "",
+      inputTokens,
+      outputTokens,
+      totalTokens: nonNegativeNumber(value.totalTokens, inputTokens + outputTokens),
+      requestCount: nonNegativeNumber(value.requestCount),
+    };
+  }
+  return out;
 }
 
 export class MetricsTracker {
@@ -169,6 +200,7 @@ export class MetricsTracker {
       totalRequests: 0,
       totalStalls: 0,
       servers: {},
+      models: {},
     };
   }
 
@@ -271,6 +303,17 @@ export class MetricsTracker {
     server.lastActiveTimestamp = Date.now();
     server.online = true;
 
+    const modelKey = `${routeId}::${modelName}`;
+    let spend = this.metrics.models[modelKey];
+    if (!spend) {
+      spend = { modelName, routeId, inputTokens: 0, outputTokens: 0, totalTokens: 0, requestCount: 0 };
+      this.metrics.models[modelKey] = spend;
+    }
+    spend.inputTokens += inputTokens;
+    spend.outputTokens += outputTokens;
+    spend.totalTokens += total;
+    spend.requestCount += 1;
+
     this._onDidChangeMetrics.fire();
     await this.persist();
   }
@@ -364,6 +407,15 @@ export class MetricsTracker {
     return this.metrics;
   }
 
+  /** Highest-spend model of the session, if any usage was recorded. */
+  getTopModel(): ModelSpend | undefined {
+    let top: ModelSpend | undefined;
+    for (const spend of Object.values(this.metrics.models)) {
+      if (!top || spend.totalTokens > top.totalTokens) top = spend;
+    }
+    return top?.totalTokens ? top : undefined;
+  }
+
   /** Generate smart system and token improvement suggestions. */
   generateSuggestions(routes: Route[], onlineRouteIds: Set<string>): ImprovementSuggestion[] {
     const suggestions: ImprovementSuggestion[] = [];
@@ -432,7 +484,24 @@ export class MetricsTracker {
       });
     }
 
-    // 4. Stall detection warning
+    // 4. Top-spending model: make the session's burn visible so the user can
+    // move cheap work (Ask mode, small edits) off the expensive model.
+    const top = this.getTopModel();
+    if (top && this.metrics.totalRequests >= 5 && top.totalTokens >= this.metrics.totalTokens / 2) {
+      const share = Math.round((top.totalTokens / Math.max(1, this.metrics.totalTokens)) * 100);
+      suggestions.push({
+        id: "top_spend_model",
+        type: "optimization",
+        title: `Top spend: ${top.modelName}`,
+        description: `${top.modelName} burned ${fmtTokens(top.totalTokens)} tokens (${share}% of this session, ${top.requestCount} requests). Use a smaller model for simple Ask-mode questions.`,
+        impact: "Medium",
+        actionLabel: "Adjust maxTools",
+        actionCommand: "workbench.action.openSettings",
+        actionArgs: ["omnicopilot-dev.maxTools"],
+      });
+    }
+
+    // 5. Stall detection warning
     const stallServers = Object.values(this.metrics.servers).filter((s) => s.stallCount > 0);
     if (stallServers.length > 0) {
       const names = stallServers.map((s) => `${s.name} (${s.stallCount})`).join(", ");
