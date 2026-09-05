@@ -90,7 +90,7 @@
             "max_results": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 100,
+              "maximum": 20,
               "default": 5
             },
             "search_type": {
@@ -303,7 +303,7 @@
         },
         "omnicopilot-dev.maxOutputTokens": {
           "type": "number",
-          "default": 16384,
+          "default": 8192,
           "minimum": 256,
           "order": 4,
           "description": "%cfg.maxOutputTokens%"
@@ -442,7 +442,7 @@
         },
         "omnicopilot-dev.maxTools": {
           "type": "number",
-          "default": 0,
+          "default": 32,
           "minimum": 0,
           "maximum": 128,
           "description": "%cfg.maxTools%"

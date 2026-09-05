@@ -179,10 +179,24 @@ export function isEmptyContent(content: string | ChatContentPart[] | null): bool
   return content.every((p) => p.type === "text" && p.text.trim().length === 0);
 }
 
+/** Max chars forwarded per tool result. Copilot resends full history every
+ * turn, so an unbounded tool output (file read, search) would be rebilled on
+ * every subsequent request. Truncation keeps one bad tool from blowing the
+ * context budget for the whole session. ~12K chars ≈ 3K tokens. */
+export const MAX_TOOL_RESULT_CHARS = 12_000;
+
+function truncateToolText(text: string): string {
+  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
+  return (
+    text.slice(0, MAX_TOOL_RESULT_CHARS) +
+    `\n…[truncated ${text.length - MAX_TOOL_RESULT_CHARS} chars to save context]`
+  );
+}
+
 export function extractToolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return truncateToolText(content);
   if (Array.isArray(content)) {
-    return content
+    const joined = content
       .map((c) => {
         if (c instanceof vscode.LanguageModelTextPart) return c.value;
         if (c && typeof c === "object" && "value" in c) {
@@ -194,8 +208,9 @@ export function extractToolResultText(content: unknown): string {
         return typeof c === "string" ? c : JSON.stringify(c);
       })
       .join("");
+    return truncateToolText(joined);
   }
-  return content === undefined || content === null ? "" : String(content);
+  return content === undefined || content === null ? "" : truncateToolText(String(content));
 }
 
 export function toOpenAiTools(

@@ -56,9 +56,9 @@ describe("fixed OmniRoute tools", () => {
   it("keeps routeId local and maps an explicit Search model override to provider", async () => {
     const c = client([{ id: "tavily", supported_endpoints: ["/search"] }]);
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1")], getClient: () => c as never });
-    await tools.search.invoke({ input: { query: "q", routeId: "r1", model: "tavily", max_results: 100, search_type: "news" }, toolInvocationToken: undefined }, token as never);
+    await tools.search.invoke({ input: { query: "q", routeId: "r1", model: "tavily", max_results: 20, search_type: "news" }, toolInvocationToken: undefined }, token as never);
     expect(c.search).toHaveBeenCalledWith(
-      { query: "q", provider: "tavily", max_results: 100, search_type: "news" },
+      { query: "q", provider: "tavily", max_results: 20, search_type: "news" },
       expect.any(AbortSignal),
       30_000,
       1
@@ -99,7 +99,7 @@ describe("fixed OmniRoute tools", () => {
   it.each([
     [{ query: "" }, "query must be a non-empty string"],
     [{ query: "x".repeat(501) }, "query must be at most 500 characters"],
-    [{ query: "q", max_results: 0 }, "max_results must be an integer between 1 and 100"],
+    [{ query: "q", max_results: 0 }, "max_results must be an integer between 1 and 20"],
     [{ query: "q", search_type: "images" }, "search_type must be either web or news"],
   ])("clearly rejects invalid Search input %j", async (input, message) => {
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [], getClient: () => client([]) as never });

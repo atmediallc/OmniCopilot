@@ -249,7 +249,7 @@ export class OmniStatusPopup {
       providerMaxContext: model.context_length,
       fallbackMaxContext: cfg.get<number>("defaultContextLength", 128_000),
       settings,
-      requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 16_384),
+      requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 8_192),
       safetyMarginTokens: 0,
     });
     if (checked.configuredLimitClamped) throw new Error("Configured context exceeds provider maximum");
@@ -531,7 +531,7 @@ export class OmniStatusPopup {
             providerMaxContext: model.context_length,
             fallbackMaxContext: cfg.get<number>("defaultContextLength", 128_000),
             settings: saved,
-            requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 16_384),
+            requestedOutputTokens: model.max_output_tokens ?? model.max_completion_tokens ?? cfg.get<number>("maxOutputTokens", 8_192),
             safetyMarginTokens: cfg.get<number>("contextSafetyMarginTokens", 1_024),
           });
           if (budget.configuredLimitClamped && saved) {

@@ -518,7 +518,7 @@ export class OmniRouteChatProvider
 
   private toModelInfos(catalog: CatalogModel[], validRouteIds?: Set<string>): OmniModelInfo[] {
     const cfg = getConfig();
-    const maxOutput = cfg.get<number>("maxOutputTokens", 16384);
+    const maxOutput = cfg.get<number>("maxOutputTokens", 8192);
     const defaultContext = cfg.get<number>("defaultContextLength", 128000);
     const filter = compileModelFilter(cfg.get<string>("modelFilter", "").trim());
 
@@ -595,7 +595,9 @@ export class OmniRouteChatProvider
       maxInputTokens: Math.max(contextLength - maxOutputTokens, 1024),
       maxOutputTokens,
       capabilities: {
-        toolCalling: caps.tool_calling !== false,
+        // Unknown capability defaults to NO tool calling: advertising tools
+        // to a model without support yields a 400 + a wasted fallback chain.
+        toolCalling: caps.tool_calling === true,
         imageInput: caps.vision === true,
       },
       omniModelId: model.id,
@@ -680,14 +682,15 @@ export class OmniRouteChatProvider
   }
 
   /** Caps the tool list VS Code offered us, saving context: `maxTools <= 0`
-   * means "send every tool"; a positive value is an explicit hard cap. */
+   * means "send every tool" (opt-out); default 32 keeps agent-mode payloads
+   * bounded since tools are rebilled on every turn. */
   private capTools(
     tools: readonly vscode.LanguageModelChatTool[] | undefined,
     log: vscode.LogOutputChannel
   ): ReturnType<typeof toOpenAiTools> {
     const allTools = toOpenAiTools(tools);
     if (!allTools?.length) return allTools;
-    const maxTools = getConfig().get<number>("maxTools", 0);
+    const maxTools = getConfig().get<number>("maxTools", 32);
     if (maxTools > 0 && allTools.length <= maxTools) return allTools;
     if (maxTools > 0) {
       log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
@@ -998,7 +1001,7 @@ export class OmniRouteChatProvider
   ): Promise<{ request: ChatRequest; inputTokens: number }> {
     const cfg = getConfig();
     const defaultContext = cfg.get<number>("defaultContextLength", 128_000);
-    const globalMaxOutput = cfg.get<number>("maxOutputTokens", 16_384);
+    const globalMaxOutput = cfg.get<number>("maxOutputTokens", 8_192);
     const catalog = this.cachedModels.find(
       (item) => item.entry.routeId === candidate.routeId && item.entry.modelId === candidate.modelId
     );
@@ -1036,12 +1039,17 @@ export class OmniRouteChatProvider
       tools: originalRequest.tools,
       budget,
     });
+    if (enforced.droppedTools.length > 0) {
+      this.deps.log.warn(
+        `Context budget dropped ${enforced.droppedTools.length} tool(s) for ${candidate.modelId} @${candidate.routeId}: ${enforced.droppedTools.join(", ")}`
+      );
+    }
     this.deps.log.info(
       `Context budget model=${candidate.modelId} route=${candidate.routeId} mode=${budget.mode} ` +
       `providerMax=${budget.providerMaxContext} configuredMax=${budget.configuredMaxContext} ` +
       `effectiveMax=${budget.effectiveMaxContext} input=${enforced.accounting.totalInputTokens} ` +
       `available=${budget.availableInputTokens} output=${budget.reservedOutputTokens} ` +
-      `margin=${budget.safetyMarginTokens} droppedMessages=${enforced.droppedMessageIndexes.length}`
+      `margin=${budget.safetyMarginTokens} droppedMessages=${enforced.droppedMessageIndexes.length} droppedTools=${enforced.droppedTools.length}`
     );
     const candidateRequest: ChatRequest = {
       ...originalRequest,

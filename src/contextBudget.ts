@@ -269,11 +269,23 @@ export function enforceContextBudget(input: {
   budget: ContextBudget;
   accounting: ContextAccounting;
   droppedMessageIndexes: number[];
+  droppedTools: string[];
 } {
   const tools = [...(input.tools ?? [])];
+  const droppedTools: string[] = [];
   const originalMessages = [...input.messages];
   const currentUserIndex = findCurrentUserIndex(originalMessages);
   const protectedMessages = originalMessages.filter((message, index) => message.role === "system" || index === currentUserIndex);
+  // Tools are droppable, history is droppable, protected messages are not.
+  // Trim tool definitions (from the end, keeping the first ones stable) before
+  // giving up: a 32-tool agent payload next to a small model would otherwise
+  // hard-fail a chat that could succeed with fewer tools.
+  while (tools.length > 0) {
+    const protectedAccounting = account(protectedMessages, tools, input.budget);
+    if (protectedAccounting.totalInputTokens <= input.budget.availableInputTokens) break;
+    const dropped = tools.pop() as ChatTool;
+    droppedTools.push(dropped.function.name);
+  }
   const protectedAccounting = account(protectedMessages, tools, input.budget);
   if (protectedAccounting.totalInputTokens > input.budget.availableInputTokens) {
     throw new ContextBudgetError(
@@ -300,6 +312,7 @@ export function enforceContextBudget(input: {
     budget: input.budget,
     accounting,
     droppedMessageIndexes: [...dropped].sort((a, b) => a - b),
+    droppedTools,
   };
 }
 

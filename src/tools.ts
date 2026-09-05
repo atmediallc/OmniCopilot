@@ -9,6 +9,14 @@ import type { Route } from "./routes";
 export const SEARCH_TOOL_NAME = "omniroute-dev_search";
 export const RERANK_TOOL_NAME = "omniroute-dev_rerank";
 
+/** Token guards: a model can request huge tool payloads (100 search results,
+ * dozens of large docs). Those outputs are injected back into chat history and
+ * rebilled every turn, so cap inputs and truncate outputs. */
+export const MAX_SEARCH_RESULTS = 20;
+export const MAX_RERANK_DOCUMENTS = 50;
+export const MAX_RERANK_DOC_CHARS = 4000;
+export const MAX_TOOL_RESPONSE_CHARS = 20_000;
+
 export interface SearchToolInput {
   query: string;
   model?: string;
@@ -56,8 +64,8 @@ function validateQuery(value: unknown, maxLength?: number): string {
 
 function validateSearch(input: SearchToolInput): SearchRequest {
   const maxResults = input.max_results ?? 5;
-  if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > 100) {
-    throw new Error("max_results must be an integer between 1 and 100");
+  if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > MAX_SEARCH_RESULTS) {
+    throw new Error(`max_results must be an integer between 1 and ${MAX_SEARCH_RESULTS}`);
   }
   const searchType = input.search_type ?? "web";
   if (searchType !== "web" && searchType !== "news") {
@@ -70,16 +78,24 @@ function validateRerank(input: RerankToolInput): Omit<RerankRequest, "model"> {
   if (!Array.isArray(input.documents) || input.documents.length === 0) {
     throw new Error("documents must contain at least one string");
   }
+  if (input.documents.length > MAX_RERANK_DOCUMENTS) {
+    throw new Error(`documents must contain at most ${MAX_RERANK_DOCUMENTS} strings`);
+  }
   if (input.documents.some((document) => typeof document !== "string")) {
     throw new Error("documents must contain only strings");
   }
+  const documents = input.documents.map((document) =>
+    document.length > MAX_RERANK_DOC_CHARS
+      ? document.slice(0, MAX_RERANK_DOC_CHARS) + `\n…[truncated ${document.length - MAX_RERANK_DOC_CHARS} chars]`
+      : document
+  );
   if (input.top_n !== undefined) {
     if (!Number.isInteger(input.top_n) || input.top_n < 1) throw new Error("top_n must be a positive integer");
     if (input.top_n > input.documents.length) throw new Error("top_n cannot exceed the number of documents");
   }
   return {
     query: validateQuery(input.query),
-    documents: input.documents,
+    documents,
     ...(input.top_n === undefined ? {} : { top_n: input.top_n }),
     ...(input.return_documents === undefined ? {} : { return_documents: input.return_documents }),
   };
@@ -98,8 +114,19 @@ function isTransientFailure(error: unknown): boolean {
 }
 
 function result(value: unknown): vscode.LanguageModelToolResult {
+  let json: string;
+  try {
+    json = JSON.stringify(value) ?? "[unserializable]";
+  } catch {
+    json = "[unserializable]";
+  }
+  if (json.length > MAX_TOOL_RESPONSE_CHARS) {
+    json =
+      json.slice(0, MAX_TOOL_RESPONSE_CHARS) +
+      `\n…[truncated ${json.length - MAX_TOOL_RESPONSE_CHARS} chars to save context]`;
+  }
   return new vscode.LanguageModelToolResult([
-    new vscode.LanguageModelTextPart(JSON.stringify(value)),
+    new vscode.LanguageModelTextPart(json),
   ]);
 }
 

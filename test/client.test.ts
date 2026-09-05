@@ -226,6 +226,50 @@ describe("OmniRouteClient.streamModel Responses transport", () => {
     ]);
   });
 
+  it("does not repeat streamed text when output_text.done carries the full answer", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"Hel"}',
+      'data: {"type":"response.output_text.delta","delta":"lo"}',
+      'data: {"type":"response.output_text.done","item_id":"msg_1","text":"Hello"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Hel" },
+      { kind: "text", text: "lo" },
+      { kind: "usage", usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3, cachedTokens: undefined, reasoningTokens: undefined } },
+    ]);
+  });
+
+  it("surfaces only the unseen suffix when output_text.done extends streamed deltas", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_text.delta","delta":"Hello"}',
+      'data: {"type":"response.output_text.done","item_id":"msg_1","text":"Hello world"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "Hello" },
+      { kind: "text", text: " world" },
+      { kind: "usage", usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3, cachedTokens: undefined, reasoningTokens: undefined } },
+    ]);
+  });
+
+  it("tracks text per output item so a second answer is not dropped as duplicate", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"}}',
+      'data: {"type":"response.output_text.delta","delta":"First"}',
+      'data: {"type":"response.output_text.done","item_id":"msg_1","text":"First"}',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_2"}}',
+      'data: {"type":"response.output_text.delta","delta":"Second"}',
+      'data: {"type":"response.output_text.done","item_id":"msg_2","text":"Second"}',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}',
+    ])));
+    await expect(collectModel(new OmniRouteClient({ baseUrl: "http://x/v1" }))).resolves.toEqual([
+      { kind: "text", text: "First" },
+      { kind: "text", text: "Second" },
+      { kind: "usage", usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3, cachedTokens: undefined, reasoningTokens: undefined } },
+    ]);
+  });
+
   it("falls back once on pre-output endpoint incompatibility", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response('{"error":{"message":"Not found"}}', { status: 404 }))

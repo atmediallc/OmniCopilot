@@ -396,7 +396,12 @@ export class OmniRouteClient {
           signal: ctrl.signal,
         });
       }
-      const ok = res.ok || (res.status >= 400 && res.status < 500);
+      // 401/403 means the server is reachable but the credentials are wrong:
+      // reporting ONLINE would send chat requests to a route that can never
+      // serve them (wasting a full payload + a fallback hop). Any other 4xx
+      // still proves liveness (bad request, rate limit, etc.).
+      const authFailed = res.status === 401 || res.status === 403;
+      const ok = (res.ok || (res.status >= 400 && res.status < 500)) && !authFailed;
       const elapsed = Date.now() - t0;
       this.opts.log?.info(`[PING] ${this.baseUrl} -> ${ok ? "ONLINE" : "OFFLINE"} (HTTP ${res.status}, ${elapsed}ms)`);
       return ok;
@@ -723,7 +728,7 @@ export class OmniRouteClient {
   ): AsyncGenerator<StreamEvent> {
     const assembler = new ResponsesToolCallAssembler();
     const reasoningFilter = new EncryptedReasoningFilter();
-    const state = { sawTerminal: false };
+    const state = { sawTerminal: false, emittedText: "" };
     let emittedUsefulOutput = false;
     let recoveredTerminalMarkerError = false;
     try {
@@ -771,9 +776,9 @@ export class OmniRouteClient {
     assembler: ResponsesToolCallAssembler,
     reasoningFilter: EncryptedReasoningFilter,
     session: StreamSession,
-    state: { sawTerminal: boolean }
+    state: { sawTerminal: boolean; emittedText: string }
   ): AsyncGenerator<StreamEvent> {
-    const { events, alive, terminal } = handleResponsesSseLine(line, assembler);
+    const { events, alive, terminal } = handleResponsesSseLine(line, assembler, state);
     state.sawTerminal ||= terminal;
     if (alive) session.poke();
     for (const event of events) {
@@ -1561,7 +1566,8 @@ function sanitizeResponsesDelta(text: string): string {
 
 function handleResponsesSseLine(
   line: string,
-  assembler: ResponsesToolCallAssembler
+  assembler: ResponsesToolCallAssembler,
+  textState: { emittedText: string }
 ): { events: StreamEvent[]; alive: boolean; terminal: boolean } {
   if (!line.startsWith("data:")) return { events: [], alive: false, terminal: false };
   const payload = line.slice(5).trim();
@@ -1581,21 +1587,33 @@ function handleResponsesSseLine(
   }
   if (event.type === "response.output_text.delta") {
     const delta = sanitizeResponsesDelta(event.delta ?? "");
+    if (delta) textState.emittedText += delta;
     return {
       events: delta ? [{ kind: "text", text: delta }] : [],
       alive: Boolean(event.delta),
       terminal: false,
     };
   }
-  // Some servers deliver the visible text only on `output_text.done` (their
-  // intermediate deltas are empty). Surface it so the chat is never left blank.
+  // `output_text.done` carries the FULL text on standard servers, which
+  // already streamed as deltas above — re-emitting it would show the answer
+  // twice in chat. Emit only the unseen suffix; when the server sent no
+  // usable deltas at all (`emittedText` empty) the whole text is unseen, so
+  // done-only servers still surface their answer.
   if (event.type === "response.output_text.done") {
     const text = sanitizeResponsesDelta(event.text ?? "");
+    const unseen = text.startsWith(textState.emittedText) ? text.slice(textState.emittedText.length) : "";
+    if (unseen) textState.emittedText += unseen;
     return {
-      events: text ? [{ kind: "text", text }] : [],
+      events: unseen ? [{ kind: "text", text: unseen }] : [],
       alive: Boolean(event.text),
       terminal: false,
     };
+  }
+  // A new (non-tool) output item starts a fresh text sequence: without the
+  // reset, a second answer's `done` would be compared against the first
+  // answer's deltas, fail the prefix check, and be wrongly dropped.
+  if (event.type === "response.output_item.added" && event.item && event.item.type !== "function_call") {
+    textState.emittedText = "";
   }
   const result = handleResponsesToolEvent(event, assembler);
   return { ...result, terminal: event.type === "response.completed" };

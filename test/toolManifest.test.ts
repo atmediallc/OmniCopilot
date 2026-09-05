@@ -21,7 +21,7 @@ describe("language model tool manifest", () => {
     const schema = tools[0].inputSchema;
     expect(schema.required).toEqual(["query"]);
     expect(schema.properties.query).toMatchObject({ type: "string", minLength: 1, maxLength: 500 });
-    expect(schema.properties.max_results).toMatchObject({ type: "integer", minimum: 1, maximum: 100, default: 5 });
+    expect(schema.properties.max_results).toMatchObject({ type: "integer", minimum: 1, maximum: 20, default: 5 });
     expect(schema.properties.search_type).toMatchObject({ enum: ["web", "news"], default: "web" });
     expect(Object.keys(schema.properties)).toEqual(["query", "model", "routeId", "max_results", "search_type"]);
   });

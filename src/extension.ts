@@ -90,8 +90,18 @@ async function doSyncProviders(
       log.error(`Failed to register chat provider for vendor "${VENDOR}": ${formatErrorValue(err)}`);
     }
   } else {
-    activeRoutes.forEach((route, index) => {
-      const vendorId = index === 0 ? VENDOR : `omniroute-dev-${index + 1}`;
+    // Stable vendor slots: the vendor id is part of the model identity VS Code
+    // persists for the picker selection. Index-based assignment broke the
+    // selected model whenever routes were reordered. Persist routeId→slot so
+    // reorders are no-ops; only genuinely new routes take a free slot.
+    const slots = loadVendorSlots(context);
+    const slotByRoute = assignVendorSlots(activeRoutes, slots);
+    saveVendorSlots(context, slotByRoute).catch((err) => {
+      log.warn(`Could not persist vendor slots: ${formatErrorValue(err)}`);
+    });
+    for (const route of activeRoutes) {
+      const slot = slotByRoute.get(route.id) ?? 0;
+      const vendorId = slot === 0 ? VENDOR : `omniroute-dev-${slot + 1}`;
       const p = new OmniRouteChatProvider(deps, route.id);
       try {
         const reg = vscode.lm.registerLanguageModelChatProvider(vendorId, p as unknown as vscode.LanguageModelChatProvider);
@@ -101,8 +111,61 @@ async function doSyncProviders(
       } catch (err) {
         log.error(`Failed to register chat provider for vendor "${vendorId}" (server: ${route.name}): ${formatErrorValue(err)}`);
       }
-    });
+    }
   }
+}
+
+/** Persisted routeId → vendor slot (0-9). Kept in globalState so picker
+ * selections survive reorders and restarts. Pure helpers, unit-testable. */
+export const VENDOR_SLOTS_KEY = "omnicopilot-dev.vendorSlots.v1";
+export const MAX_VENDOR_SLOTS = 10;
+
+export function loadVendorSlots(context: vscode.ExtensionContext): Map<string, number> {
+  const raw = context.globalState.get<unknown>(VENDOR_SLOTS_KEY, {});
+  const out = new Map<string, number>();
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [routeId, slot] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof slot === "number" && Number.isInteger(slot) && slot >= 0 && slot < MAX_VENDOR_SLOTS) {
+        out.set(routeId, slot);
+      }
+    }
+  }
+  return out;
+}
+
+export function assignVendorSlots(
+  routes: ReadonlyArray<{ id: string }>,
+  stored: ReadonlyMap<string, number>
+): Map<string, number> {
+  const taken = new Set<number>();
+  const assigned = new Map<string, number>();
+  // Keep existing assignments for routes that are still configured.
+  for (const route of routes) {
+    const slot = stored.get(route.id);
+    if (slot !== undefined && !taken.has(slot)) {
+      taken.add(slot);
+      assigned.set(route.id, slot);
+    }
+  }
+  // New routes take the lowest free slot, in config order.
+  for (const route of routes) {
+    if (assigned.has(route.id)) continue;
+    for (let slot = 0; slot < MAX_VENDOR_SLOTS; slot++) {
+      if (!taken.has(slot)) {
+        taken.add(slot);
+        assigned.set(route.id, slot);
+        break;
+      }
+    }
+  }
+  return assigned;
+}
+
+async function saveVendorSlots(
+  context: vscode.ExtensionContext,
+  slots: ReadonlyMap<string, number>
+): Promise<void> {
+  await context.globalState.update(VENDOR_SLOTS_KEY, Object.fromEntries(slots));
 }
 
 export function activate(context: vscode.ExtensionContext): void {

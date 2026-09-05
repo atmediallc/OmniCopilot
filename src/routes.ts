@@ -22,10 +22,28 @@ export async function loadRoutes(context: vscode.ExtensionContext): Promise<Rout
   const configured = cfg.get<RouteConfig[] | null>("routes", null);
 
   if (configured && configured.length > 0) {
+    // Defensive: skip malformed entries (blank id/baseUrl, non-objects).
+    // Without this, SECRET_PREFIX+"undefined" collides in SecretStorage and
+    // the client pool, leaking one route's key into another.
+    const valid = configured.filter(
+      (r): r is RouteConfig =>
+        Boolean(r) &&
+        typeof r === "object" &&
+        typeof (r as RouteConfig).id === "string" &&
+        (r as RouteConfig).id.trim().length > 0 &&
+        typeof (r as RouteConfig).baseUrl === "string" &&
+        (r as RouteConfig).baseUrl.trim().length > 0
+    );
+    const seen = new Set<string>();
+    const deduped = valid.filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
     return Promise.all(
-      configured.map(async (r) => ({
+      deduped.map(async (r) => ({
         id: r.id,
-        name: r.name,
+        name: typeof r.name === "string" && r.name.trim() ? r.name : r.id,
         baseUrl: normalizeBaseUrl(r.baseUrl),
         apiKey: (await context.secrets.get(SECRET_PREFIX + r.id)) || undefined,
       }))
