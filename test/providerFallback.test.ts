@@ -1140,4 +1140,45 @@ describe("cross-route fallback isolation", () => {
     expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "mini fallback answered" }));
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
   });
+
+  it("does not trigger global admission retry if any candidate failed with non-admission error", async () => {
+    configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
+    const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
+    const clientA = {
+      baseUrl: "http://server-a.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("internal server error", 500);
+      }),
+    };
+    const clientB = {
+      baseUrl: "http://server-b.local/v1",
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("Chat admission capacity is temporarily unavailable", 503);
+      }),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
+      { id: "B", name: "Server B", baseUrl: "http://server-b.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockImplementation(
+      ((route: routesModule.Route) => (route.id === "A" ? clientA : clientB)) as unknown as typeof routesModule.getClientForRoute
+    );
+    await provider.refresh();
+    await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
+
+    await expect(provider.provideLanguageModelChatResponse(
+      { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
+      [],
+      {} as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    )).rejects.toMatchObject({ status: 503 });
+
+    // Client A failed with 500 (1 time), Client B failed with 503 (1 time)
+    // No global admission retry because not all candidates failed due to admission saturation
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+  });
 });

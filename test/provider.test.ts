@@ -532,4 +532,22 @@ describe("OmniRouteChatProvider", () => {
     expect(onUsage.mock.calls[1][0]).not.toHaveProperty("cachedTokens");
     expect(onUsage.mock.calls[1][0]).not.toHaveProperty("reasoningTokens");
   });
+
+  it("accepts CancellationToken directly as first argument (VS Code API signature)", async () => {
+    const context = mockContext();
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>);
+
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    await provider.refresh();
+    const infos = await provider.provideLanguageModelChatInformation(dummyToken);
+    expect(infos).toHaveLength(1);
+    expect(infos?.[0]?.name).toContain("openai/gpt-4o");
+    expect(mockClient.listModels).toHaveBeenCalledWith(dummyToken);
+  });
 });

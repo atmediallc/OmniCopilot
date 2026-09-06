@@ -220,6 +220,72 @@
 			],
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "run-git-status-clean",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"git status"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-test-single",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run test/providerFallback.test.ts"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-test-provider",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run test/provider.test.ts"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-full-audit-verify",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx tsc --noEmit && npx eslint . && npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-full-audit-verify",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx tsc --noEmit && npx eslint . && npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vsce-build",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vsce package --no-dependencies"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }
