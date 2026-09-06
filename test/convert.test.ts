@@ -205,6 +205,82 @@ describe("trailingIdenticalToolCalls", () => {
     ];
     expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 1 });
   });
+
+  it("returns undefined when a user message is at the end of the history despite previous identical tool calls", () => {
+    const messages = [
+      call("c1", "list_dir", { path: "/workspace" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c1", [new vscode.LanguageModelTextPart("res")]),
+      ]),
+      call("c2", "list_dir", { path: "/workspace" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c2", [new vscode.LanguageModelTextPart("res")]),
+      ]),
+      call("c3", "list_dir", { path: "/workspace" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c3", [new vscode.LanguageModelTextPart("res")]),
+      ]),
+      call("c4", "list_dir", { path: "/workspace" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c4", [new vscode.LanguageModelTextPart("res")]),
+      ]),
+      call("c5", "list_dir", { path: "/workspace" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c5", [new vscode.LanguageModelTextPart("res")]),
+      ]),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelTextPart("Please stop listing dir and just answer"),
+      ]),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toBeUndefined();
+  });
+
+  it("resets count when a real user prompt intervenes", () => {
+    const messages = [
+      call("c1", "search", { q: "x" }),
+      call("c2", "search", { q: "x" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("try again")]),
+      call("c3", "search", { q: "x" }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 1 });
+  });
+
+  it("resets count when an assistant text answer intervenes", () => {
+    const messages = [
+      call("c1", "search", { q: "x" }),
+      call("c2", "search", { q: "x" }),
+      msg(vscode.LanguageModelChatMessageRole.Assistant, [new vscode.LanguageModelTextPart("here is the result")]),
+      call("c3", "search", { q: "x" }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 1 });
+  });
+
+  it("counts identical calls correctly across interleaved tool results", () => {
+    const messages = [
+      msg(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("start")]),
+      call("c1", "list_dir", { path: "src" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c1", [new vscode.LanguageModelTextPart("files...")]),
+      ]),
+      call("c2", "list_dir", { path: "src" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c2", [new vscode.LanguageModelTextPart("files...")]),
+      ]),
+      call("c3", "list_dir", { path: "src" }),
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("c3", [new vscode.LanguageModelTextPart("files...")]),
+      ]),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "list_dir", count: 3 });
+  });
+
+  it("canonicalizes object key order in tool call args", () => {
+    const messages = [
+      call("c1", "search", { a: 1, b: 2 }),
+      call("c2", "search", { b: 2, a: 1 }),
+    ];
+    expect(trailingIdenticalToolCalls(messages)).toEqual({ name: "search", count: 2 });
+  });
 });
 
 describe("toOpenAiTools", () => {

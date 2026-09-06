@@ -32,28 +32,136 @@ export interface IdenticalToolCallRun {
   count: number;
 }
 
+function canonicalizeArgs(input: unknown): string {
+  if (typeof input === "string") return input;
+  if (input === null || input === undefined) return "{}";
+  if (typeof input !== "object") return String(input);
+  try {
+    return JSON.stringify(sortKeys(input));
+  } catch {
+    return JSON.stringify(input);
+  }
+}
+
+function sortKeys(val: unknown): unknown {
+  if (Array.isArray(val)) return val.map(sortKeys);
+  if (val && typeof val === "object") {
+    const entries = Object.entries(val as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, sortKeys(v)]);
+    return Object.fromEntries(entries);
+  }
+  return val;
+}
+
 /** Trailing run of identical (name + args) tool calls in VS Code history.
  * Returns the run length so the provider can refuse an obvious model loop
- * instead of paying for one more identical iteration. */
+ * instead of paying for one more identical iteration.
+ *
+ * Trailing means active at the tail of the conversation. An intervening user
+ * prompt (not a tool result) or an assistant text response resets the run,
+ * so rephrasing, retrying, or sending a new message is never blocked by a past loop. */
 export function trailingIdenticalToolCalls(
   messages: readonly vscode.LanguageModelChatRequestMessage[]
 ): IdenticalToolCallRun | undefined {
-  const keys: string[] = [];
-  for (const msg of messages) {
+  if (!messages.length) return undefined;
+
+  let targetKey: string | undefined;
+  let targetName: string | undefined;
+  let count = 0;
+
+  const reversedMessages = [...messages].reverse();
+  for (const msg of reversedMessages) {
     const parts = Array.isArray(msg.content) ? msg.content : [];
+    const hasToolResult = parts.some((p) => p instanceof vscode.LanguageModelToolResultPart);
+    const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+    let hasAssistantText = false;
+
     for (const part of parts) {
       if (part instanceof vscode.LanguageModelToolCallPart) {
-        const args = typeof part.input === "string" ? part.input : JSON.stringify(part.input ?? {});
-        keys.push(`${part.name}\n${args}`);
+        toolCalls.push(part);
+      } else if (
+        part instanceof vscode.LanguageModelTextPart &&
+        part.value.trim().length > 0 &&
+        msg.role === vscode.LanguageModelChatMessageRole.Assistant
+      ) {
+        hasAssistantText = true;
+      }
+    }
+
+    if (targetKey === undefined) {
+      // If conversation ends with a user prompt (not tool results),
+      // the user has intervened. There are no trailing tool calls.
+      if (!hasToolResult && msg.role !== vscode.LanguageModelChatMessageRole.Assistant) {
+        return undefined;
+      }
+
+      // If conversation ends with an assistant text response and no tool calls,
+      // the model already answered. No trailing tool calls.
+      if (toolCalls.length === 0 && hasAssistantText) {
+        return undefined;
+      }
+
+      // If this message has tool calls, inspect newest to oldest.
+      if (toolCalls.length > 0) {
+        const reversedCalls = [...toolCalls].reverse();
+        for (const tc of reversedCalls) {
+          const args = canonicalizeArgs(tc.input);
+          const key = `${tc.name}\n${args}`;
+          if (targetKey === undefined) {
+            targetKey = key;
+            targetName = tc.name;
+            count = 1;
+          } else if (key === targetKey) {
+            count++;
+          } else {
+            return { name: targetName ?? "", count };
+          }
+        }
+        continue;
+      }
+
+      // If it's a tool result message, continue backwards to find the assistant tool call.
+      if (hasToolResult) {
+        continue;
+      }
+
+      continue;
+    }
+
+    // Target key is set. Check if run is broken:
+    // 1. User prompt (not a tool result) breaks the run:
+    if (!hasToolResult && msg.role !== vscode.LanguageModelChatMessageRole.Assistant) {
+      break;
+    }
+
+    // 2. Assistant text answer (no tool calls) breaks the run:
+    if (toolCalls.length === 0 && hasAssistantText) {
+      break;
+    }
+
+    // 3. Inspect tool calls in this message (newest to oldest):
+    if (toolCalls.length > 0) {
+      let runBroken = false;
+      const reversedCalls = [...toolCalls].reverse();
+      for (const tc of reversedCalls) {
+        const args = canonicalizeArgs(tc.input);
+        const key = `${tc.name}\n${args}`;
+        if (key === targetKey) {
+          count++;
+        } else {
+          runBroken = true;
+          break;
+        }
+      }
+      if (runBroken) {
+        break;
       }
     }
   }
-  if (keys.length === 0) return undefined;
-  const last = keys[keys.length - 1];
-  let count = 0;
-  for (let i = keys.length - 1; i >= 0 && keys[i] === last; i--) count++;
-  const name = last.slice(0, last.indexOf("\n"));
-  return { name, count };
+
+  if (targetKey === undefined || count === 0) return undefined;
+  return { name: targetName ?? "", count };
 }
 
 type ChatRequestParts = vscode.LanguageModelChatRequestMessage["content"];

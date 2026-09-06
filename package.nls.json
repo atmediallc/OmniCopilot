@@ -41,6 +41,7 @@
   "cfg.fallbackMode.none": "None: do not attempt fallback if the request fails.",
   "cfg.retriesPerServer": "Maximum number of retry attempts per server on transient errors before failing over.",
   "cfg.maxTools": "Maximum number of tools to send in a single chat request. Extra tools will be omitted defensively.",
+  "cfg.maxConsecutiveIdenticalToolCalls": "Maximum consecutive identical tool calls (same tool and arguments) tolerated before stopping to prevent infinite loops. Set to 0 to disable.",
   "cfg.modelCacheTtlMinutes": "Time-to-live in minutes for model catalog cache before automatic background refresh.",
   "cfg.compressionOverride": "Prompt compression mode sent to OmniRoute servers (x-omniroute-compression header).",
   "cfg.compressionOverride.serverDefault": "Server Default: do not send an override header; let OmniRoute use its server-configured policy.",

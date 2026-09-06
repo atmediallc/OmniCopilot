@@ -283,6 +283,7 @@ export class OmniRouteChatProvider
 {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+  private lastLoopModelId?: string;
 
   private static readonly sharedRouteCatalogs = new Map<string, RouteCatalog>();
   private static readonly sharedRouteFetchPromises = new Map<string, Promise<RouteCatalog>>();
@@ -645,15 +646,29 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken
   ): Promise<void> {
     const log = this.deps.log;
-    const loop = trailingIdenticalToolCalls(messages);
-    if (loop && loop.count >= MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS) {
-      const message =
-        `Stopped before sending: the conversation already holds ${loop.count} consecutive identical calls ` +
-        `to tool "${loop.name}" — the model is looping instead of answering. Rephrase the request, switch to a ` +
-        `more capable model, or start a fresh chat rather than spending more tokens on identical iterations.`;
-      log.warn(`Loop guard refused chat with ${model.omniModelId}: ${loop.count}x "${loop.name}"`);
-      this.deps.onRequestEnd?.(false, message, 0);
-      throw new OmniRouteError(message, undefined);
+    const maxConsecutive = getConfig().get<number>(
+      "maxConsecutiveIdenticalToolCalls",
+      MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS
+    );
+    const loop = maxConsecutive > 0 ? trailingIdenticalToolCalls(messages) : undefined;
+    if (loop && loop.count >= maxConsecutive) {
+      if (this.lastLoopModelId && this.lastLoopModelId !== model.omniModelId) {
+        log.info(
+          `Loop guard reset: user switched model from ${this.lastLoopModelId} to ${model.omniModelId}`
+        );
+        this.lastLoopModelId = undefined;
+      } else {
+        this.lastLoopModelId = model.omniModelId;
+        const message =
+          `Stopped before sending: the conversation already holds ${loop.count} consecutive identical calls ` +
+          `to tool "${loop.name}" — the model is looping instead of answering. Rephrase the request, switch to a ` +
+          `more capable model, or start a fresh chat rather than spending more tokens on identical iterations.`;
+        log.warn(`Loop guard refused chat with ${model.omniModelId}: ${loop.count}x "${loop.name}"`);
+        this.deps.onRequestEnd?.(false, message, 0);
+        throw new OmniRouteError(message, undefined);
+      }
+    } else {
+      this.lastLoopModelId = undefined;
     }
     const request = this.buildChatRequest(model, messages, options, log);
     const plan = await this.resolveChatPlan(model, request, options, log);

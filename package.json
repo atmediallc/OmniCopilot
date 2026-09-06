@@ -452,6 +452,13 @@
           "maximum": 128,
           "description": "%cfg.maxTools%"
         },
+        "omnicopilot-dev.maxConsecutiveIdenticalToolCalls": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 50,
+          "description": "%cfg.maxConsecutiveIdenticalToolCalls%"
+        },
         "omnicopilot-dev.modelCacheTtlMinutes": {
           "type": "number",
           "default": 60,
