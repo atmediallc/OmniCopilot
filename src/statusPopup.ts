@@ -1252,15 +1252,15 @@ export class OmniStatusPopup {
                 <div class="server-stats">
                   <div class="stat-item">
                     <span class="stat-label">Input Tokens</span>
-                    <span class="stat-value">\${fmtTokens(s.metric.inputTokens)}</span>
+                    <span class="stat-value">\${fmtTokens(s.metric?.inputTokens)}</span>
                   </div>
                   <div class="stat-item">
                     <span class="stat-label">Output Tokens</span>
-                    <span class="stat-value">\${fmtTokens(s.metric.outputTokens)}</span>
+                    <span class="stat-value">\${fmtTokens(s.metric?.outputTokens)}</span>
                   </div>
                   <div class="stat-item">
                     <span class="stat-label">Total Tokens</span>
-                    <span class="stat-value highlight">\${fmtTokens(s.metric.totalTokens)}</span>
+                    <span class="stat-value highlight">\${fmtTokens(s.metric?.totalTokens)}</span>
                   </div>
                   <div class="stat-item">
                     <span class="stat-label">Requests / Success</span>
@@ -1271,7 +1271,7 @@ export class OmniStatusPopup {
                 <div class="progress-bar-bg" style="height:4px; margin-top:8px;">
                   <div class="progress-bar-fill" style="width:\${serverSharePct}%;"></div>
                 </div>\` : ""}
-                \${s.metric.lastUsedModel ? \`<div class="server-footer" style="margin-top:6px;">Last model: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
+                \${s.metric?.lastUsedModel ? \`<div class="server-footer" style="margin-top:6px;">Last model: <code>\${escapeHtml(s.metric.lastUsedModel)}</code></div>\` : ""}
               </div>
             \`;
           }).join("");

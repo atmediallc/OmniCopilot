@@ -277,7 +277,19 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   const summaryEl = document.getElementById("summary");
   const addBtn = document.getElementById("add");
   const saveBtn = document.getElementById("save");
-  let routes = []; // [{id, name, url, hasKey, online, modelCount}]
+  let routes = []; // [{id, name, url, hasKey, online, modelCount, apiKey}]
+
+  function syncInputs() {
+    Array.from(host.querySelectorAll(".card")).forEach((cardEl) => {
+      const inputs = cardEl.querySelectorAll("input");
+      const r = routes[cardEl.__idx];
+      if (r && inputs.length >= 3) {
+        r.name = inputs[0].value;
+        r.url = inputs[1].value;
+        r.apiKey = inputs[2].value;
+      }
+    });
+  }
 
   function render() {
     host.textContent = "";
@@ -286,12 +298,15 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
       const card = el("div", { className: "card" });
       const name = el("input", { type: "text", value: r.name || "", maxLength: 40 });
       const url = el("input", { type: "text", value: r.url || "", placeholder: STRINGS.urlPlaceholder, spellcheck: false });
-      const key = el("input", { type: "password", value: "", placeholder: r.hasKey ? STRINGS.keyStored : STRINGS.keyPlaceholder, spellcheck: false });
+      const key = el("input", { type: "password", value: r.apiKey || "", placeholder: r.hasKey ? STRINGS.keyStored : STRINGS.keyPlaceholder, spellcheck: false });
+      name.addEventListener("input", () => { r.name = name.value; });
+      url.addEventListener("input", () => { r.url = url.value; });
+      key.addEventListener("input", () => { r.apiKey = key.value; });
       const stDot = el("span", { className: "dot" + (r.online ? " on" : " off") });
       const stText = el("span", { textContent: r.online ? STRINGS.online : STRINGS.offline });
       const rem = el("button", { className: "remove", title: STRINGS.remove, textContent: "✕" });
       rem.disabled = routes.length <= 1;
-      rem.addEventListener("click", () => { routes.splice(i, 1); render(); });
+      rem.addEventListener("click", () => { syncInputs(); routes.splice(i, 1); render(); });
 
       const row = (label, field) => {
         const rw = el("div", { className: "row" });
@@ -373,11 +388,13 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
   }
 
   addBtn.addEventListener("click", () => {
+    syncInputs();
     routes.push({ id: "new-" + crypto.randomUUID(), name: "", url: "", hasKey: false, online: false, modelCount: null });
     render();
   });
 
   saveBtn.addEventListener("click", () => {
+    syncInputs();
     const payload = [];
     Array.from(host.querySelectorAll(".card")).forEach((cardEl) => {
       const inputs = cardEl.querySelectorAll("input");
@@ -400,14 +417,23 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     summaryEl.textContent = msg.total === 1
       ? (msg.routes[0]?.online ? STRINGS.online : STRINGS.offline)
       : STRINGS.summary.replace("{0}", msg.onlineCount).replace("{1}", msg.total);
-    routes = msg.routes.map((r) => ({
-      id: r.id,
-      name: r.name,
-      url: r.url,
-      hasKey: r.hasKey,
-      online: r.online,
-      modelCount: r.modelCount,
-      usage: r.usage,
+    syncInputs();
+    const existingById = new Map(routes.map((r) => [r.id, r]));
+    routes = msg.routes.map((r) => {
+      const prev = existingById.get(r.id);
+      return {
+        id: r.id,
+        name: (prev && prev.name !== undefined) ? prev.name : r.name,
+        url: (prev && prev.url !== undefined) ? prev.url : r.url,
+        hasKey: r.hasKey,
+        apiKey: prev ? prev.apiKey : undefined,
+        online: r.online,
+        modelCount: r.modelCount,
+        usage: r.usage,
+      };
+    });
+    render();
+  });
     }));
     render();
   });

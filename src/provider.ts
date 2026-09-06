@@ -130,7 +130,7 @@ function isExplicitAdmissionCapacityError(err: unknown): boolean {
  * caller can retry the full chain once more before giving up. */
 function allFailuresWereAdmissionSaturated(outcome: ChatPlanOutcome): boolean {
   if (outcome.kind !== "failed") return false;
-  return isAdmissionSaturationError(outcome.error);
+  return outcome.allAdmissionSaturated === true;
 }
 
 /** Base retry delay (ms) when every route reports admission saturation.
@@ -270,7 +270,13 @@ type CandidateOutcome =
 type ChatPlanOutcome =
   | { kind: "succeeded"; fallbacksUsed: number }
   | { kind: "cancelled"; fallbacksUsed: number }
-  | { kind: "failed"; routeId: string | undefined; fallbacksUsed: number; error: unknown };
+  | {
+      kind: "failed";
+      routeId: string | undefined;
+      fallbacksUsed: number;
+      error: unknown;
+      allAdmissionSaturated?: boolean;
+    };
 
 export class OmniRouteChatProvider
   implements vscode.LanguageModelChatProvider<OmniModelInfo>, vscode.Disposable
@@ -392,9 +398,13 @@ export class OmniRouteChatProvider
   // ── Model discovery ─────────────────────────────────────────────────────
 
   async provideLanguageModelChatInformation(
-    options: { silent: boolean },
-    _token: vscode.CancellationToken
+    optionsOrToken?: { silent?: boolean } | vscode.CancellationToken,
+    maybeToken?: vscode.CancellationToken
   ): Promise<OmniModelInfo[]> {
+    const isToken = Boolean(optionsOrToken && typeof optionsOrToken === "object" && "isCancellationRequested" in optionsOrToken);
+    const token = isToken ? (optionsOrToken as vscode.CancellationToken) : maybeToken;
+    const silent = isToken ? true : Boolean((optionsOrToken as { silent?: boolean })?.silent);
+
     const routes = await cachedLoadRoutes(this.deps.context);
     if (routes.length === 0) {
       OmniRouteChatProvider.sharedRouteCatalogs.clear();
@@ -430,7 +440,7 @@ export class OmniRouteChatProvider
         if (!fetchP) {
           fetchP = (async () => {
             try {
-              const models = await getClientForRoute(r, this.deps.log).listModels();
+              const models = await getClientForRoute(r, this.deps.log).listModels(token);
               // Count what actually reaches the picker after catalog shaping
               // (specialty registries + dual-prefix mirrors are dropped), so a
               // silent all-drop (e.g. wrong `type` from a server version skew)
@@ -507,7 +517,7 @@ export class OmniRouteChatProvider
     if (infos.length === 0) {
       // No route answered with a model list matching this provider. Only prompt when the caller
       // wants it (model picker opened by the user); otherwise contribute none.
-      if (!options.silent && !this.filterRouteId) void this.offerConnectionHelp();
+      if (!silent && !this.filterRouteId) void this.offerConnectionHelp();
       return [];
     }
 
@@ -923,6 +933,8 @@ export class OmniRouteChatProvider
     const candidates = plan.candidates;
     const saturatedEndpoints = new Set<string>();
     let lastError: unknown;
+    let allSaturated = candidates.length > 0;
+    let attemptsCount = 0;
 
     for (let i = 0; i < candidates.length;) {
       const cand = candidates.slice(i, i + 1).pop();
@@ -939,6 +951,7 @@ export class OmniRouteChatProvider
       const client = plan.clientByRoute.get(cand.routeId);
       if (!client) {
         lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
+        allSaturated = false;
         i++;
         continue;
       }
@@ -951,12 +964,14 @@ export class OmniRouteChatProvider
       } catch (error) {
         if (!(error instanceof ContextBudgetError)) throw error;
         lastError = error;
+        allSaturated = false;
         this.deps.log.warn(
           `Skipping context-incompatible candidate ${cand.modelId} @${cand.routeId}: ${error.code}`
         );
         i++;
         continue;
       }
+      attemptsCount++;
       const outcome = await this.tryCandidate({
         cand,
         client,
@@ -975,7 +990,12 @@ export class OmniRouteChatProvider
         return { kind: outcome.kind, fallbacksUsed: i };
       }
       lastError = outcome.error;
-      if (isAdmissionSaturationError(outcome.error)) saturatedEndpoints.add(endpoint);
+      const isSat = isAdmissionSaturationError(outcome.error);
+      if (isSat) {
+        saturatedEndpoints.add(endpoint);
+      } else {
+        allSaturated = false;
+      }
       // P2-01: a global rejection (VALID_*/COMBO_*/malformed body) is identical
       // for every candidate — replaying it only burns fetches. Fail immediately
       // with the real error instead of advancing the chain.
@@ -983,7 +1003,7 @@ export class OmniRouteChatProvider
         this.deps.log.error(
           `Global request rejected by ${cand.routeId}: ${formatErrorValue(outcome.error)} — not replaying on remaining ${candidates.length - 1 - i} candidate(s)`
         );
-        return { kind: "failed", routeId: cand.routeId, fallbacksUsed: i, error: outcome.error };
+        return { kind: "failed", routeId: cand.routeId, fallbacksUsed: i, error: outcome.error, allAdmissionSaturated: false };
       }
       const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
       if (lastAttemptedIndex >= candidates.length - 1) {
@@ -992,6 +1012,7 @@ export class OmniRouteChatProvider
           routeId: cand.routeId,
           fallbacksUsed: lastAttemptedIndex,
           error: outcome.error,
+          allAdmissionSaturated: allSaturated && attemptsCount > 0,
         };
       }
       i = lastAttemptedIndex + 1;
@@ -1002,6 +1023,7 @@ export class OmniRouteChatProvider
       routeId: candidates.at(0)?.routeId,
       fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
       error: lastError ?? new OmniRouteError("No configured route served this model", undefined),
+      allAdmissionSaturated: allSaturated && attemptsCount > 0,
     };
   }
 

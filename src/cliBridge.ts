@@ -93,7 +93,8 @@ export async function configureCliTool(
     void vscode.window.showErrorMessage(vscode.l10n.t("Invalid server URL: shell metacharacters are not allowed."));
     return;
   }
-  const cliPath = shellQuote(configuredCliPath || "omniroute");
+  const needsQuotes = /\s/.test(configuredCliPath);
+  const cliCmd = needsQuotes ? shellQuote(configuredCliPath) : (configuredCliPath || "omniroute");
   const apiKey = route.apiKey;
 
   const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(root);
@@ -102,9 +103,10 @@ export async function configureCliTool(
     args.push("--remote", shellQuote(root));
   }
 
-  const command = process.platform === "win32" && cliPath.startsWith('"')
-    ? `& ${cliPath} ${args.join(" ")}`
-    : `${cliPath} ${args.join(" ")}`;
+  const isPowerShell = /powershell|pwsh/i.test(vscode.env.shell);
+  const command = process.platform === "win32" && isPowerShell && needsQuotes
+    ? `& ${cliCmd} ${args.join(" ")}`
+    : `${cliCmd} ${args.join(" ")}`;
   log.info(`Running in terminal: ${command}${apiKey ? " (API key via env)" : ""}`);
 
   const existing = vscode.window.terminals.find((t) => t.name === TERMINAL_NAME);

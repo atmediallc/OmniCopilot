@@ -121,6 +121,105 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "run-vitest-audit",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-tsc-audit",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx tsc --noEmit"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-eslint-audit",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx eslint ."
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vitest-panel",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vitest-client",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vitest-check",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vitest-cli",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-vitest-provider",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "run-full-verification",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"npx tsc --noEmit && npx eslint . && npx vitest run"
+			],
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

@@ -979,6 +979,12 @@ async function* readSseLines(
     session.throwIfAborted();
   } catch (err) {
     throw session.unwrapError(err);
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // stream cancelled or closed
+    }
   }
 }
 

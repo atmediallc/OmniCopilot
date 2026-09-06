@@ -173,7 +173,14 @@ async function candidatesFor(
         if (endpoint === "/search") {
           let providers: string[] = [];
           if (typeof client.listSearchProviders === "function") {
-            providers = await client.listSearchProviders(undefined, 5000);
+            const ctrl = new AbortController();
+            const sub = token.onCancellationRequested(() => ctrl.abort(new Error("The operation was cancelled")));
+            try {
+              if (token.isCancellationRequested) ctrl.abort(new Error("The operation was cancelled"));
+              providers = await client.listSearchProviders(ctrl.signal, 5000);
+            } finally {
+              sub.dispose();
+            }
           }
           if (providers.length > 0) {
             return providers
