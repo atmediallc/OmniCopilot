@@ -6,7 +6,14 @@ import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
-import { estimateTokens, toOpenAiMessages, toOpenAiTools, trailingIdenticalToolCalls, MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS } from "./convert";
+import {
+  estimateTokens,
+  requestRequiresVision,
+  toOpenAiMessages,
+  toOpenAiTools,
+  trailingIdenticalToolCalls,
+  MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+} from "./convert";
 import { actionableFailureMessage } from "./chatErrors";
 import {
   ContextBudgetError,
@@ -31,7 +38,7 @@ import {
   transportPlanForModel,
 } from "./routes";
 import type { ChatRequest, ChatUsageInfo, OmniRouteModel, TransportPreference } from "./types";
-import type { CatalogModel, FallbackCandidate, FallbackMode, RouteCatalog } from "./routes";
+import type { CatalogModel, FallbackCandidate, FallbackMode, FallbackRequirements, RouteCatalog } from "./routes";
 import { finiteNonNegative, subsetTokens, type ResolvedChatUsage } from "./usage";
 
 interface OmniModelInfo extends vscode.LanguageModelChatInformation {
@@ -79,22 +86,23 @@ function compileModelFilter(filterRaw: string): ((modelId: string) => boolean) |
   return (modelId: string) => modelId.toLocaleLowerCase().includes(needle);
 }
 
-/** Small non-abortable pause between fallback attempts to avoid hammering a
- * busy server. Kept short; cancellation is re-checked on the next iteration. */
+/** Small cancellation-aware pause between fallback attempts to avoid hammering
+ * a busy server. Resolves immediately if already cancelled or when ms <= 0. */
 function delay(ms: number, token?: vscode.CancellationToken): Promise<void> {
   return new Promise((resolve) => {
-    if (ms <= 0) {
+    if (ms <= 0 || token?.isCancellationRequested) {
       resolve();
       return;
     }
+    let sub: vscode.Disposable | undefined;
     const timer = setTimeout(() => {
       sub?.dispose();
       resolve();
     }, ms);
-    let sub: vscode.Disposable | undefined;
     if (token) {
       sub = token.onCancellationRequested(() => {
         clearTimeout(timer);
+        sub?.dispose();
         resolve();
       });
     }
@@ -278,12 +286,27 @@ type ChatPlanOutcome =
       allAdmissionSaturated?: boolean;
     };
 
+import { canonicalModelFamily, displayModelFamily, parseModelIdentity, type ModelIdentity } from "./modelIdentity";
+export { canonicalModelFamily, displayModelFamily, parseModelIdentity, type ModelIdentity };
+
+function conversationKey(messages: readonly vscode.LanguageModelChatRequestMessage[]): string {
+  if (!messages.length) return "default";
+  const first = messages[0];
+  const parts = Array.isArray(first.content) ? first.content : [];
+  for (const p of parts) {
+    if (p instanceof vscode.LanguageModelTextPart && p.value.trim().length > 0) {
+      return p.value.slice(0, 80);
+    }
+  }
+  return "default";
+}
+
 export class OmniRouteChatProvider
   implements vscode.LanguageModelChatProvider<OmniModelInfo>, vscode.Disposable
 {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
-  private lastLoopModelId?: string;
+  private readonly lastLoopModelByConversation = new Map<string, string>();
 
   private static readonly sharedRouteCatalogs = new Map<string, RouteCatalog>();
   private static readonly sharedRouteFetchPromises = new Map<string, Promise<RouteCatalog>>();
@@ -372,6 +395,19 @@ export class OmniRouteChatProvider
       }
     }
     return pruned;
+  }
+
+  /** Evicts a specific model from a route's cached catalog (e.g. after a runtime 404). */
+  static pruneModel(routeId: string, modelId: string): boolean {
+    const seg = OmniRouteChatProvider.sharedRouteCatalogs.get(routeId);
+    if (!seg) return false;
+    const idx = seg.models.findIndex((m) => m.id === modelId);
+    if (idx !== -1) {
+      seg.models.splice(idx, 1);
+      OmniRouteChatProvider.rebuildSharedCatalog();
+      return true;
+    }
+    return false;
   }
 
   constructor(
@@ -596,11 +632,12 @@ export class OmniRouteChatProvider
 
     const routeLabel = c.entry.routeName || "OmniCopilot";
     const tooltip = `${routeLabel} · ${model.id} (${capsTags.join(" · ")})`;
+    const identity = parseModelIdentity(model.id, model.owned_by);
 
     return {
       id: c.entry.prefixedId,
       name,
-      family: model.owned_by || "omniroute",
+      family: identity.displayFamily,
       version: "1.0.0",
       detail: isCombo ? `combo · ${surfaceTags}` : (c.entry.routeName || model.owned_by),
       tooltip,
@@ -645,20 +682,33 @@ export class OmniRouteChatProvider
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken
   ): Promise<void> {
+    if (token.isCancellationRequested) {
+      return;
+    }
     const log = this.deps.log;
     const maxConsecutive = getConfig().get<number>(
       "maxConsecutiveIdenticalToolCalls",
       MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS
     );
     const loop = maxConsecutive > 0 ? trailingIdenticalToolCalls(messages) : undefined;
+    const convKey = conversationKey(messages);
+    const lastLoopModelId = this.lastLoopModelByConversation.get(convKey);
     if (loop && loop.count >= maxConsecutive) {
-      if (this.lastLoopModelId && this.lastLoopModelId !== model.omniModelId) {
-        log.info(
-          `Loop guard reset: user switched model from ${this.lastLoopModelId} to ${model.omniModelId}`
+      if (lastLoopModelId === model.omniModelId) {
+        // The user or host was already alerted on this model and explicitly retried:
+        // Allow the attempt to proceed so the conversation is not permanently bricked.
+        log.warn(
+          `Loop guard bypassed on user retry for ${model.omniModelId} (${loop.count}x "${loop.name}")`
         );
-        this.lastLoopModelId = undefined;
+        this.lastLoopModelByConversation.delete(convKey);
+      } else if (lastLoopModelId && lastLoopModelId !== model.omniModelId) {
+        log.info(
+          `Loop guard reset: user switched model from ${lastLoopModelId} to ${model.omniModelId}`
+        );
+        this.lastLoopModelByConversation.delete(convKey);
       } else {
-        this.lastLoopModelId = model.omniModelId;
+        if (this.lastLoopModelByConversation.size > 50) this.lastLoopModelByConversation.clear();
+        this.lastLoopModelByConversation.set(convKey, model.omniModelId);
         const message =
           `Stopped before sending: the conversation already holds ${loop.count} consecutive identical calls ` +
           `to tool "${loop.name}" — the model is looping instead of answering. Rephrase the request, switch to a ` +
@@ -668,12 +718,15 @@ export class OmniRouteChatProvider
         throw new OmniRouteError(message, undefined);
       }
     } else {
-      this.lastLoopModelId = undefined;
+      this.lastLoopModelByConversation.delete(convKey);
     }
     const request = this.buildChatRequest(model, messages, options, log);
     const plan = await this.resolveChatPlan(model, request, options, log);
 
     const abort = new AbortController();
+    if (token.isCancellationRequested) {
+      abort.abort();
+    }
     const cancelSub = token.onCancellationRequested(() => abort.abort());
 
     try {
@@ -773,12 +826,19 @@ export class OmniRouteChatProvider
     // admission-saturated (503). This prevents a single route's capacity
     // exhaustion from blocking the user entirely when other routes are
     // available.
+    const defaultContext = cfg.get<number>("defaultContextLength", 128_000);
+    const fallbackRequirements: FallbackRequirements = {
+      needsTools: Boolean(options.tools?.length),
+      needsVision: requestRequiresVision(request),
+      minContextTokens: estimateTokens(request.messages),
+      fallbackContextTokens: defaultContext,
+    };
     const fallbackCatalog = this.cachedModels;
     const fallbacks = (primaryEntry
       ? pickFallbackCandidates(
           primaryEntry,
           fallbackCatalog,
-          Boolean(options.tools?.length),
+          fallbackRequirements,
           getConfig().get<FallbackMode>("fallbackMode", "sameModel")
         )
       : []
@@ -790,7 +850,11 @@ export class OmniRouteChatProvider
     // Resolve the route from the catalog entry, NOT from model.routeId which
     // can be stale or point to a different server.
     if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
-      throw new OmniRouteError(`Model ${model.id} is not available or not properly configured`, undefined);
+      const msg = `Model ${model.id} is not available or not properly configured`;
+      const LMError = (vscode as unknown as Record<string, unknown>).LanguageModelError as
+        | { NotFound?: (m?: string) => Error }
+        | undefined;
+      throw LMError?.NotFound?.(msg) ?? new OmniRouteError(msg, undefined);
     }
     const primary: FallbackCandidate = primaryEntry
       ? {
@@ -815,10 +879,10 @@ export class OmniRouteChatProvider
     // An exact same-model route may bypass a cooling primary; same-family and
     // arbitrary substitutions never run before the selected model tier.
     const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
-    const primaryFamily = primary.modelId.split("/")[0];
+    const primaryFamily = canonicalModelFamily(primary.modelId);
     const qualityTier = (candidate: FallbackCandidate): number => {
       if (candidate.modelId === primary.modelId) return 0;
-      if (candidate.modelId.split("/")[0] === primaryFamily) return 1;
+      if (primaryFamily !== undefined && canonicalModelFamily(candidate.modelId) === primaryFamily) return 1;
       return 2;
     };
     const candidates = [primary, ...fallbacks].sort((a, b) => {
@@ -1100,12 +1164,14 @@ export class OmniRouteChatProvider
       `available=${budget.availableInputTokens} output=${budget.reservedOutputTokens} ` +
       `margin=${budget.safetyMarginTokens} droppedMessages=${enforced.droppedMessageIndexes.length} droppedTools=${enforced.droppedTools.length}`
     );
+    const isReasoning = catalog?.model ? isReasoningModel(catalog.model) : false;
     const candidateRequest: ChatRequest = {
       ...originalRequest,
       model: candidate.modelId,
       messages: enforced.messages,
       tools: enforced.tools.length > 0 ? enforced.tools : undefined,
       max_tokens: budget.reservedOutputTokens,
+      reasoning_effort: isReasoning ? originalRequest.reasoning_effort : undefined,
     };
     // Defense in depth at the provider boundary, using the canonical result.
     if (enforced.accounting.totalInputTokens > budget.availableInputTokens) {
@@ -1182,6 +1248,12 @@ export class OmniRouteChatProvider
       if (attempt.permanent) {
         // Pre-stream 4xx (auth/billing/model rejection): retrying or waiting
         // cannot help this candidate — move to the next one immediately.
+        if (errorStatus(candError) === 404) {
+          if (OmniRouteChatProvider.pruneModel(cand.routeId, cand.modelId)) {
+            log.info(`Pruned stale model ${cand.modelId} from route ${cand.routeId} after 404`);
+            void this.refresh();
+          }
+        }
         break;
       }
       if (attempt.throttle) {
@@ -1311,14 +1383,43 @@ export class OmniRouteChatProvider
     let reportedAny = false;
     let firstTokenAt: number | undefined;
     let reportedUsage: ChatUsageInfo | undefined;
+    let inThinking = false;
+    const cfg = getConfig();
+    const showThinking = cfg.get<string>("showThinking", "nativeOrMarkdown");
+    const ThinkingPart = (vscode as unknown as Record<string, unknown>).LanguageModelThinkingPart as
+      | (new (text: string) => vscode.LanguageModelResponsePart)
+      | undefined;
+
     for await (const event of client.streamModel(request, abort.signal, transportPlan)) {
       if (token.isCancellationRequested) break;
       if (event.kind === "text") {
+        if (inThinking) {
+          inThinking = false;
+          if (!ThinkingPart && showThinking !== "off") {
+            progress.report(new vscode.LanguageModelTextPart("\n\n---\n\n"));
+          }
+        }
         firstTokenAt ??= Date.now();
         streamed += event.text;
         reportedAny = true;
         onReported();
         progress.report(new vscode.LanguageModelTextPart(event.text));
+      } else if (event.kind === "thinking") {
+        firstTokenAt ??= Date.now();
+        reportedAny = true;
+        onReported();
+        if (showThinking !== "off") {
+          if (ThinkingPart && showThinking === "nativeOrMarkdown") {
+            progress.report(new ThinkingPart(event.text));
+          } else {
+            if (!inThinking) {
+              inThinking = true;
+              progress.report(new vscode.LanguageModelTextPart("> 💭 *Thinking...*\n> \n> "));
+            }
+            const formatted = event.text.replace(/\n/g, "\n> ");
+            progress.report(new vscode.LanguageModelTextPart(formatted));
+          }
+        }
       } else if (event.kind === "usage") {
         reportedUsage = {
           ...reportedUsage,
@@ -1399,6 +1500,28 @@ export class OmniRouteChatProvider
     this.deps.onActivity?.(false, routeId);
     this.deps.log.error(`Chat request failed after ${candidateCount} model(s): ${formatErrorValue(err)}`);
     this.deps.onRequestEnd?.(false, actionable, fallbacksUsed);
+
+    const status = errorStatus(err);
+    const LMError = (vscode as unknown as Record<string, unknown>).LanguageModelError as
+      | {
+          NotFound?: (msg?: string) => Error;
+          NoPermissions?: (msg?: string) => Error;
+          Blocked?: (msg?: string) => Error;
+        }
+      | undefined;
+
+    if (LMError) {
+      if (status === 401 || status === 403) {
+        throw LMError.NoPermissions?.(actionable) ?? new Error(actionable);
+      }
+      if (status === 404) {
+        throw LMError.NotFound?.(actionable) ?? new Error(actionable);
+      }
+      if (status === 429) {
+        throw LMError.Blocked?.(actionable) ?? new Error(actionable);
+      }
+    }
+
     if (err instanceof OmniRouteError) {
       throw new OmniRouteError(
         actionable,

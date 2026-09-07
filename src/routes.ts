@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
 import { selectChatModels } from "./catalogFilter";
 import { classifySupportedEndpoints } from "./supportedEndpoints";
+import { canonicalModelFamily } from "./modelIdentity";
 import type { OmniLogger } from "./client";
 import type { ModelTransport, ModelTransportPlan, OmniRouteModel, RouteConfig, TransportPreference } from "./types";
 
@@ -250,6 +251,7 @@ export function makeClientForRoute(
     streamFirstByteTimeoutMs,
     streamIdleTimeoutMs,
     compressionOverride,
+    emitThinking: true,
     log,
   });
 }
@@ -374,6 +376,56 @@ export function applyTransportPreference(
   return plan.filter((transport) => transport === preference);
 }
 
+export interface FallbackRequirements {
+  /** True when the request requires tool-calling support. */
+  needsTools?: boolean;
+  /** True when the request contains multimodal image attachments. */
+  needsVision?: boolean;
+  /** Minimum input context tokens needed to hold the request. */
+  minContextTokens?: number;
+  /** Configured fallback context limit when model context_length is absent. */
+  fallbackContextTokens?: number;
+}
+
+/**
+ * Evaluates hard compatibility requirements before any candidate ranking or execution.
+ * Fails closed on missing or false capabilities.
+ */
+export function isCandidateCompatible(
+  model: OmniRouteModel,
+  reqs: FallbackRequirements
+): boolean {
+  const caps = model.capabilities ?? {};
+
+  // 1. Tool calling: fail-closed. If request requires tools, candidate MUST explicitly support tools.
+  if (reqs.needsTools && caps.tool_calling !== true) {
+    return false;
+  }
+
+  // 2. Vision: fail-closed. If request has images, candidate MUST explicitly support vision.
+  if (reqs.needsVision && caps.vision !== true) {
+    return false;
+  }
+
+  // 3. Transport protocol: candidate must support at least one valid chat transport.
+  const plan = transportPlanForModel(model);
+  if (plan.length === 0) {
+    return false;
+  }
+
+  // 4. Context window: reject if model's known (or configured fallback) context cannot hold the request.
+  const effectiveContext = model.context_length ?? reqs.fallbackContextTokens;
+  if (
+    reqs.minContextTokens !== undefined &&
+    effectiveContext !== undefined &&
+    effectiveContext < reqs.minContextTokens
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 /** Ordered cross-route fallback candidates for a failing chat request.
  *
  * `mode` controls how far the chain reaches:
@@ -382,18 +434,20 @@ export function applyTransportPreference(
  * - `sameFamily`: additionally the same provider family on the same server.
  * - `full`: then any compatible model anywhere (legacy behaviour).
  *
- * When tools are needed, models reporting `tool_calling: false` are filtered
- * out. The primary model is always excluded. */
+ * Hard compatibility (tools, vision, transport, context) is strictly evaluated
+ * before family matching or quality ranking. The primary model is always excluded. */
 export function pickFallbackCandidates(
   primary: CatalogEntry,
   catalog: CatalogModel[],
-  needsTools: boolean,
+  requirements: boolean | FallbackRequirements,
   mode: FallbackMode = "full",
   max = 4
 ): FallbackCandidate[] {
-  const compatible = (c: CatalogModel) =>
-    !needsTools || c.model.capabilities?.tool_calling !== false;
-  const family = primary.modelId.split("/")[0];
+  const reqs: FallbackRequirements =
+    typeof requirements === "boolean" ? { needsTools: requirements } : requirements;
+
+  const compatible = (c: CatalogModel) => isCandidateCompatible(c.model, reqs);
+  const family = canonicalModelFamily(primary.modelId);
 
   const out: FallbackCandidate[] = [];
   const seen = new Set<string>([primary.prefixedId]);
@@ -420,7 +474,8 @@ export function pickFallbackCandidates(
           compatible(c) &&
           c.entry.routeId === primary.routeId &&
           c.entry.modelId !== primary.modelId &&
-          c.entry.modelId.split("/")[0] === family
+          family !== undefined &&
+          canonicalModelFamily(c.entry.modelId) === family
       )
       .forEach(push);
   }

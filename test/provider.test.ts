@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
-import { OmniRouteChatProvider } from "../src/provider";
+import { canonicalModelFamily, displayModelFamily, OmniRouteChatProvider } from "../src/provider";
 import * as routesModule from "../src/routes";
 
 function mockContext() {
@@ -549,5 +549,211 @@ describe("OmniRouteChatProvider", () => {
     expect(infos).toHaveLength(1);
     expect(infos?.[0]?.name).toContain("openai/gpt-4o");
     expect(mockClient.listModels).toHaveBeenCalledWith(dummyToken);
+  });
+
+  it("canonicalModelFamily identifies known families and falls back", () => {
+    expect(canonicalModelFamily("claude-3-7-sonnet")).toBe("claude");
+    expect(canonicalModelFamily("anthropic/claude-3-5-sonnet")).toBe("claude");
+    expect(canonicalModelFamily("gpt-4o-mini")).toBe("gpt-4o");
+    expect(canonicalModelFamily("openai/gpt-4o")).toBe("gpt-4o");
+    expect(canonicalModelFamily("deepseek-ai/deepseek-r1")).toBe("deepseek");
+    expect(canonicalModelFamily("gemini-2.0-flash")).toBe("gemini");
+    expect(canonicalModelFamily("qwen/qwen-2.5-coder")).toBe("qwen");
+    expect(canonicalModelFamily("o1-mini")).toBe("o1");
+    expect(canonicalModelFamily("o3-mini")).toBe("o3");
+    expect(canonicalModelFamily("meta-llama/llama-3.3-70b")).toBe("llama");
+    expect(canonicalModelFamily("unknown-model", "acme")).toBeUndefined();
+    expect(canonicalModelFamily("unknown-model", "custom")).toBeUndefined();
+    expect(displayModelFamily("unknown-model", "acme")).toBe("acme");
+    expect(displayModelFamily("unknown-model", "custom")).toBe("unknown-model");
+  });
+
+  it("streams thinking event and reports formatted thinking in progress", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "thinking", text: "I need to calculate 2 + 2." };
+        yield { kind: "text", text: "4" };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+    const reportedParts: vscode.LanguageModelResponsePart[] = [];
+    const progress = {
+      report: (p: vscode.LanguageModelResponsePart) => reportedParts.push(p),
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      {
+        id: "Server 1 · openai/o3-mini",
+        omniModelId: "openai/o3-mini",
+        routeId: "route-1",
+        name: "o3-mini",
+        family: "o3",
+        version: "1.0.0",
+        maxInputTokens: 10000,
+        maxOutputTokens: 4096,
+        capabilities: {},
+      } as never,
+      [{ role: 1, content: "2+2" }] as never,
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    expect(reportedParts.length).toBeGreaterThan(1);
+    const textValues = reportedParts
+      .filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
+      .map((p) => p.value);
+    expect(textValues.some((v) => v.includes("Thinking"))).toBe(true);
+    expect(textValues.some((v) => v.includes("I need to calculate"))).toBe(true);
+    expect(textValues.some((v) => v.includes("4"))).toBe(true);
+  });
+
+  it("loop guard blocks first runaway loop but allows explicit retry on the same model", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "recovered output" }]),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+
+    const callPart = new vscode.LanguageModelToolCallPart("c1", "replace_string_in_file", { file: "a.ts" });
+    const resultPart = new vscode.LanguageModelToolResultPart("c1", [new vscode.LanguageModelTextPart("failed")]);
+
+    // Build history with 5 consecutive identical tool calls
+    const loopingMessages: Parameters<typeof provider.provideLanguageModelChatResponse>[1] = [
+      { role: 1, content: [new vscode.LanguageModelTextPart("start")] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+    ];
+
+    const modelInfo = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+      name: "gpt-4o",
+      family: "gpt-4o",
+      version: "1.0.0",
+      maxInputTokens: 10000,
+      maxOutputTokens: 4096,
+      capabilities: {},
+    } as never;
+
+    // First attempt: loop guard detects 5 identical calls and blocks with OmniRouteError
+    await expect(
+      provider.provideLanguageModelChatResponse(
+        modelInfo,
+        loopingMessages,
+        {} as never,
+        { report: vi.fn() } as never,
+        dummyToken
+      )
+    ).rejects.toThrow(/consecutive identical calls to tool "replace_string_in_file"/);
+
+    // Second attempt (user clicks Try Again on the same model): loop guard bypasses block and executes
+    const reported: vscode.LanguageModelResponsePart[] = [];
+    await provider.provideLanguageModelChatResponse(
+      modelInfo,
+      loopingMessages,
+      {} as never,
+      { report: (p: vscode.LanguageModelResponsePart) => reported.push(p) } as never,
+      dummyToken
+    );
+
+    expect(reported.length).toBeGreaterThan(0);
+    expect(mockClient.streamModel).toHaveBeenCalledTimes(1);
+  });
+
+  it("loop guard state in one conversation does not block an unrelated conversation", async () => {
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "normal output" }]),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+
+    const callPart = new vscode.LanguageModelToolCallPart("c1", "replace_string_in_file", { file: "a.ts" });
+    const resultPart = new vscode.LanguageModelToolResultPart("c1", [new vscode.LanguageModelTextPart("failed")]);
+
+    const loopingMessages: Parameters<typeof provider.provideLanguageModelChatResponse>[1] = [
+      { role: 1, content: [new vscode.LanguageModelTextPart("conversation-A-task")] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+      { role: 2, content: [callPart] } as never,
+      { role: 1, content: [resultPart] } as never,
+    ];
+
+    const cleanMessages: Parameters<typeof provider.provideLanguageModelChatResponse>[1] = [
+      { role: 1, content: [new vscode.LanguageModelTextPart("conversation-B-math-question")] } as never,
+    ];
+
+    const modelInfo = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+      name: "gpt-4o",
+      family: "gpt-4o",
+      version: "1.0.0",
+      maxInputTokens: 10000,
+      maxOutputTokens: 4096,
+      capabilities: {},
+    } as never;
+
+    // Conversation A triggers loop guard and is blocked
+    await expect(
+      provider.provideLanguageModelChatResponse(
+        modelInfo,
+        loopingMessages,
+        {} as never,
+        { report: vi.fn() } as never,
+        dummyToken
+      )
+    ).rejects.toThrow(/consecutive identical calls/);
+
+    // Conversation B (running concurrently or next on the same model) must NOT be blocked
+    const reportedB: vscode.LanguageModelResponsePart[] = [];
+    await provider.provideLanguageModelChatResponse(
+      modelInfo,
+      cleanMessages,
+      {} as never,
+      { report: (p: vscode.LanguageModelResponsePart) => reportedB.push(p) } as never,
+      dummyToken
+    );
+
+    expect(reportedB.length).toBeGreaterThan(0);
+    expect(mockClient.streamModel).toHaveBeenCalledTimes(1);
   });
 });

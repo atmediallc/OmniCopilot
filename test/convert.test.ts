@@ -4,6 +4,7 @@ import {
   estimateTokens,
   extractToolResultText,
   isEmptyContent,
+  requestRequiresVision,
   smartTruncate,
   toOpenAiMessages,
   toOpenAiTools,
@@ -163,6 +164,28 @@ describe("toOpenAiMessages", () => {
     expect(systemParts[0]).toEqual({ type: "text", text: "System prompt instructions" });
     expect(systemParts[1].type).toBe("image_url");
     expect(systemParts[1].image_url?.url).toBe(`data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`);
+  });
+
+  it("extracts images from tool results and attaches them as multimodal user content", () => {
+    const bytes = new Uint8Array([10, 20, 30]);
+    const out = toOpenAiMessages([
+      msg(vscode.LanguageModelChatMessageRole.User, [
+        new vscode.LanguageModelToolResultPart("call_img", [
+          new vscode.LanguageModelTextPart("screenshot captured"),
+          vscode.LanguageModelDataPart.image(bytes, "image/png"),
+        ]),
+      ]),
+    ]);
+    expect(out[0]).toEqual({
+      role: "tool",
+      content: "screenshot captured[Attached image: image/png]",
+      tool_call_id: "call_img",
+    });
+    expect(out[1].role).toBe("user");
+    expect(Array.isArray(out[1].content)).toBe(true);
+    const userParts = out[1].content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(userParts[0].type).toBe("image_url");
+    expect(userParts[0].image_url?.url).toBe(`data:image/png;base64,${Buffer.from(bytes).toString("base64")}`);
   });
 });
 
@@ -337,6 +360,25 @@ describe("helpers", () => {
     // 4 CJK chars: naive chars/4 says 1 token, weighted says 2 (closer to real).
     expect(estimateTokens("你好世界")).toBe(2);
     expect(estimateTokens("abcdefgh")).toBe(2);
+  });
+
+  it("requestRequiresVision detects image_url parts in chat requests", () => {
+    expect(requestRequiresVision({ model: "m", messages: [{ role: "user", content: "hello" }], stream: true })).toBe(false);
+    expect(
+      requestRequiresVision({
+        model: "m",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "see this" },
+              { type: "image_url", image_url: { url: "data:image/png;base64,123" } },
+            ],
+          },
+        ],
+        stream: true,
+      })
+    ).toBe(true);
   });
 });
 

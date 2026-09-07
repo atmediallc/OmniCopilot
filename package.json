@@ -459,6 +459,21 @@
           "maximum": 50,
           "description": "%cfg.maxConsecutiveIdenticalToolCalls%"
         },
+        "omnicopilot-dev.showThinking": {
+          "type": "string",
+          "default": "nativeOrMarkdown",
+          "enum": [
+            "nativeOrMarkdown",
+            "markdown",
+            "off"
+          ],
+          "enumDescriptions": [
+            "%cfg.showThinking.nativeOrMarkdown%",
+            "%cfg.showThinking.markdown%",
+            "%cfg.showThinking.off%"
+          ],
+          "description": "%cfg.showThinking%"
+        },
         "omnicopilot-dev.modelCacheTtlMinutes": {
           "type": "number",
           "default": 60,

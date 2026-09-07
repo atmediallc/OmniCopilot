@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { formatErrorValue } from "./client";
 import { estimateTextTokens } from "./contextBudget";
-import type { ChatContentPart, ChatMessage, ChatTool } from "./types";
+import type { ChatContentPart, ChatMessage, ChatRequest, ChatTool } from "./types";
 
 /**
  * Convert VS Code chat request messages to OpenAI Chat Completions messages.
@@ -207,21 +207,57 @@ function splitToolParts(parts: ChatRequestParts): {
   return { toolResults, toolCalls };
 }
 
-/** One OpenAI `tool` message per result, plus a `user` message for the rest. */
+export function extractToolResultImages(content: unknown): ChatContentPart[] {
+  if (!Array.isArray(content)) return [];
+  const imageParts: ChatContentPart[] = [];
+  for (const item of content) {
+    if (
+      item instanceof vscode.LanguageModelDataPart &&
+      typeof item.mimeType === "string" &&
+      item.mimeType.startsWith("image/")
+    ) {
+      const base64 = Buffer.from(item.data).toString("base64");
+      imageParts.push({
+        type: "image_url",
+        image_url: { url: `data:${item.mimeType};base64,${base64}` },
+      });
+    }
+  }
+  return imageParts;
+}
+
+/** One OpenAI `tool` message per result, plus a `user` message for any images or rest. */
 function appendToolResults(
   out: ChatMessage[],
   parts: ChatRequestParts,
   toolResults: vscode.LanguageModelToolResultPart[]
 ): void {
+  const toolImages: ChatContentPart[] = [];
   for (const result of toolResults) {
     out.push({
       role: "tool",
       content: extractToolResultText(result.content),
       tool_call_id: result.callId,
     });
+    toolImages.push(...extractToolResultImages(result.content));
   }
   const rest = toContent(parts);
-  if (!isEmptyContent(rest)) out.push({ role: "user", content: rest });
+  const userContent: ChatContentPart[] = [];
+  if (Array.isArray(rest)) {
+    userContent.push(...rest);
+  } else if (typeof rest === "string" && rest.trim().length > 0) {
+    userContent.push({ type: "text", text: rest });
+  }
+  if (toolImages.length > 0) {
+    userContent.push(...toolImages);
+  }
+  if (userContent.length > 0) {
+    const finalContent =
+      userContent.length === 1 && userContent[0].type === "text"
+        ? userContent[0].text
+        : userContent;
+    out.push({ role: "user", content: finalContent });
+  }
 }
 
 /** Assistant message carrying tool calls, as OpenAI expects. */
@@ -324,6 +360,18 @@ export function isEmptyContent(content: string | ChatContentPart[] | null): bool
   return content.every((p) => p.type === "text" && p.text.trim().length === 0);
 }
 
+/** True if any message in the request contains an image part. */
+export function requestRequiresVision(request: ChatRequest): boolean {
+  for (const msg of request.messages) {
+    if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === "image_url") return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** Max chars forwarded per tool result. Copilot resends full history every
  * turn, so an unbounded tool output (file read, search) would be rebilled on
  * every subsequent request. Truncation keeps one bad tool from blowing the
@@ -356,6 +404,13 @@ export function extractToolResultText(content: unknown): string {
     const joined = content
       .map((c) => {
         if (c instanceof vscode.LanguageModelTextPart) return c.value;
+        if (
+          c instanceof vscode.LanguageModelDataPart &&
+          typeof c.mimeType === "string" &&
+          c.mimeType.startsWith("image/")
+        ) {
+          return `[Attached image: ${c.mimeType}]`;
+        }
         if (c && typeof c === "object" && "value" in c) {
           const val = (c as Record<string, unknown>).value;
           // Objects must not fall through to String() (that would render the
@@ -386,10 +441,35 @@ export function toOpenAiTools(
 
 /** Token estimate shared with the context budget (chars/4 with non-ASCII
  * weighting). Must stay fast: VS Code calls it a lot. */
-export function estimateTokens(text: string | vscode.LanguageModelChatRequestMessage): number {
+export function estimateTokens(
+  text:
+    | string
+    | vscode.LanguageModelChatRequestMessage
+    | readonly (vscode.LanguageModelChatRequestMessage | ChatMessage)[]
+): number {
   if (typeof text === "string") return estimateTextTokens(text);
+  if (Array.isArray(text)) {
+    const list = text as readonly (vscode.LanguageModelChatRequestMessage | ChatMessage)[];
+    let sum = 0;
+    for (const item of list) {
+      if ("role" in item && typeof (item as ChatMessage).content !== "undefined") {
+        const c = (item as ChatMessage).content;
+        if (typeof c === "string") sum += estimateTextTokens(c);
+        else if (Array.isArray(c)) {
+          for (const p of c) {
+            if (p.type === "text") sum += estimateTextTokens(p.text);
+            else if (p.type === "image_url") sum += 4000;
+          }
+        }
+      } else {
+        sum += estimateTokens(item as vscode.LanguageModelChatRequestMessage);
+      }
+    }
+    return sum;
+  }
 
-  const parts = Array.isArray(text.content) ? text.content : [];
+  const msg = text as vscode.LanguageModelChatRequestMessage;
+  const parts = Array.isArray(msg.content) ? msg.content : [];
   let tokens = 0;
   for (const part of parts) {
     if (part instanceof vscode.LanguageModelTextPart) {

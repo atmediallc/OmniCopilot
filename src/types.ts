@@ -319,5 +319,6 @@ export interface ChatUsageInfo {
 /** Normalized streaming events yielded by the client. */
 export type StreamEvent =
   | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
   | { kind: "toolCall"; id: string; name: string; args: string }
   | { kind: "usage"; usage: ChatUsageInfo };

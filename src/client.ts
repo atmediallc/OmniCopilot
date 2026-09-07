@@ -56,6 +56,8 @@ export interface ClientOptions {
   streamIdleTimeoutMs?: number;
   /** Prompt compression override for OmniRoute servers ('off' | 'default' | 'engine:rtk' | 'engine:caveman'). */
   compressionOverride?: string;
+  /** Emit thinking / reasoning stream events to callers. Defaults to false for raw client. */
+  emitThinking?: boolean;
 }
 
 const USER_AGENT = "OmniCopilot-VSCode";
@@ -247,6 +249,49 @@ function retryDelayMs(res: Response | undefined, attempt: number, policy: Requir
   // security-relevant, but this keeps implementations of jitter consistent.
   const jitter = crypto.randomInt(Math.min(base, 200) + 1);
   return Math.min(policy.maxMs, base + jitter);
+}
+
+/** Sanitizes and validates untrusted /models entries from upstream routes. */
+export function sanitizeOmniRouteModel(raw: unknown): OmniRouteModel | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const m = raw as Record<string, unknown>;
+  if (typeof m.id !== "string" || !m.id.trim() || m.id.length > 512) {
+    return undefined;
+  }
+  const id = m.id.trim();
+  const out: OmniRouteModel = { id };
+  if (typeof m.object === "string") out.object = m.object;
+  if (typeof m.owned_by === "string") out.owned_by = m.owned_by.slice(0, 128);
+  if (typeof m.display_name === "string") out.display_name = m.display_name.slice(0, 256);
+  if (typeof m.name === "string") out.name = m.name.slice(0, 256);
+  if (typeof m.type === "string") out.type = m.type.slice(0, 64);
+  if (typeof m.parent === "string" || m.parent === null) out.parent = m.parent;
+  if (typeof m.context_length === "number" && Number.isSafeInteger(m.context_length) && m.context_length > 0) {
+    out.context_length = m.context_length;
+  }
+  if (typeof m.max_output_tokens === "number" && Number.isSafeInteger(m.max_output_tokens) && m.max_output_tokens > 0) {
+    out.max_output_tokens = m.max_output_tokens;
+  }
+  if (typeof m.max_completion_tokens === "number" && Number.isSafeInteger(m.max_completion_tokens) && m.max_completion_tokens > 0) {
+    out.max_completion_tokens = m.max_completion_tokens;
+  }
+  if (m.capabilities && typeof m.capabilities === "object" && !Array.isArray(m.capabilities)) {
+    const caps = m.capabilities as Record<string, unknown>;
+    const sanitizedCaps: OmniRouteModel["capabilities"] = {};
+    if (typeof caps.tool_calling === "boolean") sanitizedCaps.tool_calling = caps.tool_calling;
+    if (typeof caps.vision === "boolean") sanitizedCaps.vision = caps.vision;
+    if (typeof caps.reasoning === "boolean") sanitizedCaps.reasoning = caps.reasoning;
+    if (typeof caps.thinking === "boolean") sanitizedCaps.thinking = caps.thinking;
+    if (typeof caps.attachment === "boolean") sanitizedCaps.attachment = caps.attachment;
+    if (typeof caps.structured_output === "boolean") sanitizedCaps.structured_output = caps.structured_output;
+    out.capabilities = sanitizedCaps;
+  }
+  if (Array.isArray(m.supported_endpoints)) {
+    out.supported_endpoints = m.supported_endpoints.filter(
+      (ep): ep is string => typeof ep === "string" && ep.length > 0 && ep.length < 128
+    );
+  }
+  return out;
 }
 
 /** Thin HTTP client for an OmniRoute (or any OpenAI-compatible) server. */
@@ -545,7 +590,10 @@ export class OmniRouteClient {
       );
       if (token?.isCancellationRequested) return [];
       const body = (await res.json()) as ModelsResponse;
-      const models = Array.isArray(body.data) ? body.data : [];
+      const rawList = Array.isArray(body?.data) ? body.data : [];
+      const models = rawList
+        .map(sanitizeOmniRouteModel)
+        .filter((m): m is OmniRouteModel => m !== undefined);
       this.opts.log?.info(`[MODELS] Listed ${models.length} model(s) from ${this.baseUrl} in ${Date.now() - t0}ms`);
       return models;
     } catch (err) {
@@ -683,6 +731,10 @@ export class OmniRouteClient {
     for (const event of events) {
       if (event.kind === "text") {
         yield* emitFilteredText(reasoningFilter, event.text);
+      } else if (event.kind === "thinking") {
+        if (this.opts.emitThinking) {
+          yield* emitFilteredThinking(reasoningFilter, event.text);
+        }
       } else {
         yield* flushFilteredText(reasoningFilter);
         yield event;
@@ -786,6 +838,12 @@ export class OmniRouteClient {
         yield* emitFilteredText(reasoningFilter, event.text);
         continue;
       }
+      if (event.kind === "thinking") {
+        if (this.opts.emitThinking) {
+          yield* emitFilteredThinking(reasoningFilter, event.text);
+        }
+        continue;
+      }
       yield* flushFilteredText(reasoningFilter);
       yield event;
     }
@@ -840,6 +898,10 @@ export class OmniRouteClient {
     for (const event of events) {
       if (event.kind === "text") {
         yield* emitFilteredText(reasoningFilter, event.text);
+      } else if (event.kind === "thinking") {
+        if (this.opts.emitThinking) {
+          yield* emitFilteredThinking(reasoningFilter, event.text);
+        }
       } else {
         yield* flushFilteredText(reasoningFilter);
         yield event;
@@ -912,12 +974,14 @@ export class OmniRouteClient {
     const alive = progressed !== undefined && progressed !== null && progressed.length !== 0;
 
     const events: StreamEvent[] = [];
-    // Reasoning is transport metadata, not user-visible assistant output.
+    if (reasoning) {
+      events.push({ kind: "thinking", text: reasoning });
+    }
     if (delta?.content) {
       events.push({ kind: "text", text: delta.content });
     }
     if (delta?.tool_calls) {
-      assembler.accept(delta.tool_calls);
+      events.push(...assembler.accept(delta.tool_calls));
     }
     if (choice.finish_reason) {
       events.push(...assembler.flush());
@@ -980,6 +1044,7 @@ async function* readSseLines(
   } catch (err) {
     throw session.unwrapError(err);
   } finally {
+    session.clearReader();
     try {
       reader.releaseLock();
     } catch {
@@ -997,6 +1062,7 @@ class StreamSession {
   private readonly relay: () => void;
   private firstByteTimer: ReturnType<typeof setTimeout> | undefined;
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+  private readerCancelCleanup: (() => void) | undefined;
   private hasRealEvent = false;
 
   constructor(
@@ -1054,7 +1120,7 @@ class StreamSession {
   setReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
     const cancel = () => {
       try {
-        void reader.cancel(this.ctrl.signal.reason);
+        reader.cancel(this.ctrl.signal.reason).catch(() => {});
       } catch {
         // reader.cancel after abort — safe to ignore
       }
@@ -1063,6 +1129,14 @@ class StreamSession {
       cancel();
     } else {
       this.ctrl.signal.addEventListener("abort", cancel, { once: true });
+      this.readerCancelCleanup = () => this.ctrl.signal.removeEventListener("abort", cancel);
+    }
+  }
+
+  clearReader(): void {
+    if (this.readerCancelCleanup) {
+      this.readerCancelCleanup();
+      this.readerCancelCleanup = undefined;
     }
   }
 
@@ -1086,6 +1160,7 @@ class StreamSession {
   }
 
   dispose(): void {
+    this.clearReader();
     this.clearFirstByteTimer();
     if (this.watchdogTimer) {
       clearTimeout(this.watchdogTimer);
@@ -1117,19 +1192,40 @@ class StreamSession {
   }
 }
 
+function isCompleteJsonObject(str: string): boolean {
+  if (!str) return false;
+  const trimmed = str.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Reassembles incremental tool_calls deltas (indexed fragments) into
  * complete calls, emitted once their JSON arguments are whole. */
 class ToolCallAssembler {
   private readonly pending = new Map<number, { id: string; name: string; args: string }>();
 
-  accept(deltas: StreamToolCallDelta[]): void {
+  accept(deltas: StreamToolCallDelta[]): StreamEvent[] {
+    const earlyEvents: StreamEvent[] = [];
     for (const d of deltas) {
+      // Early emission: if a new index arrives, check if lower indices are complete
+      for (const [idx, call] of this.pending.entries()) {
+        if (idx < d.index && call.id && call.name && isCompleteJsonObject(call.args)) {
+          earlyEvents.push({ kind: "toolCall", id: call.id, name: call.name, args: call.args });
+          this.pending.delete(idx);
+        }
+      }
       const slot = this.pending.get(d.index) ?? { id: "", name: "", args: "" };
       if (d.id) slot.id = d.id;
       if (d.function?.name) slot.name += d.function.name;
       if (d.function?.arguments) slot.args += d.function.arguments;
       this.pending.set(d.index, slot);
     }
+    return earlyEvents;
   }
 
   *flush(): Generator<StreamEvent> {
@@ -1452,11 +1548,21 @@ function handleMessagesSseLine(
       alive: true,
     };
   }
-  if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-    return {
-      events: event.delta.text ? [{ kind: "text", text: event.delta.text }] : [],
-      alive: Boolean(event.delta.text),
-    };
+  if (event.type === "content_block_delta") {
+    if (event.delta?.type === "text_delta") {
+      return {
+        events: event.delta.text ? [{ kind: "text", text: event.delta.text }] : [],
+        alive: Boolean(event.delta.text),
+      };
+    }
+    if (event.delta?.type === "thinking_delta") {
+      const thinking = (event.delta as Record<string, unknown>).thinking;
+      const text = typeof thinking === "string" ? thinking : "";
+      return {
+        events: text ? [{ kind: "thinking", text }] : [],
+        alive: Boolean(text),
+      };
+    }
   }
   const toolResult = handleMessagesToolEvent(event, assembler);
   return toolResult ?? { events: [], alive: Boolean(event.type) };
@@ -1589,7 +1695,11 @@ function handleResponsesSseLine(
     throw responsesSseError(event.error?.message ?? event.response?.error?.message ?? "Responses stream failed");
   }
   if (event.type === "response.reasoning_summary_text.delta") {
-    return { events: [], alive: Boolean(event.delta), terminal: false };
+    return {
+      events: event.delta ? [{ kind: "thinking", text: event.delta }] : [],
+      alive: Boolean(event.delta),
+      terminal: false,
+    };
   }
   if (event.type === "response.output_text.delta") {
     const delta = sanitizeResponsesDelta(event.delta ?? "");
@@ -1812,6 +1922,15 @@ function* emitFilteredText(
 function* flushFilteredText(filter: EncryptedReasoningFilter): Generator<StreamEvent> {
   for (const piece of filter.flush()) {
     yield { kind: "text", text: piece };
+  }
+}
+
+function* emitFilteredThinking(
+  filter: EncryptedReasoningFilter,
+  text: string
+): Generator<StreamEvent> {
+  for (const piece of filter.push(text)) {
+    yield { kind: "thinking", text: piece };
   }
 }
 

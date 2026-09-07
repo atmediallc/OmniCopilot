@@ -306,6 +306,246 @@
 			"label": "git-status",
 			"type": "shell",
 			"command": "git status -s"
+		},
+		{
+			"label": "run-convert-tests",
+			"type": "shell",
+			"command": "npx vitest run test/convert.test.ts"
+		},
+		{
+			"label": "run-provider-tests",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-test-provider",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-tsc",
+			"type": "shell",
+			"command": "npx tsc --noEmit"
+		},
+		{
+			"label": "run-test-provider",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-client-tests",
+			"type": "shell",
+			"command": "npx vitest run test/client.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "git-status",
+			"type": "shell",
+			"command": "git status -s"
+		},
+		{
+			"label": "run-test-provider",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-model-identity-tests",
+			"type": "shell",
+			"command": "npx vitest run test/modelIdentity.test.ts"
+		},
+		{
+			"label": "run-model-identity-tests",
+			"type": "shell",
+			"command": "npx vitest run test/modelIdentity.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-test-provider",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-fallback-tests",
+			"type": "shell",
+			"command": "npx vitest run test/fallbackCandidates.test.ts"
+		},
+		{
+			"label": "run-convert-tests",
+			"type": "shell",
+			"command": "npx vitest run test/convert.test.ts"
+		},
+		{
+			"label": "run-provider-tests",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "git-status",
+			"type": "shell",
+			"command": "git status -s"
+		},
+		{
+			"label": "run-reliability-tests",
+			"type": "shell",
+			"command": "npx vitest run test/providerReliability.test.ts"
+		},
+		{
+			"label": "run-reliability-tests",
+			"type": "shell",
+			"command": "npx vitest run test/providerReliability.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-client-tests",
+			"type": "shell",
+			"command": "npx vitest run test/client.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-tsc",
+			"type": "shell",
+			"command": "npx tsc --noEmit"
+		},
+		{
+			"label": "run-tsc",
+			"type": "shell",
+			"command": "npx tsc --noEmit"
+		},
+		{
+			"label": "run-protocol-tests",
+			"type": "shell",
+			"command": "npx vitest run test/providerProtocol.test.ts"
+		},
+		{
+			"label": "run-protocol-tests",
+			"type": "shell",
+			"command": "npx vitest run test/providerProtocol.test.ts"
+		},
+		{
+			"label": "run-protocol-tests",
+			"type": "shell",
+			"command": "npx vitest run test/providerProtocol.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-client-tests",
+			"type": "shell",
+			"command": "npx vitest run test/client.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "git-status",
+			"type": "shell",
+			"command": "git status -s"
+		},
+		{
+			"label": "run-provider-tests",
+			"type": "shell",
+			"command": "npx vitest run test/provider.test.ts"
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
 		}
 	]
 }
