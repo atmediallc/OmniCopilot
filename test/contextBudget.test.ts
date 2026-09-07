@@ -254,4 +254,38 @@ describe("enforceContextBudget", () => {
     expect(thrown).toMatchObject({ code: "PROTECTED_CONTEXT_OVERFLOW" });
     expect(messages[1].content).toBe(protectedRequest);
   });
+
+  it("protects active turn assistant tool call and tool result after newest user message from being dropped", () => {
+    const oldUser = text("user", "old history " + "h".repeat(200));
+    const oldAssistant = text("assistant", "old answer " + "a".repeat(200));
+    const currentUser = text("user", "current request");
+    const activeToolCall: ChatMessage = {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: "call-active", type: "function", function: { name: "search", arguments: "{}" } }],
+    };
+    const activeToolResult: ChatMessage = {
+      role: "tool",
+      content: "active result",
+      tool_call_id: "call-active",
+    };
+    const messages = [text("system", "rules"), oldUser, oldAssistant, currentUser, activeToolCall, activeToolResult];
+
+    const result = enforceContextBudget({
+      messages,
+      tools: [],
+      budget: manualBudget({
+        providerMaxContext: 180,
+        settings: { mode: "manual", maxContextTokens: 180 },
+        requestedOutputTokens: 32,
+        safetyMarginTokens: 16,
+      }),
+    });
+
+    expect(result.messages).toContainEqual(currentUser);
+    expect(result.messages).toContainEqual(activeToolCall);
+    expect(result.messages).toContainEqual(activeToolResult);
+    expect(result.messages).not.toContainEqual(oldUser);
+    expect(result.messages).not.toContainEqual(oldAssistant);
+  });
 });

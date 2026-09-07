@@ -44,4 +44,15 @@ describe("management sidebar context relocation", () => {
     expect(html).not.toContain('type: "saveContextSettings"');
     expect(html).not.toContain('type: "resetContextSettings"');
   });
+
+  it("contains syntactically valid client-side javascript in script tag", () => {
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([]);
+    const panel = harness();
+    panel.provider.resolveWebviewView(panel.view);
+    const html = panel.html();
+    const scriptMatch = /<script\b[^>]*>([\s\S]*?)<\/script>/i.exec(html);
+    expect(scriptMatch).not.toBeNull();
+    const scriptContent = scriptMatch![1];
+    expect(() => new Function(scriptContent)).not.toThrow();
+  });
 });

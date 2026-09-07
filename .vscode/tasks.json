@@ -546,6 +546,41 @@
 			"label": "run-tsc-eslint",
 			"type": "shell",
 			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "run-tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "run-all-vitest",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "git-status",
+			"type": "shell",
+			"command": "git status -s"
 		}
 	]
 }

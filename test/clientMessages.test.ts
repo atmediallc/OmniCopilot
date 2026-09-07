@@ -293,4 +293,40 @@ describe("OmniRouteClient Messages transport", () => {
       },
     ]);
   });
+
+  it("merges adjacent tool result messages into a single user role for Anthropic", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(['data: {"type":"message_stop"}']));
+    vi.stubGlobal("fetch", fetchMock);
+    const request: ChatRequest = {
+      model: "anthropic/claude-3-7-sonnet",
+      stream: true,
+      messages: [
+        { role: "user", content: "Run both tools" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "call_1", type: "function", function: { name: "tool1", arguments: "{}" } },
+            { id: "call_2", type: "function", function: { name: "tool2", arguments: "{}" } },
+          ],
+        },
+        { role: "tool", content: "result 1", tool_call_id: "call_1" },
+        { role: "tool", content: "result 2", tool_call_id: "call_2" },
+      ],
+    };
+
+    await collectMessages(new OmniRouteClient({ baseUrl: "http://x/v1" }), request);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.messages).toHaveLength(3);
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages[1].role).toBe("assistant");
+    expect(body.messages[2].role).toBe("user");
+    expect(body.messages[2].content).toEqual([
+      { type: "tool_result", tool_use_id: "call_1", content: "result 1" },
+      { type: "tool_result", tool_use_id: "call_2", content: "result 2" },
+    ]);
+  });
 });

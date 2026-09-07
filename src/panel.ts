@@ -434,9 +434,6 @@ export class OmniPanelProvider implements vscode.WebviewViewProvider {
     });
     render();
   });
-    }));
-    render();
-  });
 
   vscodeApi.postMessage({ type: "ready" });
 </script>

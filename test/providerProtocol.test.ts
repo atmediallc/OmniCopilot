@@ -185,4 +185,42 @@ describe("Red-Team Protocol, Dynamic Discovery & Cache Invalidation Certificatio
     expect(fallbackRequestCaptured).toBeDefined();
     expect((fallbackRequestCaptured as { reasoning_effort?: string }).reasoning_effort).toBeUndefined();
   });
+
+  it("AG-01: resolves Agents window clones (ending with ::agents) against primary catalog model", async () => {
+    configValues["omnicopilot-dev"] = { exposeToAgentsWindow: true };
+    const context = mockContext();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog });
+    const client = {
+      baseUrl: "http://agent.local/v1",
+      listModels: vi.fn().mockResolvedValue([
+        { id: "openai/gpt-4o", capabilities: { tool_calling: true } },
+      ]),
+      streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "agent response" }]),
+    };
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-agent", name: "Agent Route", baseUrl: "http://agent.local/v1" },
+    ]);
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(client as never);
+
+    await provider.refresh();
+    const infos = await provider.provideLanguageModelChatInformation(dummyToken);
+    const agentModel = infos.find((m) => m.id.endsWith("::agents"));
+    expect(agentModel).toBeDefined();
+
+    const progress = { report: vi.fn() };
+    await provider.provideLanguageModelChatResponse(
+      agentModel!,
+      [],
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "agent response" }));
+    expect(client.streamModel).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "openai/gpt-4o" }),
+      expect.anything(),
+      expect.anything()
+    );
+  });
 });

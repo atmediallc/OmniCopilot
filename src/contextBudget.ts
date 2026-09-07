@@ -233,7 +233,7 @@ function account(
     const cost = messageTokens(messages[i]);
     attachmentTokens += cost.attachments;
     if (messages[i].role === "system") systemTokens += cost.tokens;
-    else if (i === currentUserIndex) currentUserTokens += cost.tokens;
+    else if (currentUserIndex !== -1 && i >= currentUserIndex) currentUserTokens += cost.tokens;
     else historyTokens += cost.tokens;
   }
   const toolDefinitionTokens = toolsTokens(tools);
@@ -252,9 +252,9 @@ function account(
 }
 
 /** Build removable, structurally complete history groups. System messages and
- * latest user request are protected. A user turn includes following assistant
- * and tool messages until the next user turn; standalone tool exchanges stay
- * together. */
+ * latest user request (including current-turn tool exchanges) are protected. A
+ * user turn includes following assistant and tool messages until the next user
+ * turn; standalone tool exchanges stay together. */
 function removableGroups(messages: readonly ChatMessage[], currentUserIndex: number): number[][] {
   const groups: number[][] = [];
   let group: number[] = [];
@@ -263,7 +263,7 @@ function removableGroups(messages: readonly ChatMessage[], currentUserIndex: num
     group = [];
   };
   for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === "system" || i === currentUserIndex) {
+    if (messages[i].role === "system" || (currentUserIndex !== -1 && i >= currentUserIndex)) {
       flush();
       continue;
     }
@@ -290,7 +290,9 @@ export function enforceContextBudget(input: {
   const droppedTools: string[] = [];
   const originalMessages = [...input.messages];
   const currentUserIndex = findCurrentUserIndex(originalMessages);
-  const protectedMessages = originalMessages.filter((message, index) => message.role === "system" || index === currentUserIndex);
+  const protectedMessages = originalMessages.filter(
+    (message, index) => message.role === "system" || (currentUserIndex !== -1 && index >= currentUserIndex)
+  );
   // Tools are droppable, history is droppable, protected messages are not.
   // Trim tool definitions (from the end, keeping the first ones stable) before
   // giving up: a 32-tool agent payload next to a small model would otherwise

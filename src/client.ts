@@ -1312,6 +1312,21 @@ function contentText(content: ChatRequest["messages"][number]["content"]): strin
 
 const MESSAGES_DEFAULT_MAX_TOKENS = 4096;
 
+function mergeAdjacentMessagesRoles(
+  messages: MessagesRequest["messages"]
+): MessagesRequest["messages"] {
+  const merged: MessagesRequest["messages"] = [];
+  for (const msg of messages) {
+    const last = merged[merged.length - 1];
+    if (last && last.role === msg.role) {
+      last.content = [...last.content, ...msg.content];
+    } else {
+      merged.push({ role: msg.role, content: [...msg.content] });
+    }
+  }
+  return merged;
+}
+
 function toMessagesRequest(request: ChatRequest): MessagesRequest {
   const system = request.messages
     .filter((message) => message.role === "system")
@@ -1337,10 +1352,12 @@ function toMessagesRequest(request: ChatRequest): MessagesRequest {
   return {
     model: request.model,
     system: system || undefined,
-    messages: request.messages
-      .filter((message) => message.role !== "system")
-      .map(toMessagesMessage)
-      .filter((message) => message.content.length > 0),
+    messages: mergeAdjacentMessagesRoles(
+      request.messages
+        .filter((message) => message.role !== "system")
+        .map(toMessagesMessage)
+        .filter((message) => message.content.length > 0)
+    ),
     stream: true,
     max_tokens: request.max_tokens && request.max_tokens > 0
       ? request.max_tokens
@@ -1437,7 +1454,7 @@ class ResponsesToolCallAssembler {
   }
 
   *flush(): Generator<StreamEvent> {
-    for (const key of this.pending.keys()) yield* this.finish(key);
+    for (const key of [...this.pending.keys()]) yield* this.finish(key);
   }
 }
 

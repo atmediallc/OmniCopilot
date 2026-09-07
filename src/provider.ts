@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { OmniRouteClient, OmniRouteError, describeFetchError, formatErrorValue, isThrottleError, isTransientHttpError } from "./client";
 import { isReasoningModel, resolveReasoningEffort } from "./reasoning";
 
-import { EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
+import { AGENTS_WINDOW_ID_SUFFIX, EXPOSE_TO_AGENTS_WINDOW_SETTING, expandForAgentsWindow } from "./agentsWindow";
 import { selectChatModels } from "./catalogFilter";
 import { transportSurfaceLabel } from "./supportedEndpoints";
 import {
@@ -459,16 +459,20 @@ export class OmniRouteChatProvider
       void OmniRouteChatProvider.persistCache(this.deps.context, OmniRouteChatProvider.sharedCachedModels);
     }
 
-    const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 15);
+    const activeRoutes = routes.slice(0, 10);
+    const allRoutesCached = activeRoutes.every((r) =>
+      OmniRouteChatProvider.sharedRouteCatalogs.has(r.id)
+    );
+
+    const ttlMinutes = getConfig().get<number>("modelCacheTtlMinutes", 60);
     const isManualOnly = ttlMinutes <= 0;
     const ttlMs = isManualOnly ? Number.POSITIVE_INFINITY : ttlMinutes * 60_000;
-    const isFresh = Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < ttlMs;
+    const isFresh = allRoutesCached && (Date.now() - OmniRouteChatProvider.sharedLastCatalogFetch < ttlMs);
 
     if (OmniRouteChatProvider.sharedCachedModels.length > 0 && isFresh) {
       return this.toModelInfos(OmniRouteChatProvider.sharedCachedModels, validRouteIds);
     }
 
-    const activeRoutes = routes.slice(0, 10);
     const refreshGeneration = OmniRouteChatProvider.sharedRefreshGeneration;
 
     const segments: RouteCatalog[] = await Promise.all(
@@ -810,7 +814,16 @@ export class OmniRouteChatProvider
     );
     const nameByRoute = new Map(routes.map((r) => [r.id, r.name]));
 
-    const primaryCatalogModel = this.cachedModels.find((c) => c.entry.prefixedId === model.id);
+    const targetPrefixedId = model.id.endsWith(AGENTS_WINDOW_ID_SUFFIX)
+      ? model.id.slice(0, -AGENTS_WINDOW_ID_SUFFIX.length)
+      : model.id;
+    const primaryCatalogModel = this.cachedModels.find(
+      (c) =>
+        c.entry.prefixedId === targetPrefixedId ||
+        (Boolean(model.routeId && model.omniModelId) &&
+          c.entry.routeId === model.routeId &&
+          c.entry.modelId === model.omniModelId)
+    );
     const primaryEntry = primaryCatalogModel?.entry;
     if (!primaryEntry) {
       this.deps.log.warn(
