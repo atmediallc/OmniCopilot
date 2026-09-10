@@ -117,6 +117,11 @@ describe("applyTransportPreference", () => {
     expect(applyTransportPreference(["responses"] as const, "messages")).toEqual([]);
     expect(applyTransportPreference([] as const, "chatCompletions")).toEqual([]);
   });
+
+  it("permits Chat Completions as universal compatibility wire protocol for any conversational model", () => {
+    expect(applyTransportPreference(["responses"] as const, "chatCompletions")).toEqual(["chatCompletions"]);
+    expect(applyTransportPreference(["messages"] as const, "chatCompletions")).toEqual(["chatCompletions"]);
+  });
 });
 
 describe("pickFallbackCandidates", () => {
@@ -161,6 +166,28 @@ describe("pickFallbackCandidates", () => {
       "openai/gpt-4o-mini",
       "kimi/k2",
     ]);
+  });
+
+  it("filters out fallback candidates incompatible with the requested transportPreference", () => {
+    const mixedCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [
+          { id: "primary-model", supported_endpoints: ["messages"] },
+          { id: "primary-model-alt", supported_endpoints: ["messages"] },
+        ],
+      },
+    ]);
+    const primary = mixedCat.find((c) => c.entry.modelId === "primary-model")!.entry;
+    // When transportPreference is "responses", candidates with only "messages" must not be picked
+    const got = pickFallbackCandidates(primary, mixedCat, { transportPreference: "responses" });
+    expect(got).toEqual([]);
+
+    // When transportPreference is "chatCompletions", conversational candidates remain eligible
+    const gotChat = pickFallbackCandidates(primary, mixedCat, { transportPreference: "chatCompletions" });
+    expect(gotChat).toHaveLength(1);
+    expect(gotChat.find((c) => c.modelId === "primary-model-alt")?.transportPlan).toEqual(["chatCompletions"]);
   });
 });
 

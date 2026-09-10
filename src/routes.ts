@@ -365,7 +365,11 @@ export function transportPlanForModel(model: OmniRouteModel | undefined): ModelT
 /** Apply the user's transport preference to a catalog-derived plan.
  * `auto` returns the plan untouched; a concrete transport narrows it to that
  * single protocol (the user's explicit choice wins over catalog metadata).
- * When the model's plan does not include the preferred transport, the result
+ *
+ * Chat Completions is the universal compatibility wire protocol supported by
+ * OmniRoute for all conversational models; when the user explicitly forces
+ * Chat Completions, any conversational candidate is eligible.
+ * When the model's plan cannot satisfy the preferred transport, the result
  * is empty so the request fails loudly instead of silently using another
  * protocol. */
 export function applyTransportPreference(
@@ -373,7 +377,10 @@ export function applyTransportPreference(
   preference: TransportPreference
 ): ModelTransportPlan {
   if (preference === "auto") return plan;
-  return plan.filter((transport) => transport === preference);
+  if (plan.length === 0) return [];
+  if (plan.includes(preference)) return [preference];
+  if (preference === "chatCompletions") return ["chatCompletions"];
+  return [];
 }
 
 export interface FallbackRequirements {
@@ -385,6 +392,8 @@ export interface FallbackRequirements {
   minContextTokens?: number;
   /** Configured fallback context limit when model context_length is absent. */
   fallbackContextTokens?: number;
+  /** User-configured transport preference to evaluate compatibility against. */
+  transportPreference?: TransportPreference;
 }
 
 /**
@@ -407,8 +416,11 @@ export function isCandidateCompatible(
     return false;
   }
 
-  // 3. Transport protocol: candidate must support at least one valid chat transport.
-  const plan = transportPlanForModel(model);
+  // 3. Transport protocol: candidate must support at least one valid chat transport under active preference.
+  const plan = applyTransportPreference(
+    transportPlanForModel(model),
+    reqs.transportPreference ?? "auto"
+  );
   if (plan.length === 0) {
     return false;
   }
@@ -457,7 +469,10 @@ export function pickFallbackCandidates(
     out.push({
       routeId: c.entry.routeId,
       modelId: c.entry.modelId,
-      transportPlan: transportPlanForModel(c.model),
+      transportPlan: applyTransportPreference(
+        transportPlanForModel(c.model),
+        reqs.transportPreference ?? "auto"
+      ),
     });
   };
 

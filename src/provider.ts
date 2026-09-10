@@ -845,6 +845,7 @@ export class OmniRouteChatProvider
       needsVision: requestRequiresVision(request),
       minContextTokens: estimateTokens(request.messages),
       fallbackContextTokens: defaultContext,
+      transportPreference: preference,
     };
     const fallbackCatalog = this.cachedModels;
     const fallbacks = (primaryEntry
