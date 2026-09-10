@@ -807,7 +807,7 @@ export class OmniRouteChatProvider
     const firstByteTimeoutMs =
       cfg.get<number>("firstByteTimeoutSeconds", 120) * 1000;
     const streamIdleTimeoutMs =
-      cfg.get<number>("idleTimeoutSeconds", 30) * 1000;
+      cfg.get<number>("idleTimeoutSeconds", 120) * 1000;
     const compressionOverride = cfg.get<string>("compressionOverride", "serverDefault");
     const clientByRoute = new Map(
       routes.map((r) => [r.id, getClientForRoute(r, this.deps.log, firstByteTimeoutMs, compressionOverride, streamIdleTimeoutMs)])

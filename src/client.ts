@@ -608,7 +608,7 @@ export class OmniRouteClient {
   /** POST /chat/completions with stream:true, yielding normalized events. */
   async *streamChat(request: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
     const firstByteMs = this.opts.streamFirstByteTimeoutMs ?? 120_000;
-    const idleMs = this.opts.streamIdleTimeoutMs ?? 30_000;
+    const idleMs = this.opts.streamIdleTimeoutMs ?? 120_000;
 
     // Derived signal so a stall can abort this attempt without cancelling the
     // caller's own signal (which would kill the fallback chain).
@@ -681,7 +681,7 @@ export class OmniRouteClient {
     const session = new StreamSession(
       signal,
       this.opts.streamFirstByteTimeoutMs ?? 120_000,
-      this.opts.streamIdleTimeoutMs ?? 30_000,
+      this.opts.streamIdleTimeoutMs ?? 120_000,
       "/messages"
     );
     try {
@@ -748,7 +748,7 @@ export class OmniRouteClient {
     const session = new StreamSession(
       signal,
       this.opts.streamFirstByteTimeoutMs ?? 120_000,
-      this.opts.streamIdleTimeoutMs ?? 30_000,
+      this.opts.streamIdleTimeoutMs ?? 120_000,
       "/responses"
     );
     try {

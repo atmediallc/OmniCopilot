@@ -611,6 +611,26 @@
 			"label": "compile-check",
 			"type": "shell",
 			"command": "npm run compile"
+		},
+		{
+			"label": "tsc-eslint",
+			"type": "shell",
+			"command": "npx tsc --noEmit && npx eslint ."
+		},
+		{
+			"label": "test-after-fix",
+			"type": "shell",
+			"command": "npx vitest run"
+		},
+		{
+			"label": "compile-check",
+			"type": "shell",
+			"command": "npm run compile"
+		},
+		{
+			"label": "git-diff-src",
+			"type": "shell",
+			"command": "git diff src/ package.json"
 		}
 	]
 }
