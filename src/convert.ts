@@ -446,7 +446,9 @@ export function estimateTokens(
     | string
     | vscode.LanguageModelChatRequestMessage
     | readonly (vscode.LanguageModelChatRequestMessage | ChatMessage)[]
+    | unknown
 ): number {
+  if (!text) return 0;
   if (typeof text === "string") return estimateTextTokens(text);
   if (Array.isArray(text)) {
     const list = text as readonly (vscode.LanguageModelChatRequestMessage | ChatMessage)[];
@@ -469,15 +471,27 @@ export function estimateTokens(
   }
 
   const msg = text as vscode.LanguageModelChatRequestMessage;
+  if (typeof (msg as unknown as { content?: unknown }).content === "string") {
+    return estimateTextTokens((msg as unknown as { content: string }).content);
+  }
+  if (typeof (msg as unknown as { value?: unknown }).value === "string") {
+    return estimateTextTokens((msg as unknown as { value: string }).value);
+  }
+  if (typeof (msg as unknown as { text?: unknown }).text === "string") {
+    return estimateTextTokens((msg as unknown as { text: string }).text);
+  }
+
   const parts = Array.isArray(msg.content) ? msg.content : [];
   let tokens = 0;
   for (const part of parts) {
-    if (part instanceof vscode.LanguageModelTextPart) {
-      tokens += estimateTextTokens(part.value);
-    } else if (part instanceof vscode.LanguageModelToolCallPart) {
-      tokens += estimateTextTokens(part.name + JSON.stringify(part.input ?? {}));
-    } else if (part instanceof vscode.LanguageModelToolResultPart) {
-      tokens += estimateTextTokens(extractToolResultText(part.content));
+    if (!part || typeof part !== "object") continue;
+    if (part instanceof vscode.LanguageModelTextPart || typeof (part as { value?: unknown }).value === "string") {
+      tokens += estimateTextTokens(String((part as { value: string }).value));
+    } else if (part instanceof vscode.LanguageModelToolCallPart || typeof (part as { name?: unknown }).name === "string") {
+      const p = part as { name: string; input?: unknown };
+      tokens += estimateTextTokens(p.name + JSON.stringify(p.input ?? {}));
+    } else if (part instanceof vscode.LanguageModelToolResultPart || Array.isArray((part as { content?: unknown }).content)) {
+      tokens += estimateTextTokens(extractToolResultText((part as { content: unknown }).content));
     } else if (part instanceof vscode.LanguageModelDataPart) {
       tokens += 4000; // flat estimate per image/binary attachment
     }

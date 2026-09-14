@@ -107,7 +107,8 @@ describe("tool-call forwarding", () => {
         { id: "call-2", name: "search", input: { query: "private customer data" } },
       ]);
       expect(reportedParts(progress).filter((part) => part instanceof vscode.LanguageModelTextPart)).toEqual([]);
-      expect(progress.report).toHaveBeenCalledTimes(2);
+      expect(progress.report).toHaveBeenCalledTimes(3);
+      expect(reportedParts(progress).at(-1)).toBeInstanceOf(vscode.LanguageModelDataPart);
     },
   );
 
@@ -127,7 +128,8 @@ describe("tool-call forwarding", () => {
     expect(parts[0]).toEqual(new vscode.LanguageModelTextPart("I will inspect the file."));
     expect(parts[1]).toEqual(new vscode.LanguageModelToolCallPart("call-1", "read_file", {}));
     expect(parts[2]).toEqual(new vscode.LanguageModelTextPart(" Inspection requested."));
-    expect(progress.report).toHaveBeenCalledTimes(3);
+    expect(parts[3]).toBeInstanceOf(vscode.LanguageModelDataPart);
+    expect(progress.report).toHaveBeenCalledTimes(4);
   });
 
   it("treats normal visible Unicode text as visible and does not add a summary", async () => {

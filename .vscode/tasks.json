@@ -631,6 +631,11 @@
 			"label": "git-diff-src",
 			"type": "shell",
 			"command": "git diff src/ package.json"
+		},
+		{
+			"label": "git-status-clean",
+			"type": "shell",
+			"command": "git status -s"
 		}
 	]
 }

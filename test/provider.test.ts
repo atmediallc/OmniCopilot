@@ -403,6 +403,73 @@ describe("OmniRouteChatProvider", () => {
       inputTokenProvenance: "reported",
       outputTokenProvenance: "reported",
     });
+
+    const usageCalls = progress.report.mock.calls.filter(
+      (c: unknown[]) =>
+        c[0] instanceof vscode.LanguageModelDataPart && c[0].mimeType === "usage"
+    );
+    expect(usageCalls.length).toBeGreaterThanOrEqual(1);
+    const lastUsage = JSON.parse(
+      new TextDecoder().decode((usageCalls.at(-1)![0] as vscode.LanguageModelDataPart).data)
+    );
+    expect(lastUsage).toMatchObject({
+      prompt_tokens: 110,
+      completion_tokens: 40,
+      total_tokens: 150,
+      prompt_tokens_details: { cached_tokens: 75 },
+      completion_tokens_details: { reasoning_tokens: 12 },
+    });
+  });
+
+  it("emits estimated usage data part when server stream has no usage event", async () => {
+    const context = mockContext();
+    const onUsage = vi.fn();
+    const provider = new OmniRouteChatProvider({ context, log: mockLog, onUsage });
+    vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
+      { id: "route-1", name: "Server 1", baseUrl: "http://localhost:8080/v1" },
+    ]);
+    const mockClient = {
+      baseUrl: "http://localhost:8080/v1",
+      streamModel: vi.fn().mockImplementation(async function* () {
+        yield { kind: "text", text: "Hello from server without usage event" };
+      }),
+    };
+    vi.spyOn(routesModule, "getClientForRoute").mockReturnValue(
+      mockClient as unknown as ReturnType<typeof routesModule.getClientForRoute>
+    );
+
+    const progress = { report: vi.fn() };
+    const model = {
+      id: "Server 1 · openai/gpt-4o",
+      omniModelId: "openai/gpt-4o",
+      routeId: "route-1",
+      name: "GPT-4o",
+      family: "openai",
+      version: "1.0.0",
+      maxInputTokens: 10000,
+      maxOutputTokens: 4096,
+      capabilities: {},
+    };
+
+    await provider.provideLanguageModelChatResponse(
+      model as never,
+      [{ role: 1, content: "hi there" }] as never,
+      {} as never,
+      progress as never,
+      dummyToken
+    );
+
+    const usageCalls = progress.report.mock.calls.filter(
+      (c: unknown[]) =>
+        c[0] instanceof vscode.LanguageModelDataPart && c[0].mimeType === "usage"
+    );
+    expect(usageCalls.length).toBeGreaterThanOrEqual(1);
+    const lastUsage = JSON.parse(
+      new TextDecoder().decode((usageCalls.at(-1)![0] as vscode.LanguageModelDataPart).data)
+    );
+    expect(lastUsage.prompt_tokens).toBeGreaterThan(0);
+    expect(lastUsage.completion_tokens).toBeGreaterThan(0);
+    expect(lastUsage.total_tokens).toBe(lastUsage.prompt_tokens + lastUsage.completion_tokens);
   });
 
 

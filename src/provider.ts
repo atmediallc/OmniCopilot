@@ -1140,7 +1140,8 @@ export class OmniRouteChatProvider
     const stored = readStoredContextSettings(
       this.deps.context.globalState.get<unknown>(MODEL_CONTEXT_SETTINGS_KEY, {})
     );
-    const settings = stored?.[settingsKey];
+    const settingsMap = new Map(Object.entries(stored));
+    const settings = settingsMap.get(settingsKey);
     const budget = resolveContextBudget({
       providerMaxContext: catalog?.model.context_length,
       fallbackMaxContext: defaultContext,
@@ -1316,6 +1317,16 @@ export class OmniRouteChatProvider
       reportedOutputTokens ?? estimateTokens(attempt.streamed);
     const cachedTokens = subsetTokens(attempt.reportedUsage?.cachedTokens, inputTokens);
     const reasoningTokens = subsetTokens(attempt.reportedUsage?.reasoningTokens, outputTokens);
+    const totalTokens =
+      finiteNonNegative(attempt.reportedUsage?.totalTokens) ?? (inputTokens + outputTokens);
+
+    emitLanguageModelUsagePart(ctx.progress, {
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      reasoningTokens,
+      totalTokens,
+    });
 
     this.deps.onUsage?.({
       routeId: cand.routeId,
@@ -1444,6 +1455,18 @@ export class OmniRouteChatProvider
           reasoningTokens: event.usage.reasoningTokens ?? reportedUsage?.reasoningTokens,
           totalTokens: event.usage.totalTokens ?? reportedUsage?.totalTokens,
         };
+        if (
+          typeof reportedUsage.inputTokens === "number" &&
+          typeof reportedUsage.outputTokens === "number"
+        ) {
+          emitLanguageModelUsagePart(progress, {
+            inputTokens: reportedUsage.inputTokens,
+            outputTokens: reportedUsage.outputTokens,
+            cachedTokens: reportedUsage.cachedTokens,
+            reasoningTokens: reportedUsage.reasoningTokens,
+            totalTokens: reportedUsage.totalTokens,
+          });
+        }
       } else {
         const toolEvent = event as { id: string; name: string; args: string };
         if (toolEvent.name) {
@@ -1559,5 +1582,57 @@ export class OmniRouteChatProvider
     _token: vscode.CancellationToken
   ): Promise<number> {
     return estimateTokens(text);
+  }
+}
+
+/** Emits a LanguageModelDataPart with MIME "usage" to inform VS Code Copilot of token consumption. */
+export function emitLanguageModelUsagePart(
+  progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+  }
+): void {
+  try {
+    const DataPart = (vscode as unknown as Record<string, unknown>).LanguageModelDataPart as
+      | (new (data: Uint8Array, mimeType: string) => vscode.LanguageModelResponsePart)
+      | undefined;
+    if (!DataPart) return;
+
+    const promptTokens = Math.max(0, Math.round(usage.inputTokens));
+    const completionTokens = Math.max(0, Math.round(usage.outputTokens));
+    const totalTokens = Math.max(
+      0,
+      Math.round(usage.totalTokens ?? (promptTokens + completionTokens))
+    );
+
+    const payload: Record<string, unknown> = {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+    };
+
+    if (usage.cachedTokens !== undefined && Number.isFinite(usage.cachedTokens)) {
+      payload.prompt_tokens_details = {
+        cached_tokens: Math.max(0, Math.round(usage.cachedTokens)),
+      };
+    }
+    if (usage.reasoningTokens !== undefined && Number.isFinite(usage.reasoningTokens)) {
+      payload.completion_tokens_details = {
+        reasoning_tokens: Math.max(0, Math.round(usage.reasoningTokens)),
+      };
+    }
+
+    payload.inputTokens = promptTokens;
+    payload.outputTokens = completionTokens;
+    payload.totalTokens = totalTokens;
+
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    progress.report(new DataPart(bytes, "usage"));
+  } catch {
+    // Non-fatal if host environment rejects data part
   }
 }

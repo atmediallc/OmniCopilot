@@ -362,6 +362,13 @@ describe("helpers", () => {
     expect(estimateTokens("abcdefgh")).toBe(2);
   });
 
+  it("estimateTokens handles messages with string content, text property, and value property", () => {
+    expect(estimateTokens({ content: "abcdefgh" } as never)).toBe(2);
+    expect(estimateTokens({ text: "abcdefgh" } as never)).toBe(2);
+    expect(estimateTokens({ value: "abcdefgh" } as never)).toBe(2);
+    expect(estimateTokens({ role: 1, content: [{ value: "abcdefgh" }] } as never)).toBe(2);
+  });
+
   it("requestRequiresVision detects image_url parts in chat requests", () => {
     expect(requestRequiresVision({ model: "m", messages: [{ role: "user", content: "hello" }], stream: true })).toBe(false);
     expect(
