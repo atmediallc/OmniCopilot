@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isTransientHttpError, OmniRouteClient, OmniRouteError } from "./client";
+import { OmniRouteClient } from "./client";
 import { smartTruncate } from "./convert";
 import { cachedLoadRoutes, getClientForRoute } from "./routes";
 import { normalizeSupportedEndpoint } from "./supportedEndpoints";
@@ -101,13 +101,6 @@ function validateRerank(input: RerankToolInput): Omit<RerankRequest, "model"> {
 function supportsEndpoint(model: OmniRouteModel, endpoint: Endpoint): boolean {
   return Array.isArray(model.supported_endpoints) &&
     model.supported_endpoints.some((value) => normalizeSupportedEndpoint(value) === endpoint);
-}
-
-function isTransientFailure(error: unknown): boolean {
-  if (error instanceof OmniRouteError) {
-    return error.status === undefined || isTransientHttpError(error.status);
-  }
-  return error instanceof TypeError || (error instanceof Error && /timeout|timed out|econn|network|fetch failed/i.test(error.message));
 }
 
 function result(value: unknown): vscode.LanguageModelToolResult {
@@ -228,28 +221,19 @@ async function candidatesFor(
   }
 }
 
-async function executeWithFailover<T>(
+async function executeCandidate<T>(
   candidates: Candidate[],
   token: vscode.CancellationToken,
-  log: OmniLogger,
   run: (candidate: Candidate, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
+  const candidate = candidates[0];
+  if (!candidate) throw new Error("No OmniRoute tool candidate was available");
   const ctrl = new AbortController();
   const sub = token.onCancellationRequested(() => ctrl.abort(new Error("The operation was cancelled")));
   if (token.isCancellationRequested) ctrl.abort(new Error("The operation was cancelled"));
   try {
-    let lastError: unknown;
-    for (const candidate of candidates) {
-      if (ctrl.signal.aborted) throw ctrl.signal.reason;
-      try {
-        return await run(candidate, ctrl.signal);
-      } catch (error) {
-        lastError = error;
-        if (!isTransientFailure(error)) throw error;
-        log.warn(`Tool request failed transiently on route "${candidate.route.id}" (${candidate.model.id}); trying the next candidate`);
-      }
-    }
-    throw lastError ?? new Error("No OmniRoute tool candidate was available");
+    if (ctrl.signal.aborted) throw ctrl.signal.reason;
+    return await run(candidate, ctrl.signal);
   } finally {
     sub.dispose();
   }
@@ -264,7 +248,7 @@ export function createFixedTools(deps: ToolDeps): {
       async invoke(options, token) {
         const request = validateSearch(options.input);
         const candidates = await candidatesFor(deps, "/search", options.input.routeId, options.input.model?.trim() || undefined, token);
-        const response = await executeWithFailover(candidates, token, deps.log, (candidate, signal) =>
+        const response = await executeCandidate(candidates, token, (candidate, signal) =>
           candidate.client.search({
             ...request,
             provider: options.input.model?.trim() || candidate.model.id,
@@ -277,7 +261,7 @@ export function createFixedTools(deps: ToolDeps): {
       async invoke(options, token) {
         const request = validateRerank(options.input);
         const candidates = await candidatesFor(deps, "/rerank", options.input.routeId, options.input.model?.trim() || undefined, token);
-        const response = await executeWithFailover(candidates, token, deps.log, (candidate, signal) =>
+        const response = await executeCandidate(candidates, token, (candidate, signal) =>
           candidate.client.rerank({ ...request, model: options.input.model?.trim() || candidate.model.id }, signal, 30_000, 1)
         );
         return result(response);

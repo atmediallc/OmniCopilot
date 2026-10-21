@@ -32,7 +32,6 @@ import {
   cachedLoadRoutes,
   clearRouteCooldown,
   getClientForRoute,
-  isRouteInCooldown,
   markRouteCooldown,
   pickFallbackCandidates,
   transportPlanForModel,
@@ -115,12 +114,6 @@ function errorStatus(err: unknown): number | undefined {
   return err instanceof OmniRouteError ? err.status : undefined;
 }
 
-/** Whether a failed candidate rejected request admission for this route. */
-function isAdmissionSaturationError(err: unknown): boolean {
-  const status = errorStatus(err);
-  return status === 429 || status === 503 || isThrottleError(err);
-}
-
 /** A definitive capacity rejection should fail over to another physical
  * route immediately; retrying the same route only amplifies saturation. */
 function isExplicitAdmissionCapacityError(err: unknown): boolean {
@@ -131,22 +124,6 @@ function isExplicitAdmissionCapacityError(err: unknown): boolean {
   return message.includes("chat_admission_busy") ||
     message.includes("chat admission capacity is temporarily unavailable");
 }
-
-/** True when the entire fallback chain failed exclusively due to admission
- * saturation — every route returned 429/503 with throttle indicators. In this
- * case a global cooldown + short wait may let the upstream recover, so the
- * caller can retry the full chain once more before giving up. */
-function allFailuresWereAdmissionSaturated(outcome: ChatPlanOutcome): boolean {
-  if (outcome.kind !== "failed") return false;
-  return outcome.allAdmissionSaturated === true;
-}
-
-/** Base retry delay (ms) when every route reports admission saturation.
- * Short enough to feel responsive; long enough for upstream capacity to
- * recycle. Actual delay is jittered [BASE, BASE+JITTER] to prevent
- * concurrent requests from retrying in lockstep (thundering herd). */
-const GLOBAL_ADMISSION_RETRY_BASE_MS = 2_500;
-const GLOBAL_ADMISSION_RETRY_JITTER_MS = 2_000;
 
 /** Structured `error.code` values OmniRoute reserves for request-GLOBAL
  * rejections (`VALID_*`, `COMBO_*`, `SECURITY_*` — see v3.8.50
@@ -181,16 +158,6 @@ function computeBackoffMs(err: unknown, isThrottle: boolean, attempted: number):
   return Math.min(maxDelay, baseDelay * (attempted + 1));
 }
 
-/** Jittered global admission retry delay. Prevents concurrent requests from
- * retrying in lockstep (thundering herd) by randomizing within
- * [BASE, BASE+JITTER]. Accepts an optional retry index (0-based) for
- * progressive backoff: each subsequent retry adds BASE_MS extra delay so
- * the upstream has more time to recycle capacity. */
-function jitteredAdmissionRetryMs(retryIndex = 0): number {
-  const progressiveBase = GLOBAL_ADMISSION_RETRY_BASE_MS * (retryIndex + 1);
-  return progressiveBase + crypto.randomInt(GLOBAL_ADMISSION_RETRY_JITTER_MS);
-}
-
 /** Invalid arguments must never become an executable call with defaults. */
 function parseToolCallArgs(
   event: { args: string; name: string },
@@ -205,8 +172,16 @@ function parseToolCallArgs(
   throw new OmniRouteError(message, 400, false, "stream");
 }
 
-/** Everything needed to run the chat fallback chain for one request. */
+interface ConversationAffinity {
+  routeId: string;
+  modelId: string;
+  baseUrl: string;
+}
+
+/** Everything needed to run a pinned chat request. */
 interface ChatPlan {
+  affinityKey?: string;
+  interactive: boolean;
   clientByRoute: Map<string, OmniRouteClient>;
   nameByRoute: Map<string, string>;
   candidates: FallbackCandidate[];
@@ -218,13 +193,6 @@ interface ChatPlan {
    * backpressure signals set by other concurrent requests. */
   cooledByThisRequest: Set<string>;
 }
-
-/** Max times the full candidate chain is retried when every route reports
- * admission saturation. Two extra passes (after the initial failure) cover
- * typical upstream capacity recycling windows (server says "Retry shortly"
- * which may need 3-6 s). Each pass uses progressively longer jittered delays
- * to avoid thundering-herd amplification. */
-const MAX_GLOBAL_ADMISSION_RETRIES = 2;
 
 /** Context passed through the fallback chain for one chat request. */
 interface ChatCandidateContext {
@@ -679,7 +647,35 @@ export class OmniRouteChatProvider
 
   // ── Chat ────────────────────────────────────────────────────────────────
 
+  private static readonly conversationRequests = new WeakMap<vscode.Memento, Map<string, Promise<void>>>();
+
   async provideLanguageModelChatResponse(
+    model: OmniModelInfo,
+    messages: readonly vscode.LanguageModelChatRequestMessage[],
+    options: vscode.ProvideLanguageModelChatResponseOptions,
+    progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    token: vscode.CancellationToken
+  ): Promise<void> {
+    const sessionId = options.modelOptions?.conversationId;
+    if (typeof sessionId !== "string" || !sessionId) {
+      return this.respondToConversation(model, messages, options, progress, token);
+    }
+    let requests = OmniRouteChatProvider.conversationRequests.get(this.deps.context.globalState);
+    if (!requests) {
+      requests = new Map();
+      OmniRouteChatProvider.conversationRequests.set(this.deps.context.globalState, requests);
+    }
+    const previous = requests.get(sessionId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(() => this.respondToConversation(model, messages, options, progress, token));
+    requests.set(sessionId, current);
+    try {
+      await current;
+    } finally {
+      if (requests.get(sessionId) === current) requests.delete(sessionId);
+    }
+  }
+
+  private async respondToConversation(
     model: OmniModelInfo,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
     options: vscode.ProvideLanguageModelChatResponseOptions,
@@ -816,13 +812,26 @@ export class OmniRouteChatProvider
     const targetPrefixedId = model.id.endsWith(AGENTS_WINDOW_ID_SUFFIX)
       ? model.id.slice(0, -AGENTS_WINDOW_ID_SUFFIX.length)
       : model.id;
-    const primaryCatalogModel = this.cachedModels.find(
-      (c) =>
-        c.entry.prefixedId === targetPrefixedId ||
-        (Boolean(model.routeId && model.omniModelId) &&
-          c.entry.routeId === model.routeId &&
-          c.entry.modelId === model.omniModelId)
-    );
+    // Stable caller-supplied IDs are required to share authorization across turns.
+    // History hashes cannot distinguish two sessions with the same initial prompt.
+    const sessionId = options.modelOptions?.conversationId;
+    const affinityKey = typeof sessionId === "string" && sessionId.length > 0
+      ? `omnicopilot-dev.affinity.v1.${crypto.createHash("sha256").update(sessionId).digest("hex")}`
+      : undefined;
+    const pinned = affinityKey
+      ? this.deps.context.globalState.get<ConversationAffinity>(affinityKey)
+      : undefined;
+    if (pinned && pinned.modelId !== model.omniModelId) {
+      throw new Error("Conversation model identity is pinned. Start a new conversation to select another model.");
+    }
+    const primaryCatalogModel = this.cachedModels.find((c) => pinned
+      ? c.entry.routeId === pinned.routeId && c.entry.modelId === pinned.modelId
+      : model.routeId && model.omniModelId
+        ? c.entry.routeId === model.routeId && c.entry.modelId === model.omniModelId
+        : c.entry.prefixedId === targetPrefixedId);
+    if (pinned && (!primaryCatalogModel || clientByRoute.get(pinned.routeId)?.baseUrl !== pinned.baseUrl)) {
+      throw new Error("Pinned conversation server/model is unavailable or its URL changed; no server was substituted.");
+    }
     const primaryEntry = primaryCatalogModel?.entry;
     if (!primaryEntry) {
       this.deps.log.warn(
@@ -832,12 +841,6 @@ export class OmniRouteChatProvider
     // User-selected transport override: `auto` keeps the catalog-derived plan;
     // a concrete value narrows every candidate to that single protocol.
     const preference = getConfig().get<TransportPreference>("transport", "auto");
-    // Always include all models as fallback candidates. Route-affinity
-    // sorting ensures same-route models are tried first; cross-route
-    // models serve as a last resort when the primary route is
-    // admission-saturated (503). This prevents a single route's capacity
-    // exhaustion from blocking the user entirely when other routes are
-    // available.
     const defaultContext = cfg.get<number>("defaultContextLength", 128_000);
     const fallbackRequirements: FallbackRequirements = {
       needsTools: Boolean(options.tools?.length),
@@ -853,16 +856,13 @@ export class OmniRouteChatProvider
           primaryEntry,
           fallbackCatalog,
           fallbackRequirements,
-          getConfig().get<FallbackMode>("fallbackMode", "sameModel")
+          getConfig().get<FallbackMode>("fallbackMode", "askBeforeSwitch")
         )
       : []
     ).map((candidate) => ({
       ...candidate,
       transportPlan: applyTransportPreference(candidate.transportPlan, preference),
     }));
-    // The prefixedId is the source of truth for what the user selected.
-    // Resolve the route from the catalog entry, NOT from model.routeId which
-    // can be stale or point to a different server.
     if (!primaryEntry && (!model.routeId || !model.omniModelId)) {
       const msg = `Model ${model.id} is not available or not properly configured`;
       const LMError = (vscode as unknown as Record<string, unknown>).LanguageModelError as
@@ -889,39 +889,15 @@ export class OmniRouteChatProvider
       `Selected model: ${primary.modelId} on route ${primary.routeId} (prefixedId: ${model.id}, catalog: ${this.cachedModels.length} models)`
     );
 
-    // Preserve fallback quality tiers while applying health within each tier.
-    // An exact same-model route may bypass a cooling primary; same-family and
-    // arbitrary substitutions never run before the selected model tier.
-    const knownOnline = this.deps.getOnlineRouteIds?.() ?? new Set<string>();
-    const primaryFamily = canonicalModelFamily(primary.modelId);
-    const qualityTier = (candidate: FallbackCandidate): number => {
-      if (candidate.modelId === primary.modelId) return 0;
-      if (primaryFamily !== undefined && canonicalModelFamily(candidate.modelId) === primaryFamily) return 1;
-      return 2;
-    };
-    const candidates = [primary, ...fallbacks].sort((a, b) => {
-      // Quality tier first: same-model > same-family > any other.
-      const tierDifference = qualityTier(a) - qualityTier(b);
-      if (tierDifference !== 0) return tierDifference;
-      // Then cooldown: healthy routes before cooling ones.
-      const aCooling = isRouteInCooldown(a.routeId) ? 1 : 0;
-      const bCooling = isRouteInCooldown(b.routeId) ? 1 : 0;
-      if (aCooling !== bCooling) return aCooling - bCooling;
-      // Route affinity: same-route before cross-route when quality and
-      // health are equal. Cross-route models serve as a last resort
-      // when the primary route is admission-saturated (503).
-      const aSameRoute = a.routeId === primary.routeId ? 0 : 1;
-      const bSameRoute = b.routeId === primary.routeId ? 0 : 1;
-      if (aSameRoute !== bSameRoute) return aSameRoute - bSameRoute;
-      if (knownOnline.size > 0) {
-        const aOnline = knownOnline.has(a.routeId) ? 0 : 1;
-        const bOnline = knownOnline.has(b.routeId) ? 0 : 1;
-        return aOnline - bOnline;
-      }
-      return 0;
-    });
-
-    const serverCount = new Set(candidates.map((c) => c.routeId)).size;
+    const candidates = [primary, ...fallbacks];
+    const client = clientByRoute.get(primary.routeId);
+    if (!client) throw new Error("Selected conversation server is unavailable; no server was substituted.");
+    if (affinityKey && !pinned) {
+      await this.deps.context.globalState.update(affinityKey, {
+        routeId: primary.routeId, modelId: primary.modelId, baseUrl: client.baseUrl,
+      } satisfies ConversationAffinity);
+    }
+    const serverCount = 1;
 
     // Pre-compute the fallback chain readout: building it inline would nest a
     // template literal inside another one (Sonar S4624).
@@ -933,6 +909,8 @@ export class OmniRouteChatProvider
 
     const retriesPerServer = getConfig().get<number>("retriesPerServer", 1);
     return {
+      affinityKey,
+      interactive: Boolean(affinityKey && options.modelOptions?.interactive === true && vscode.window.state.focused),
       clientByRoute,
       nameByRoute,
       candidates,
@@ -957,36 +935,7 @@ export class OmniRouteChatProvider
     let requestSettled = false;
 
     try {
-      let outcome = await this.runChatCandidates(plan, request, progress, token, abort);
-
-      // Global admission-saturation retry: when every route returns 429/503
-      // with capacity indicators (chat_admission_busy, etc.), the upstream may
-      // recover within a few seconds. Clear only cooldowns set by THIS
-      // request (tracked in `cooledByThisRequest`) and retry the full
-      // chain once before giving up. The delay is jittered to prevent
-      // concurrent requests from retrying in lockstep (thundering herd).
-      if (outcome.kind === "failed" && allFailuresWereAdmissionSaturated(outcome)) {
-        for (let retry = 0; retry < MAX_GLOBAL_ADMISSION_RETRIES; retry++) {
-          if (token.isCancellationRequested) break;
-          const retryDelayMs = jitteredAdmissionRetryMs(retry);
-          this.deps.log.warn(
-            `[ADMISSION RETRY] All routes admission-saturated for ${plan.modelId}; ` +
-            `waiting ${retryDelayMs}ms (jittered) before retry pass ${retry + 1}/${MAX_GLOBAL_ADMISSION_RETRIES}`
-          );
-          await delay(retryDelayMs, token);
-          if (token.isCancellationRequested) break;
-          // Clear only cooldowns that THIS request established, not cooldowns
-          // set by other concurrent requests. This preserves backpressure from
-          // other providers while allowing this request to retry.
-          for (const routeId of plan.cooledByThisRequest) {
-            clearRouteCooldown(routeId);
-          }
-          outcome = await this.runChatCandidates(plan, request, progress, token, abort);
-          if (outcome.kind !== "failed" || !allFailuresWereAdmissionSaturated(outcome)) {
-            break; // success, cancellation, or a different error — stop retrying
-          }
-        }
-      }
+      const outcome = await this.runChatCandidates(plan, request, progress, token, abort);
 
       requestSettled = true;
       if (outcome.kind === "succeeded") {
@@ -1023,101 +972,53 @@ export class OmniRouteChatProvider
     token: vscode.CancellationToken,
     abort: AbortController
   ): Promise<ChatPlanOutcome> {
-    const candidates = plan.candidates;
-    const saturatedEndpoints = new Set<string>();
-    let lastError: unknown;
-    let allSaturated = candidates.length > 0;
-    let attemptsCount = 0;
-
-    for (let i = 0; i < candidates.length;) {
-      const cand = candidates.slice(i, i + 1).pop();
-      if (!cand) break;
-      if (token.isCancellationRequested) return { kind: "cancelled", fallbacksUsed: i };
-      const endpoint = plan.clientByRoute.get(cand.routeId)?.baseUrl ?? `route:${cand.routeId}`;
-      if (saturatedEndpoints.has(endpoint)) {
-        this.deps.log.info(
-          `Skipping fallback ${cand.modelId} @${cand.routeId}: endpoint rejected admission earlier in this request`
-        );
-        i++;
-        continue;
-      }
+    let cand = plan.candidates[0];
+    let switches = 0;
+    const visited = new Set<string>();
+    while (cand) {
+      if (token.isCancellationRequested) return { kind: "cancelled", fallbacksUsed: switches };
+      visited.add(cand.routeId);
       const client = plan.clientByRoute.get(cand.routeId);
-      if (!client) {
-        lastError = new OmniRouteError(`Route ${cand.routeId} is not configured`, undefined);
-        allSaturated = false;
-        i++;
-        continue;
-      }
-      let candidateRequest: ChatRequest;
-      let candidateInputTokens: number;
-      try {
-        const prepared = await this.prepareCandidateRequest(cand, request);
-        candidateRequest = prepared.request;
-        candidateInputTokens = prepared.inputTokens;
-      } catch (error) {
-        if (!(error instanceof ContextBudgetError)) throw error;
-        lastError = error;
-        allSaturated = false;
-        this.deps.log.warn(
-          `Skipping context-incompatible candidate ${cand.modelId} @${cand.routeId}: ${error.code}`
-        );
-        i++;
-        continue;
-      }
-      attemptsCount++;
+      if (!client) throw new Error(`Pinned route ${cand.routeId} is not configured`);
+      const prepared = await this.prepareCandidateRequest(cand, request);
       const outcome = await this.tryCandidate({
-        cand,
-        client,
-        i,
-        request: candidateRequest,
-        inputTokens: candidateInputTokens,
-        progress,
-        token,
-        abort,
-        log: this.deps.log,
+        cand, client, i: switches, request: prepared.request, inputTokens: prepared.inputTokens,
+        progress, token, abort, log: this.deps.log,
         routeName: plan.nameByRoute.get(cand.routeId) ?? cand.routeId,
         retriesPerServer: plan.retriesPerServer,
         cooledByThisRequest: plan.cooledByThisRequest,
       });
-      if (outcome.kind === "succeeded" || outcome.kind === "cancelled") {
-        return { kind: outcome.kind, fallbacksUsed: i };
-      }
-      lastError = outcome.error;
-      const isSat = isAdmissionSaturationError(outcome.error);
-      if (isSat) {
-        saturatedEndpoints.add(endpoint);
-      } else {
-        allSaturated = false;
-      }
-      // P2-01: a global rejection (VALID_*/COMBO_*/malformed body) is identical
-      // for every candidate — replaying it only burns fetches. Fail immediately
-      // with the real error instead of advancing the chain.
-      if (isGlobalRequestRejection(outcome.error)) {
-        this.deps.log.error(
-          `Global request rejected by ${cand.routeId}: ${formatErrorValue(outcome.error)} — not replaying on remaining ${candidates.length - 1 - i} candidate(s)`
-        );
-        return { kind: "failed", routeId: cand.routeId, fallbacksUsed: i, error: outcome.error, allAdmissionSaturated: false };
-      }
-      const lastAttemptedIndex = this.advanceAfterCandidateFailure(plan, cand, outcome.error, i);
-      if (lastAttemptedIndex >= candidates.length - 1) {
-        return {
-          kind: "failed",
-          routeId: cand.routeId,
-          fallbacksUsed: lastAttemptedIndex,
-          error: outcome.error,
-          allAdmissionSaturated: allSaturated && attemptsCount > 0,
-        };
-      }
-      i = lastAttemptedIndex + 1;
+      if (outcome.kind !== "failed") return { kind: outcome.kind, fallbacksUsed: switches };
+      const failed: ChatPlanOutcome = { kind: "failed", routeId: cand.routeId, fallbacksUsed: switches, error: outcome.error };
+      if (!plan.interactive || token.isCancellationRequested || isGlobalRequestRejection(outcome.error)) return failed;
+      const next = plan.candidates.find((c) => !visited.has(c.routeId));
+      const switchLabel = next ? `Authorize switch to ${plan.nameByRoute.get(next.routeId) ?? next.routeId}` : undefined;
+      const retryLabel = "Retry Current Server";
+      const choices = switchLabel ? [retryLabel, switchLabel, "Cancel"] : [retryLabel, "Cancel"];
+      const cancelled = new Promise<undefined>((resolve) => {
+        const sub = token.onCancellationRequested(() => { sub.dispose(); resolve(undefined); });
+        abort.signal.addEventListener("abort", () => resolve(undefined), { once: true });
+      });
+      const pick = await Promise.race([
+        vscode.window.showWarningMessage(
+          `Server ${plan.nameByRoute.get(cand.routeId) ?? cand.routeId} failed for exact model ${cand.modelId}. No server or model has been changed.`,
+          { modal: true, detail: "Switching sends this conversation to the selected server. Approval applies only to this conversation." },
+          ...choices
+        ), cancelled,
+      ]);
+      if (token.isCancellationRequested || abort.signal.aborted) return { kind: "cancelled", fallbacksUsed: switches };
+      if (pick === retryLabel) continue;
+      if (!next || pick !== switchLabel) return failed;
+      const nextClient = plan.clientByRoute.get(next.routeId);
+      if (!nextClient || !plan.affinityKey) return failed;
+      await this.deps.context.globalState.update(plan.affinityKey, {
+        routeId: next.routeId, modelId: next.modelId, baseUrl: nextClient.baseUrl,
+      } satisfies ConversationAffinity);
+      this.deps.log.info(`User authorized conversation switch ${cand.routeId} → ${next.routeId}; exact model ${next.modelId}`);
+      cand = next;
+      switches++;
     }
-
-    return {
-      kind: "failed",
-      routeId: candidates.at(0)?.routeId,
-      fallbacksUsed: lastError === undefined ? candidates.length : candidates.length - 1,
-      error: lastError ?? new OmniRouteError("No configured route served this model", undefined),
-      allAdmissionSaturated: allSaturated && attemptsCount > 0,
-    };
+    throw new Error("No configured route served this model");
   }
 
   /** Resolve and enforce context independently from the immutable original
@@ -1193,41 +1094,6 @@ export class OmniRouteChatProvider
       throw new ContextBudgetError("PROTECTED_CONTEXT_OVERFLOW", "Final provider request exceeds context budget");
     }
     return { request: candidateRequest, inputTokens: enforced.accounting.totalInputTokens };
-  }
-
-  /** Skips redundant same-route fallbacks after admission throttling. */
-  private advanceAfterCandidateFailure(
-    plan: ChatPlan,
-    candidate: FallbackCandidate,
-    error: unknown,
-    index: number
-  ): number {
-    const status = errorStatus(error);
-    const isThrottle = status === 503 || status === 429 || isThrottleError(error);
-    let nextIndex = index;
-    if (isThrottle) {
-      nextIndex = this.skipSaturatedRouteCandidates(plan.candidates, candidate.routeId, nextIndex, status);
-    }
-    return nextIndex;
-  }
-
-  /** Skips other models on a route that has already rejected admission. */
-  private skipSaturatedRouteCandidates(
-    candidates: FallbackCandidate[],
-    routeId: string,
-    index: number,
-    status: number | undefined
-  ): number {
-    let nextIndex = index;
-    let nextCandidate = candidates.at(nextIndex + 1);
-    while (nextCandidate?.routeId === routeId) {
-      this.deps.log.info(
-        `Skipping fallback ${nextCandidate.modelId} @${routeId}: server is admission-saturated (HTTP ${status ?? "503/429"})`
-      );
-      nextIndex++;
-      nextCandidate = candidates.at(nextIndex + 1);
-    }
-    return nextIndex;
   }
 
   /** Retries one candidate until it succeeds, cancels, stalls, or exhausts

@@ -20,12 +20,15 @@
 | **Synthetic Tool-Image Boundary** | Converted multimodal tool result images into synthetic `role: "user"` messages, which `findCurrentUserIndex` mistook for the current user turn. Older user instructions and tool exchanges were erroneously evicted. | Attached internal `[TOOL_RESULT_MESSAGE]` symbol metadata to synthetic tool-result user messages. `findCurrentUserIndex` and history grouper ignore synthetic messages, keeping the actual current turn intact. | Tool-result images do not evict the real user request. |
 | **Incomplete Streamed Tool Calls** | SSE chunk processor flushed unparsed tool call fragments on bare EOF or truncated finish reasons (`length`, `content_filter`), while provider parsed malformed JSON into `{}` and executed tools with default parameters. | Strict completion enforcement: pending tool calls are only emitted on protocol completion (`tool_calls` finish_reason or `content_block_stop`). Throws descriptive protocol errors on incomplete streams or invalid JSON. Never executes `{}` on malformed input. | Truncated calls and broken JSON safely rejected. |
 | **Stale Async Tool Discovery** | `clearToolDiscoveryCache()` cleared completed cache entries, but in-flight `discoverCandidates` promises would resolve and repopulate the cache with removed routes. | Introduced generation counters to `tools.ts` and `routes.ts`. Discard resolution if cache generation changed during fetch. | Removed routes cannot resurrect. |
+| **Sticky Conversation Affinity & Failover** | Cooldown sorting reordered primary servers before request dispatch; transient errors (429, 500, 502, 503, 504) and admission loops automatically rotated to alternative servers or substituted models without user consent. | Pinned selected server (`routeId`), exact model identity (`modelId`), and `baseUrl` to conversation key (`omnicopilot-dev.affinity.v1.<sha256>`). Prohibited automatic server or model rotation; cross-server failover requires explicit modal authorization dialog (`Retry Current Server`, `Authorize switch to Server B`, `Cancel`). Headless/unattended sessions fail closed. Pinned conversations reject implicit model substitutions. | P0 strict sticky routing: zero silent server hopping, exact model preservation, interactive user approval. |
+| **Cross-Turn Request Concurrency** | Rapid consecutive turns in the same conversation could race during failover evaluation and emit conflicting dispatches. | Serialized per-conversation requests in `OmniRouteChatProvider.conversationRequests` queue. | Concurrent turns within a session execute deterministically without racing server switches. |
+| **Fixed Tools Single-Server Dispatch** | `executeWithFailover` looped through discovered candidates on search/rerank failures, hopping across servers without user awareness. | Replaced failover loop with single-target `executeCandidate`. Fails closed immediately on candidate error. | Deterministic tool execution without cross-server leakage. |
 
 ---
 
-## 2. Tool Limit Before & After Comparison
+## 2. Tool Limit & Routing Architecture Before/After Comparison
 
-| Metric / Scenario | Before (Baseline) | After (Remediated) |
+| Metric / Scenario | Before (Baseline) | After (Remediated V3) |
 |---|---|---|
 | Default tool forwarding limit | Capped at 32 (`allTools.slice(0, 32)`) | Unlimited (`maxTools = 0`) |
 | Tools 33 through 250 | Silently dropped by array index | All 250 forwarded with exact schemas |
@@ -36,6 +39,12 @@
 | Intervening assistant text | Ignored; loop triggered | Recognized as forward progress; loop guard resets |
 | Incomplete stream JSON | Parsed as `{}` and executed | Rejected with 400 stream protocol error |
 | Protected context overflow | Silently evicted tools from manifest | Throws `PROTECTED_CONTEXT_OVERFLOW` |
+| Server selection on cooldown | Healthy selected primary bypassed if cooling | Selected primary preserved; cooldown does not substitute server |
+| Failover on server failure (429/5xx/timeout) | Silently switched to alternative candidate | Requires explicit interactive modal authorization dialog |
+| Model substitution on fallback | Permitted same-family or arbitrary model fallback | Strict exact model preservation (`modelId`, tool calling, vision, context) |
+| Headless / unattended execution | Replayed fallback chain automatically | Fails closed without prompting or auto-switching |
+| Fixed tools (`/search`, `/rerank`) | Silently failed over across discovered servers | Dispatches only to selected candidate; fails closed on error |
+| Same-session concurrent turns | Raced fallback evaluation | Serialized per conversation session; preserves switch state |
 
 ---
 
@@ -82,11 +91,13 @@ Based on official VS Code 1.141–1.143 architecture specifications, runtime gui
 Every gate was executed directly in the repository environment:
 
 ### A. Acceptance Tests
+- **`test/multiRouteAffinity.test.ts`:** 18 deterministic multi-route acceptance tests covering sticky server preservation during cooldown, rejection of automatic failover across HTTP 429/500/502/503/504/undefined status codes without user approval, authorized switch execution and session-pinning for subsequent turns, current-server retry loops, fail-closed handling in unattended/headless sessions without dialog popups, conversation-level isolation preventing cross-session authorization leakage, non-inference of session authorization from identical message prefixes, rejection of implicit model changes within pinned conversations, persistence across provider re-initialization, non-oscillation across multiple server failures without renewed authorization, protection against replaying partially emitted tool calls on alternate routes, fail-closed behavior on absent session identity, and serialized execution of overlapping same-session turns.
 - **`test/providerToolLimits.test.ts`:** 27 tests covering manifests `0, 1, 32, 33, 64, 128, 150, 250`, sequential iterations `10, 25, 50, 100`, parallel tool calls, missing results, intervening assistant progress, numeric model capacities, and explicit cap error handling.
 - **`test/contextBudget.test.ts`:** 25 tests covering protected context overflow, refusal to drop tool schemas, synthetic tool-image isolation, and automatic/manual presets.
 - **`test/client.test.ts` & `test/clientMessages.test.ts`:** 110 tests covering streaming tool assembly, truncated SSE rejection, bare EOF protection, finish_reason verification, and reasoning extraction.
 - **`test/providerToolSummary.test.ts`:** 11 tests verifying rejection of malformed/non-object tool arguments (`{"cmd":`, `[]`, `null`, `"string"`).
-- **`test/routes.test.ts` & `test/tools.test.ts`:** 58 tests verifying cache generation invalidation, tool discovery lifecycle, and numeric candidate capacity matching.
+- **`test/routes.test.ts` & `test/tools.test.ts`:** 66 tests verifying strict candidate matching (exact model ID, matching tool calling, vision, and positive context length), rejection of same-family or arbitrary model substitutions, single-target tool execution without silent failover, cache generation invalidation, and tool discovery lifecycle.
+- **`test/providerFallback.test.ts` & `test/fallbackCandidates.test.ts`:** 38 tests verifying request-level retries per server, fail-closed routing without unauthorized B dispatch, rejection of cross-model substitutions under all legacy fallback modes (`sameModel`, `sameFamily`, `full`, `none`), and post-output non-failover protections.
 
 ### B. Command Execution Summary
 - **Type Check (`npm run check-types`):** **PASS** (`tsc --noEmit` exited 0).

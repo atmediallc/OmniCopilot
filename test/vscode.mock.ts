@@ -171,6 +171,8 @@ export class ThemeColor {
 }
 
 export const window = {
+  showWarningMessage: async (_message: string, ..._items: unknown[]) => undefined,
+  state: { focused: true },
   showErrorMessage: async (_message: string) => undefined,
   createStatusBarItem: (_alignment?: StatusBarAlignment, _priority?: number) => ({
     text: "",
