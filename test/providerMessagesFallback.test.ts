@@ -80,7 +80,7 @@ describe("Messages-aware provider fallback", () => {
     );
     const progress = { report: vi.fn() };
     vi.spyOn(vscode.window, "showWarningMessage").mockImplementation(async (_msg, _opts, ...items) =>
-      items.find((i) => typeof i === "string" && i.startsWith("Authorize switch")) as never
+      items.find((i) => typeof i === "string" && (i as string).startsWith("Authorize switch")) as never
     );
     await provider.provideLanguageModelChatResponse(
       model,

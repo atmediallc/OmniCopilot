@@ -19,10 +19,10 @@ scripts/
 
 
 #Ignore vscode AI rules
-.github\instructions\codacy.instructions.md
-.codacy\
+.github/instructions/codacy.instructions.md
+.codacy/
 codacy.config.baseline.json
 codacy.config.json
-\codacy.config.baseline.json
-\codacy.config.json
+/codacy.config.baseline.json
+/codacy.config.json
 coverage/
