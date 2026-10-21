@@ -6,6 +6,25 @@ import {
   resolveContextBudget,
 } from "../src/contextBudget";
 import type { ChatMessage, ChatTool } from "../src/types";
+import * as vscode from "vscode";
+import { toOpenAiMessages } from "../src/convert";
+
+it("rejects oversized protected manifests rather than hiding tools", () => {
+  const tools: ChatTool[] = [{ type: "function", function: { name: "run", description: "x".repeat(8000), parameters: { type: "object" } } }];
+  const budget = resolveContextBudget({ providerMaxContext: 1000, fallbackMaxContext: 1000, requestedOutputTokens: 100, safetyMarginTokens: 100 });
+  expect(() => enforceContextBudget({ messages: [{ role: "user", content: "hi" }], tools, budget })).toThrow(ContextBudgetError);
+  expect(tools).toHaveLength(1);
+});
+
+it("protects the real current user and tool exchange before synthetic tool images", () => {
+  const messages = toOpenAiMessages([
+    { role: vscode.LanguageModelChatMessageRole.User, name: undefined, content: [new vscode.LanguageModelTextPart("inspect current workspace ".repeat(1000))] },
+    { role: vscode.LanguageModelChatMessageRole.Assistant, name: undefined, content: [new vscode.LanguageModelToolCallPart("shot", "screenshot", {})] },
+    { role: vscode.LanguageModelChatMessageRole.User, name: undefined, content: [new vscode.LanguageModelToolResultPart("shot", [new vscode.LanguageModelDataPart(new Uint8Array([1]), "image/png")])] },
+  ]);
+  const budget = resolveContextBudget({ providerMaxContext: 5000, fallbackMaxContext: 5000, requestedOutputTokens: 100, safetyMarginTokens: 100 });
+  expect(() => enforceContextBudget({ messages, budget })).toThrow(ContextBudgetError);
+});
 
 const text = (role: ChatMessage["role"], content: string): ChatMessage => ({ role, content });
 const tool = (name: string, description = ""): ChatTool => ({

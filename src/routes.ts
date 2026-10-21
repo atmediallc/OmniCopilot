@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { OmniRouteClient, normalizeBaseUrl } from "./client";
 import { selectChatModels } from "./catalogFilter";
 import { classifySupportedEndpoints } from "./supportedEndpoints";
-import { canonicalModelFamily } from "./modelIdentity";
 import type { OmniLogger } from "./client";
 import type { ModelTransport, ModelTransportPlan, OmniRouteModel, RouteConfig, TransportPreference } from "./types";
 
@@ -194,7 +193,10 @@ export function resetAllCooldowns(): void {
  * When `keepCooldowns` is true (e.g. non-route config changes), the
  * per-route cooldowns are preserved so servers recently punished for
  * 429/408 errors are not prematurely retried. */
+let _routeCacheGeneration = 0;
+
 export function invalidateRouteCache(keepCooldowns = false): void {
+  _routeCacheGeneration++;
   _cachedRoutes = undefined;
   _clientPool.clear();
   if (!keepCooldowns) resetAllCooldowns();
@@ -203,9 +205,13 @@ export function invalidateRouteCache(keepCooldowns = false): void {
 /** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */
 export async function cachedLoadRoutes(context: vscode.ExtensionContext): Promise<Route[]> {
   if (_cachedRoutes && _cacheContext === context) return _cachedRoutes;
-  _cacheContext = context;
-  _cachedRoutes = await loadRoutes(context);
-  return _cachedRoutes;
+  const generation = _routeCacheGeneration;
+  const loaded = await loadRoutes(context);
+  if (generation === _routeCacheGeneration) {
+    _cacheContext = context;
+    _cachedRoutes = loaded;
+  }
+  return loaded;
 }
 
 // ── Client pool ────────────────────────────────────────────────────────
@@ -339,7 +345,7 @@ export function buildCatalog(perRoute: RouteCatalog[]): CatalogModel[] {
   return out;
 }
 
-export type FallbackMode = "none" | "sameModel" | "sameFamily" | "full";
+export type FallbackMode = "askBeforeSwitch" | "none" | "sameModel" | "sameFamily" | "full";
 
 /** Derive the complete pre-output protocol plan from catalog metadata.
  * Missing, empty, and wholly unknown metadata retain the compatibility plan;
@@ -386,6 +392,8 @@ export function applyTransportPreference(
 export interface FallbackRequirements {
   /** True when the request requires tool-calling support. */
   needsTools?: boolean;
+  /** Definitions forwarded unchanged to each candidate. */
+  toolCount?: number;
   /** True when the request contains multimodal image attachments. */
   needsVision?: boolean;
   /** Minimum input context tokens needed to hold the request. */
@@ -407,8 +415,10 @@ export function isCandidateCompatible(
   const caps = model.capabilities ?? {};
 
   // 1. Tool calling: fail-closed. If request requires tools, candidate MUST explicitly support tools.
-  if (reqs.needsTools && caps.tool_calling !== true) {
-    return false;
+  if (reqs.needsTools) {
+    const capacity = caps.tool_calling;
+    if (capacity !== true && !(typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0)) return false;
+    if (typeof capacity === "number" && (reqs.toolCount ?? 0) > capacity) return false;
   }
 
   // 2. Vision: fail-closed. If request has images, candidate MUST explicitly support vision.
@@ -438,33 +448,73 @@ export function isCandidateCompatible(
   return true;
 }
 
-/** Ordered cross-route fallback candidates for a failing chat request.
+/** Strict cross-route candidate selector for model fallback.
  *
- * `mode` controls how far the chain reaches:
- * - `none`: only the primary model; never substitute.
- * - `sameModel`: the same model id on another configured server.
- * - `sameFamily`: additionally the same provider family on the same server.
- * - `full`: then any compatible model anywhere (legacy behaviour).
- *
- * Hard compatibility (tools, vision, transport, context) is strictly evaluated
- * before family matching or quality ranking. The primary model is always excluded. */
+ * Rules:
+ * - Never substitutes family or other models under any mode.
+ * - Only selects exact model ID cross-route.
+ * - Requires identical explicitly known tool_calling, vision, and positive context_length
+ *   metadata to primary.
+ * - Fails closed on unknown capabilities or context.
+ * - Mode `none` disables fallback. */
 export function pickFallbackCandidates(
   primary: CatalogEntry,
   catalog: CatalogModel[],
   requirements: boolean | FallbackRequirements,
-  mode: FallbackMode = "full",
+  mode: FallbackMode = "askBeforeSwitch",
   max = 4
 ): FallbackCandidate[] {
+  if (mode === "none") return [];
+
+  const primaryModel = catalog.find(
+    (c) =>
+      (c.entry.routeId === primary.routeId && c.entry.modelId === primary.modelId) ||
+      (Boolean(primary.prefixedId) && c.entry.prefixedId === primary.prefixedId)
+  )?.model;
+  if (!primaryModel) return [];
+
+  const primaryToolCalling = primaryModel.capabilities?.tool_calling;
+  const isKnownToolCalling =
+    typeof primaryToolCalling === "boolean" ||
+    (typeof primaryToolCalling === "number" &&
+      Number.isSafeInteger(primaryToolCalling) &&
+      primaryToolCalling > 0);
+  if (!isKnownToolCalling) return [];
+
+  const primaryVision = primaryModel.capabilities?.vision;
+  if (typeof primaryVision !== "boolean") return [];
+
+  const primaryContext = primaryModel.context_length;
+  if (
+    typeof primaryContext !== "number" ||
+    !Number.isFinite(primaryContext) ||
+    primaryContext <= 0
+  ) {
+    return [];
+  }
+
   const reqs: FallbackRequirements =
     typeof requirements === "boolean" ? { needsTools: requirements } : requirements;
 
-  const compatible = (c: CatalogModel) => isCandidateCompatible(c.model, reqs);
-  const family = canonicalModelFamily(primary.modelId);
-
   const out: FallbackCandidate[] = [];
-  const seen = new Set<string>([primary.prefixedId]);
-  const push = (c: CatalogModel) => {
-    if (seen.has(c.entry.prefixedId)) return;
+  const seen = new Set<string>();
+  if (primary.prefixedId) seen.add(primary.prefixedId);
+
+  for (const c of catalog) {
+    if (c.entry.routeId === primary.routeId) continue;
+    if (c.entry.modelId !== primary.modelId) continue;
+    if (seen.has(c.entry.prefixedId)) continue;
+
+    if (
+      c.model.capabilities?.tool_calling !== primaryToolCalling ||
+      c.model.capabilities?.vision !== primaryVision ||
+      c.model.context_length !== primaryContext
+    ) {
+      continue;
+    }
+
+    if (!isCandidateCompatible(c.model, reqs)) continue;
+
     seen.add(c.entry.prefixedId);
     out.push({
       routeId: c.entry.routeId,
@@ -474,31 +524,6 @@ export function pickFallbackCandidates(
         reqs.transportPreference ?? "auto"
       ),
     });
-  };
-
-  if (mode === "none") return out;
-
-  catalog
-    .filter((c) => compatible(c) && c.entry.modelId === primary.modelId && c.entry.routeId !== primary.routeId)
-    .forEach(push);
-
-  if (mode !== "sameModel") {
-    catalog
-      .filter(
-        (c) =>
-          compatible(c) &&
-          c.entry.routeId === primary.routeId &&
-          c.entry.modelId !== primary.modelId &&
-          family !== undefined &&
-          canonicalModelFamily(c.entry.modelId) === family
-      )
-      .forEach(push);
-  }
-
-  if (mode === "full") {
-    catalog
-      .filter((c) => compatible(c) && c.entry.prefixedId !== primary.prefixedId)
-      .forEach(push);
   }
 
   return out.slice(0, max);

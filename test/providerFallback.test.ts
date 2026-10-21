@@ -5,12 +5,8 @@ import { OmniRouteError } from "../src/client";
 import * as routesModule from "../src/routes";
 import { configValues } from "./vscode.mock";
 
-/**
- * End-to-end-ish proof that the "full" fallback chain actually runs inside
- * provideLanguageModelChatResponse: two servers, same model on both, primary
- * unreachable → the request is served by the second server and the caller
- * learns 1 fallback was used via onRequestEnd(ok=true, error, fallbacksUsed=1).
- */
+/** Request-level retry and fail-closed routing coverage. Legacy fallbackMode
+ * settings never authorize cross-server or cross-model dispatch. */
 
 function mockContext() {
   const store = new Map<string, unknown>();
@@ -46,7 +42,7 @@ const dummyToken = {
   onCancellationRequested: () => ({ dispose: () => {} }),
 } as unknown as vscode.CancellationToken;
 
-describe("full fallback at the request level", () => {
+describe("fail-closed routing at the request level", () => {
   afterEach(() => {
     routesModule.resetAllCooldowns();
     delete configValues["omnicopilot-dev"];
@@ -180,7 +176,7 @@ describe("full fallback at the request level", () => {
     expect(client.streamModel).toHaveBeenCalledTimes(2);
   });
 
-  it("serves the request from a second server when the primary fails", async () => {
+  it("retries the selected server without dispatching to another server when it fails", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
@@ -195,7 +191,7 @@ describe("full fallback at the request level", () => {
         throw new OmniRouteError("fetch failed", undefined);
       }),
     };
-    // Server B: serves the same model (full fallback tier 1) and extra models.
+    // Server B offers the same model, but discovery does not authorize dispatch.
     const clientB = {
       baseUrl: "http://server-b.local/v1",
       listModels: vi
@@ -226,28 +222,21 @@ describe("full fallback at the request level", () => {
 
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       model,
       [],
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       progress as unknown as vscode.Progress<unknown>,
       dummyToken
-    );
+    )).rejects.toThrow("fetch failed");
 
-    // The primary was tried, then the same model on server B answered.
-    expect(clientA.streamModel).toHaveBeenCalled();
-    expect(clientB.streamModel).toHaveBeenCalled();
-    expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "fallback reply" })
-    );
-    // ok=true, no error, exactly 1 fallback consumed.
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, "fetch failed", 0);
   });
 
-  it("fails over to another route when the primary rejects with HTTP 401", async () => {
-    // OmniRoute v3.8.50 returns a pre-stream 401 {error:{message,type:"authentication_error"}}
-    // when one route's key is invalid; per-route credentials mean the next
-    // route can still serve — the chain must advance instead of dying.
+  it("surfaces selected-route HTTP 401 without retrying or using another route's credentials", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 2, fallbackMode: "sameModel" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
@@ -285,22 +274,21 @@ describe("full fallback at the request level", () => {
     } as unknown as Parameters<typeof provider.provideLanguageModelChatResponse>[0];
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       model,
       [],
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       progress as unknown as vscode.Progress<unknown>,
       dummyToken
-    );
+    )).rejects.toThrow(/Authentication failed.*Server A.*HTTP 401/);
 
-    // Permanent rejection: exactly ONE attempt on A (no retry), then B serves.
     expect(clientA.streamModel).toHaveBeenCalledTimes(1);
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "route B answered" }));
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("HTTP 401"), 0);
   });
 
-  it("fails over on pre-stream 400 model_not_found and still surfaces the last error when no candidate remains", async () => {
+  it("surfaces selected-model HTTP 400 without dispatching to another route", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     const onRequestEnd = vi.fn();
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog, onRequestEnd });
@@ -351,10 +339,9 @@ describe("full fallback at the request level", () => {
       )
     ).rejects.toThrow(/could not be resolved/);
 
-    // Every candidate got its single attempt before the final error surfaced.
     expect(clientA.streamModel).toHaveBeenCalledTimes(1);
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("could not be resolved"), 1);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("could not be resolved"), 0);
   });
 
   it("still throws immediately when a failure happens mid-stream after output", async () => {
@@ -395,7 +382,7 @@ describe("full fallback at the request level", () => {
     expect(client.streamModel).toHaveBeenCalledTimes(1);
   });
 
-  it("tries offline fallback candidate if primary fails instead of dropping it", async () => {
+  it("does not dispatch to an offline alternate after selected-route retries fail", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
 
     const context = mockContext();
@@ -441,20 +428,18 @@ describe("full fallback at the request level", () => {
 
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       model,
       [],
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       progress as unknown as vscode.Progress<unknown>,
       dummyToken
-    );
+    )).rejects.toThrow("fetch failed");
 
-    expect(clientA.streamModel).toHaveBeenCalled();
-    expect(clientB.streamModel).toHaveBeenCalled();
-    expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "offline server answered" })
-    );
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, "fetch failed", 0);
   });
 
   it.each([
@@ -483,7 +468,7 @@ describe("full fallback at the request level", () => {
       message: "Service unavailable",
       expectedAttempts: 2,
     },
-  ])("handles $scenario and immediately tries another route when appropriate", async ({ status, message, expectedAttempts }) => {
+  ])("handles $scenario with selected-route retry policy and no unauthorized fallback", async ({ status, message, expectedAttempts }) => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
@@ -531,24 +516,21 @@ describe("full fallback at the request level", () => {
 
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       model,
       [],
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       progress as unknown as vscode.Progress<unknown>,
       dummyToken
-    );
+    )).rejects.toThrow(/busy|rate-limited|Service unavailable/);
 
-    // Explicit capacity rejection fails over immediately; a generic 429
-    // retains the configured retry policy. Same-route model fallbacks are
-    // always skipped after the route rejects admission.
+    // Explicit admission errors stop immediately; generic transient errors retry.
     expect(clientA.streamModel).toHaveBeenCalledTimes(expectedAttempts);
-    // The other route is tried immediately and succeeds.
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "server B answered" })
-    );
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientA.streamModel.mock.calls.map(([request]) => request.model))
+      .toEqual(Array(expectedAttempts).fill("openai/gpt-4o"));
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.any(String), 0);
     if (expectedAttempts === 1) {
       expect(routesModule.getRouteCooldown("A")).toMatchObject({
         status,
@@ -600,12 +582,11 @@ describe("full fallback at the request level", () => {
       dummyToken
     )).rejects.toMatchObject({ status: 503, message: expect.stringContaining("busy or rate-limited") });
 
-    // Initial pass (1 call) + 2 global admission retries = 3
-    expect(client.streamModel).toHaveBeenCalledTimes(3);
+    expect(client.streamModel).toHaveBeenCalledTimes(1);
     expect(client.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
   });
 
-  it("does not reuse a throttled route through a later lower-quality fallback", async () => {
+  it("stops on selected-route admission failure without trying alternate routes or models", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const clientA = {
@@ -646,11 +627,11 @@ describe("full fallback at the request level", () => {
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       { report: vi.fn() } as unknown as vscode.Progress<unknown>,
       dummyToken
-    )).rejects.toBeInstanceOf(OmniRouteError);
+    )).rejects.toThrow(/busy|rate-limited/);
 
     expect(clientA.streamModel).toHaveBeenCalledTimes(1);
     expect(clientA.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
   });
 
   it("rethrows an exhausted admission failure without showing extension error UI", { timeout: 15_000 }, async () => {
@@ -685,10 +666,9 @@ describe("full fallback at the request level", () => {
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       { report: vi.fn() } as unknown as vscode.Progress<unknown>,
       dummyToken
-    )).rejects.toMatchObject({ status: 503, message: expect.stringContaining("busy or rate-limited") });
+    )).rejects.toThrow(/busy|rate-limited/);
 
-    // Initial pass (1 call) + 2 global admission retries = 3
-    expect.soft(client.streamModel).toHaveBeenCalledTimes(3);
+    expect(client.streamModel).toHaveBeenCalledTimes(1);
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
 
@@ -758,7 +738,7 @@ describe("full fallback at the request level", () => {
     expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 0);
   });
 
-  it("prioritizes non-cooling fallback routes over routes currently in cooldown", async () => {
+  it("does not choose healthy or cooling alternates after selected-route failure", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "full" };
 
     const context = mockContext();
@@ -810,24 +790,21 @@ describe("full fallback at the request level", () => {
 
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       model,
       [],
       {} as Parameters<typeof provider.provideLanguageModelChatResponse>[2],
       progress as unknown as vscode.Progress<unknown>,
       dummyToken
-    );
+    )).rejects.toThrow("Server A failed");
 
-    // Primary (A) failed, then healthy non-cooling Server C was chosen before cooling Server B!
-    expect(clientA.streamModel).toHaveBeenCalled();
-    expect(clientC.streamModel).toHaveBeenCalled();
+    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
+    expect(clientC.streamModel).not.toHaveBeenCalled();
     expect(clientB.streamModel).not.toHaveBeenCalled();
-    expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "from C" })
-    );
+    expect(progress.report).not.toHaveBeenCalled();
   });
 
-  it("deprioritizes a selected primary in cooldown behind a healthy same-model fallback", async () => {
+  it("keeps the selected route despite cooldown and another route's healthy status", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
     routesModule.markRouteCooldown("A", 30_000, 429, "Throttled");
     const provider = new OmniRouteChatProvider({
@@ -876,12 +853,13 @@ describe("full fallback at the request level", () => {
       dummyToken
     );
 
-    expect(callOrder).toEqual(["B"]);
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(clientA.streamModel).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(["A"]);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
     expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "healthy fallback answered" })
+      expect.objectContaining({ value: "cooling primary answered" })
     );
+    expect(routesModule.getRouteCooldown("A")).toBeUndefined();
   });
 
   it("keeps a cooling exact-model route ahead of a healthy lower-quality fallback", async () => {
@@ -985,7 +963,7 @@ describe("cross-route fallback isolation", () => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to another route's model when the primary route is admission-saturated", async () => {
+  it("does not bypass a route-scoped picker after the selected model fails", async () => {
     configValues["omnicopilot-dev"] = {
       retriesPerServer: 0,
       fallbackMode: "full",
@@ -1003,9 +981,9 @@ describe("cross-route fallback isolation", () => {
         { id: "openai/gpt-4o" },
         { id: "openai/gpt-4o-mini" },
       ]),
-      streamModel: vi.fn().mockRejectedValue(
-        new OmniRouteError("unavailable", 503, false, "headers")
-      ),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("unavailable", 503, false, "headers");
+      }),
     };
     const clientB = {
       baseUrl: "http://server-b.local/v1",
@@ -1023,31 +1001,22 @@ describe("cross-route fallback isolation", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
       [],
       {} as never,
       progress as never,
       dummyToken
-    );
+    )).rejects.toThrow(/busy|rate-limited/);
 
-    // clientA.streamModel was called (primary + mini fallback, both on route A)
-    expect(clientA.streamModel).toHaveBeenCalled();
-    // clientB IS called — cross-route fallback serves as a last resort when
-    // the primary route is admission-saturated (503).
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(progress.report).toHaveBeenCalledWith(
-      expect.objectContaining({ value: "server b answered" })
-    );
-    // onRequestEnd reports success via the cross-route spill
-    expect(onRequestEnd).toHaveBeenCalledWith(
-      true,
-      undefined,
-      expect.any(Number)
-    );
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientA.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("unavailable"), 0);
   });
 
-  it("cross-route fallback DOES fall back to another route when crossRouteFallback is true", async () => {
+  it("does not treat legacy crossRouteFallback=true as permission to change routes", async () => {
     configValues["omnicopilot-dev"] = {
       retriesPerServer: 0,
       fallbackMode: "full",
@@ -1061,9 +1030,9 @@ describe("cross-route fallback isolation", () => {
     const clientA = {
       baseUrl: "http://server-a.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
-      streamModel: vi.fn().mockRejectedValue(
-        new OmniRouteError("unavailable", 503, false, "headers")
-      ),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("unavailable", 503, false, "headers");
+      }),
     };
     const clientB = {
       baseUrl: "http://server-b.local/v1",
@@ -1081,22 +1050,21 @@ describe("cross-route fallback isolation", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
       [],
       {} as never,
       progress as never,
       dummyToken
-    );
+    )).rejects.toThrow(/busy|rate-limited/);
 
-    // clientA failed, clientB was tried and succeeded
     expect(clientA.streamModel).toHaveBeenCalledTimes(1);
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
-    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "server b answered" }));
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("unavailable"), 0);
   });
 
-  it("single-route provider still uses same-route fallback even when crossRouteFallback is false", async () => {
+  it("does not rotate models within a single-route provider", async () => {
     configValues["omnicopilot-dev"] = {
       retriesPerServer: 0,
       fallbackMode: "full",
@@ -1113,9 +1081,9 @@ describe("cross-route fallback isolation", () => {
         { id: "openai/gpt-4o" },
         { id: "anthropic/claude-haiku" },
       ]),
-      streamModel: vi.fn()
-        .mockRejectedValueOnce(new OmniRouteError("primary down", 503, false, "headers"))
-        .mockReturnValueOnce((async function* () { yield { kind: "text", text: "mini fallback answered" }; })()),
+      streamModel: vi.fn().mockImplementation(async function* () {
+        throw new OmniRouteError("primary down", 503, false, "headers");
+      }),
     };
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
       { id: "A", name: "Server A", baseUrl: "http://server-a.local/v1" },
@@ -1127,28 +1095,28 @@ describe("cross-route fallback isolation", () => {
     await provider.provideLanguageModelChatInformation({ silent: true }, dummyToken);
     const progress = { report: vi.fn() };
 
-    await provider.provideLanguageModelChatResponse(
+    await expect(provider.provideLanguageModelChatResponse(
       { id: "openai/gpt-4o", omniModelId: "openai/gpt-4o", routeId: "A" } as never,
       [],
       {} as never,
       progress as never,
       dummyToken
-    );
+    )).rejects.toThrow(/busy|rate-limited/);
 
-    // Primary failed, same-route fallback succeeded
-    expect(clientA.streamModel).toHaveBeenCalledTimes(2);
-    expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "mini fallback answered" }));
-    expect(onRequestEnd).toHaveBeenCalledWith(true, undefined, 1);
+    expect(clientA.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientA.streamModel.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-4o" });
+    expect(progress.report).not.toHaveBeenCalled();
+    expect(onRequestEnd).toHaveBeenCalledWith(false, expect.stringContaining("primary down"), 0);
   });
 
-  it("does not trigger global admission retry if any candidate failed with non-admission error", async () => {
+  it("does not run a global retry pass or probe other routes after admission failure", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "full" };
     const provider = new OmniRouteChatProvider({ context: mockContext(), log: mockLog });
     const clientA = {
       baseUrl: "http://server-a.local/v1",
       listModels: vi.fn().mockResolvedValue([{ id: "openai/gpt-4o" }]),
       streamModel: vi.fn().mockImplementation(async function* () {
-        throw new OmniRouteError("internal server error", 500);
+        throw new OmniRouteError("Chat admission capacity is temporarily unavailable", 503);
       }),
     };
     const clientB = {
@@ -1174,11 +1142,9 @@ describe("cross-route fallback isolation", () => {
       {} as never,
       { report: vi.fn() } as never,
       dummyToken
-    )).rejects.toMatchObject({ status: 503 });
+    )).rejects.toThrow(/busy|rate-limited/);
 
-    // Client A failed with 500 (1 time), Client B failed with 503 (1 time)
-    // No global admission retry because not all candidates failed due to admission saturation
     expect(clientA.streamModel).toHaveBeenCalledTimes(1);
-    expect(clientB.streamModel).toHaveBeenCalledTimes(1);
+    expect(clientB.streamModel).not.toHaveBeenCalled();
   });
 });

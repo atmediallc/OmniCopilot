@@ -278,7 +278,10 @@ export function sanitizeOmniRouteModel(raw: unknown): OmniRouteModel | undefined
   if (m.capabilities && typeof m.capabilities === "object" && !Array.isArray(m.capabilities)) {
     const caps = m.capabilities as Record<string, unknown>;
     const sanitizedCaps: OmniRouteModel["capabilities"] = {};
-    if (typeof caps.tool_calling === "boolean") sanitizedCaps.tool_calling = caps.tool_calling;
+    if (typeof caps.tool_calling === "boolean" ||
+      (typeof caps.tool_calling === "number" && Number.isSafeInteger(caps.tool_calling) && caps.tool_calling > 0)) {
+      sanitizedCaps.tool_calling = caps.tool_calling;
+    }
     if (typeof caps.vision === "boolean") sanitizedCaps.vision = caps.vision;
     if (typeof caps.reasoning === "boolean") sanitizedCaps.reasoning = caps.reasoning;
     if (typeof caps.thinking === "boolean") sanitizedCaps.thinking = caps.thinking;
@@ -717,7 +720,7 @@ export class OmniRouteClient {
       yield* this.emitMessagesSseLine(line, assembler, reasoningFilter, session);
     }
     yield* flushFilteredText(reasoningFilter);
-    yield* assembler.flush();
+    assembler.assertComplete();
   }
 
   private async *emitMessagesSseLine(
@@ -880,9 +883,7 @@ export class OmniRouteClient {
       yield* this.emitSseLine(line, assembler, reasoningFilter, session);
     }
     yield* flushFilteredText(reasoningFilter);
-    // Flush any tool calls still being assembled when the stream ends
-    // without an explicit finish_reason line.
-    yield* assembler.flush();
+    assembler.assertComplete();
   }
 
   /** Handles one SSE line: normalizes events and keeps the stall watchdog
@@ -983,8 +984,10 @@ export class OmniRouteClient {
     if (delta?.tool_calls) {
       events.push(...assembler.accept(delta.tool_calls));
     }
-    if (choice.finish_reason) {
+    if (choice.finish_reason === "tool_calls" || choice.finish_reason === "stop") {
       events.push(...assembler.flush());
+    } else if (choice.finish_reason) {
+      assembler.assertComplete();
     }
     return { events, alive };
   }
@@ -1192,40 +1195,24 @@ class StreamSession {
   }
 }
 
-function isCompleteJsonObject(str: string): boolean {
-  if (!str) return false;
-  const trimmed = str.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
-  try {
-    JSON.parse(trimmed);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Reassembles incremental tool_calls deltas (indexed fragments) into
  * complete calls, emitted once their JSON arguments are whole. */
 class ToolCallAssembler {
   private readonly pending = new Map<number, { id: string; name: string; args: string }>();
 
   accept(deltas: StreamToolCallDelta[]): StreamEvent[] {
-    const earlyEvents: StreamEvent[] = [];
     for (const d of deltas) {
-      // Early emission: if a new index arrives, check if lower indices are complete
-      for (const [idx, call] of this.pending.entries()) {
-        if (idx < d.index && call.id && call.name && isCompleteJsonObject(call.args)) {
-          earlyEvents.push({ kind: "toolCall", id: call.id, name: call.name, args: call.args });
-          this.pending.delete(idx);
-        }
-      }
       const slot = this.pending.get(d.index) ?? { id: "", name: "", args: "" };
       if (d.id) slot.id = d.id;
       if (d.function?.name) slot.name += d.function.name;
       if (d.function?.arguments) slot.args += d.function.arguments;
       this.pending.set(d.index, slot);
     }
-    return earlyEvents;
+    return [];
+  }
+
+  assertComplete(): void {
+    if (this.pending.size) throw new OmniRouteError("Incomplete tool call in truncated stream", 400, false, "stream", "/chat/completions");
   }
 
   *flush(): Generator<StreamEvent> {
@@ -1481,6 +1468,10 @@ class MessagesToolCallAssembler {
     if (!call.receivedDelta) call.args = "";
     call.receivedDelta = true;
     call.args += partialJson;
+  }
+
+  assertComplete(): void {
+    if (this.pending.size) throw new OmniRouteError("Incomplete tool call in truncated stream", 400, false, "stream", "/messages");
   }
 
   *finish(index: number): Generator<StreamEvent> {

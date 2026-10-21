@@ -26,6 +26,14 @@ async function collectMessages(client: OmniRouteClient, request?: ChatRequest): 
 describe("OmniRouteClient Messages transport", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("rejects unfinished tool blocks on bare EOF", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"pending","name":"write_file","input":{}}}',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"a\\"}"}}',
+    ])));
+    await expect(collectMessages(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(/incomplete|truncated/i);
+  });
+
   it("serializes system, text, images, tool calls, tool results, tools, required choice, and max_tokens", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse(["data: {\"type\":\"message_stop\"}"]));
     vi.stubGlobal("fetch", fetchMock);

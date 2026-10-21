@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { formatErrorValue } from "./client";
 import { estimateTextTokens } from "./contextBudget";
-import type { ChatContentPart, ChatMessage, ChatRequest, ChatTool } from "./types";
+import { TOOL_RESULT_MESSAGE, type ChatContentPart, type ChatMessage, type ChatRequest, type ChatTool } from "./types";
 
 /**
  * Convert VS Code chat request messages to OpenAI Chat Completions messages.
@@ -20,11 +20,8 @@ export function toOpenAiMessages(
   return reorderSystemMessages(out);
 }
 
-/** Consecutive identical tool calls tolerated before the request is refused.
- * Agent loops ("Ran Initial Instructions" ×20) re-bill the full history on
- * every iteration, so stopping early with a clear message saves real tokens.
- * Five is generous: legitimate flows rarely repeat the exact same call
- * (same name + same args) even twice in a row. */
+/** Completed identical calls with unchanged results tolerated before warning.
+ * This is a no-progress threshold, not an agent iteration limit. */
 export const MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 5;
 
 export interface IdenticalToolCallRun {
@@ -62,13 +59,15 @@ function sortKeys(val: unknown): unknown {
  * prompt (not a tool result) or an assistant text response resets the run,
  * so rephrasing, retrying, or sending a new message is never blocked by a past loop. */
 export function trailingIdenticalToolCalls(
-  messages: readonly vscode.LanguageModelChatRequestMessage[]
+  messages: readonly vscode.LanguageModelChatRequestMessage[],
+  requireUnchangedResults = false
 ): IdenticalToolCallRun | undefined {
   if (!messages.length) return undefined;
 
   let targetKey: string | undefined;
   let targetName: string | undefined;
   let count = 0;
+  const results = new Map<string, string>();
 
   const reversedMessages = [...messages].reverse();
   for (const msg of reversedMessages) {
@@ -80,6 +79,10 @@ export function trailingIdenticalToolCalls(
     for (const part of parts) {
       if (part instanceof vscode.LanguageModelToolCallPart) {
         toolCalls.push(part);
+      } else if (requireUnchangedResults && part instanceof vscode.LanguageModelToolResultPart) {
+        // Incomplete, empty or non-text results cannot establish lack of progress.
+        if (!part.content.length || !part.content.every((item) => item instanceof vscode.LanguageModelTextPart)) return undefined;
+        results.set(part.callId, canonicalizeArgs(part.content));
       } else if (
         part instanceof vscode.LanguageModelTextPart &&
         part.value.trim().length > 0 &&
@@ -88,6 +91,9 @@ export function trailingIdenticalToolCalls(
         hasAssistantText = true;
       }
     }
+
+    // Parallel batches are not sequential iterations; do not infer a loop.
+    if (requireUnchangedResults && (toolCalls.length > 1 || hasAssistantText)) break;
 
     if (targetKey === undefined) {
       // If conversation ends with a user prompt (not tool results),
@@ -107,7 +113,9 @@ export function trailingIdenticalToolCalls(
         const reversedCalls = [...toolCalls].reverse();
         for (const tc of reversedCalls) {
           const args = canonicalizeArgs(tc.input);
-          const key = `${tc.name}\n${args}`;
+          const result = results.get(tc.callId);
+          if (requireUnchangedResults && result === undefined) return undefined;
+          const key = `${tc.name}\n${args}\n${requireUnchangedResults ? result : ""}`;
           if (targetKey === undefined) {
             targetKey = key;
             targetName = tc.name;
@@ -146,7 +154,9 @@ export function trailingIdenticalToolCalls(
       const reversedCalls = [...toolCalls].reverse();
       for (const tc of reversedCalls) {
         const args = canonicalizeArgs(tc.input);
-        const key = `${tc.name}\n${args}`;
+        const result = results.get(tc.callId);
+        if (requireUnchangedResults && result === undefined) break;
+        const key = `${tc.name}\n${args}\n${requireUnchangedResults ? result : ""}`;
         if (key === targetKey) {
           count++;
         } else {
@@ -256,7 +266,7 @@ function appendToolResults(
       userContent.length === 1 && userContent[0].type === "text"
         ? userContent[0].text
         : userContent;
-    out.push({ role: "user", content: finalContent });
+    out.push({ role: "user", content: finalContent, [TOOL_RESULT_MESSAGE]: true });
   }
 }
 

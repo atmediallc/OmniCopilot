@@ -14,13 +14,18 @@ function cat(
   routeId: string,
   routeName: string,
   modelId: string,
-  toolCalling?: boolean
+  toolCalling: boolean | number = true,
+  vision = true,
+  contextLength = 128_000,
+  supportedEndpoints?: string[]
 ): CatalogModel {
   return {
     entry: { routeId, routeName, modelId, prefixedId: `${routeName} · ${modelId}` },
     model: {
       id: modelId,
-      ...(toolCalling === undefined ? {} : { capabilities: { tool_calling: toolCalling } }),
+      context_length: contextLength,
+      supported_endpoints: supportedEndpoints,
+      capabilities: { tool_calling: toolCalling, vision },
     },
   };
 }
@@ -54,17 +59,16 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
     ]);
   });
 
-  it('mode "sameFamily" adds other models of the same family on the SAME route', () => {
+  it('mode "sameFamily" never substitutes other models of the same family', () => {
     const catalog = [
       cat("A", "Server A", "openai/gpt-4o"),
       cat("B", "Server B", "openai/gpt-4o"),
-      cat("A", "Server A", "openai/gpt-4o-mini"), // same route, same family ✓
+      cat("A", "Server A", "openai/gpt-4o-mini"), // same route, same family — excluded under strict
       cat("A", "Server A", "anthropic/claude-3-5-sonnet"), // same route, other family ✗
       cat("B", "Server B", "kimi/k2"), // other route+family ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "sameFamily")).toEqual([
       { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
-      { routeId: "A", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
@@ -85,104 +89,88 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
     ]);
   });
 
-  it('mode "sameFamily" with needsTools=true rejects candidates in the same family that lack tool support', () => {
+  it('mode "sameFamily" with needsTools=true rejects candidates that lack tool support', () => {
     const catalog = [
-      cat("A", "Server A", "openai/gpt-4o"),
-      cat("A", "Server A", "openai/gpt-4o-mini", false), // same family, but lacks tools ✗
+      cat("A", "Server A", "openai/gpt-4o", true),
+      cat("B", "Server B", "openai/gpt-4o", false), // lacks tool support / mismatch
+      cat("A", "Server A", "openai/gpt-4o-mini", false),
     ];
     expect(pickFallbackCandidates(primary, catalog, true, "sameFamily")).toEqual([]);
   });
 
-  it('mode "full" covers the entire compatible catalog: sameModel → sameFamily → anything', () => {
+  it('mode "full" covers only exact model ID cross-route and never substitutes other models', () => {
     const catalog = [
       cat("A", "Server A", "openai/gpt-4o"), // primary — always excluded
-      cat("B", "Server B", "openai/gpt-4o"), // tier 1: same model, other route
-      cat("A", "Server A", "openai/gpt-4o-mini"), // tier 2: same route+family
-      cat("A", "Server A", "anthropic/claude-3-5-sonnet"), // tier 3: anything
-      cat("B", "Server B", "kimi/k2"), // tier 3: anything
+      cat("B", "Server B", "openai/gpt-4o"), // same model, other route ✓
+      cat("A", "Server A", "openai/gpt-4o-mini"),
+      cat("A", "Server A", "anthropic/claude-3-5-sonnet"),
+      cat("B", "Server B", "kimi/k2"),
     ];
     expect(pickFallbackCandidates(primary, catalog, false, "full")).toEqual([
       { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
-      { routeId: "A", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] },
-      { routeId: "A", modelId: "anthropic/claude-3-5-sonnet", transportPlan: ["responses", "chatCompletions"] },
-      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
   it('mode "full" with needsTools=true fails closed: keeps only explicitly tool-capable models', () => {
     const catalog = [
-      cat("A", "Server A", "openai/gpt-4o"), // primary
-      cat("B", "Server B", "openai/gpt-4o", false), // explicit false → excluded
-      cat("A", "Server A", "anthropic/claude-3-5-sonnet", false), // explicit false → excluded
-      cat("B", "Server B", "kimi/k2", true), // explicit true → supported ✓
-      cat("C", "Server C", "mistral/mistral-7b"), // absent → excluded (fails closed)
+      cat("A", "Server A", "openai/gpt-4o", true),
+      cat("B", "Server B", "openai/gpt-4o", true), // tool-capable ✓
+      cat("B", "Server B", "openai/gpt-4o-mini", false), // lacks tools ✗
+      cat("B", "Server B", "kimi/k2", false), // lacks tools ✗
     ];
     expect(pickFallbackCandidates(primary, catalog, true, "full")).toEqual([
-      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
     ]);
+  });
+
+  it("retains numeric tool capability candidates with enough capacity", () => {
+    const catalog = [
+      cat("A", "Server A", "openai/gpt-4o", 64),
+      cat("B", "Server B", "openai/gpt-4o", 64),
+    ];
+    expect(pickFallbackCandidates(primary, catalog, { needsTools: true, toolCount: 64 }, "sameModel")).toHaveLength(1);
+  });
+
+  it("rejects numeric fallback capacities smaller than the manifest", () => {
+    const catalog = [
+      cat("A", "Server A", "openai/gpt-4o", 32),
+      cat("B", "Server B", "openai/gpt-4o", 32),
+    ];
+    expect(pickFallbackCandidates(primary, catalog, { needsTools: true, toolCount: 33 }, "sameModel")).toEqual([]);
   });
 
   it("filters out candidates when needsVision=true and candidate lacks vision", () => {
     const catalog: CatalogModel[] = [
-      {
-        entry: { routeId: "A", routeName: "Server A", modelId: "openai/gpt-4o", prefixedId: "Server A · openai/gpt-4o" },
-        model: { id: "openai/gpt-4o", capabilities: { vision: true } },
-      },
-      {
-        entry: { routeId: "A", routeName: "Server A", modelId: "openai/gpt-4o-mini", prefixedId: "Server A · openai/gpt-4o-mini" },
-        model: { id: "openai/gpt-4o-mini", capabilities: { vision: false } },
-      },
-      {
-        entry: { routeId: "B", routeName: "Server B", modelId: "anthropic/claude-3-5-sonnet", prefixedId: "Server B · anthropic/claude-3-5-sonnet" },
-        model: { id: "anthropic/claude-3-5-sonnet", capabilities: { vision: true } },
-      },
+      cat("A", "Server A", "openai/gpt-4o", true, true),
+      cat("B", "Server B", "openai/gpt-4o", true, false),
     ];
     const result = pickFallbackCandidates(primary, catalog, { needsVision: true }, "full");
-    expect(result).toEqual([
-      { routeId: "B", modelId: "anthropic/claude-3-5-sonnet", transportPlan: ["responses", "chatCompletions"] },
-    ]);
+    expect(result).toEqual([]);
   });
 
   it("filters out candidates when context_length is smaller than minContextTokens", () => {
     const catalog: CatalogModel[] = [
-      {
-        entry: { routeId: "A", routeName: "Server A", modelId: "openai/gpt-4o", prefixedId: "Server A · openai/gpt-4o" },
-        model: { id: "openai/gpt-4o", context_length: 128_000 },
-      },
-      {
-        entry: { routeId: "A", routeName: "Server A", modelId: "openai/gpt-4o-mini", prefixedId: "Server A · openai/gpt-4o-mini" },
-        model: { id: "openai/gpt-4o-mini", context_length: 8_000 },
-      },
-      {
-        entry: { routeId: "B", routeName: "Server B", modelId: "anthropic/claude-3-5-sonnet", prefixedId: "Server B · anthropic/claude-3-5-sonnet" },
-        model: { id: "anthropic/claude-3-5-sonnet", context_length: 200_000 },
-      },
+      cat("A", "Server A", "openai/gpt-4o", true, true, 128_000),
+      cat("B", "Server B", "openai/gpt-4o", true, true, 128_000),
     ];
-    const result = pickFallbackCandidates(primary, catalog, { minContextTokens: 32_000 }, "full");
-    // gpt-4o-mini has 8,000 < 32,000, so it is filtered out
-    expect(result).toEqual([
-      { routeId: "B", modelId: "anthropic/claude-3-5-sonnet", transportPlan: ["responses", "chatCompletions"] },
+    const result = pickFallbackCandidates(primary, catalog, { minContextTokens: 200_000 }, "full");
+    expect(result).toEqual([]);
+
+    const resultValid = pickFallbackCandidates(primary, catalog, { minContextTokens: 32_000 }, "full");
+    expect(resultValid).toEqual([
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 
   it("filters out candidates that have an empty transport plan", () => {
     const catalog: CatalogModel[] = [
-      {
-        entry: { routeId: "A", routeName: "Server A", modelId: "openai/gpt-4o", prefixedId: "Server A · openai/gpt-4o" },
-        model: { id: "openai/gpt-4o" },
-      },
-      {
-        entry: { routeId: "B", routeName: "Server B", modelId: "special/audio-model", prefixedId: "Server B · special/audio-model" },
-        model: { id: "special/audio-model", supported_endpoints: ["/v1/audio/transcriptions"] },
-      },
-      {
-        entry: { routeId: "B", routeName: "Server B", modelId: "anthropic/claude-3-5-sonnet", prefixedId: "Server B · anthropic/claude-3-5-sonnet" },
-        model: { id: "anthropic/claude-3-5-sonnet", supported_endpoints: ["/v1/chat/completions"] },
-      },
+      cat("A", "Server A", "openai/gpt-4o", true, true, 128_000, ["/v1/chat/completions"]),
+      cat("B", "Server B", "openai/gpt-4o", true, true, 128_000, ["/v1/audio/transcriptions"]),
+      cat("C", "Server C", "openai/gpt-4o", true, true, 128_000, ["/v1/chat/completions"]),
     ];
     const result = pickFallbackCandidates(primary, catalog, false, "full");
     expect(result).toEqual([
-      { routeId: "B", modelId: "anthropic/claude-3-5-sonnet", transportPlan: ["chatCompletions"] },
+      { routeId: "C", modelId: "openai/gpt-4o", transportPlan: ["chatCompletions"] },
     ]);
   });
 
@@ -193,7 +181,7 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
       cat("C", "Server C", "openai/gpt-4o"),
       cat("D", "Server D", "openai/gpt-4o"),
       cat("E", "Server E", "openai/gpt-4o"),
-      cat("A", "Server A", "kimi/k2"), // same prefixedId as primary? no — different model, valid
+      cat("F", "Server F", "openai/gpt-4o"),
     ];
     const result = pickFallbackCandidates(primary, catalog, false, "full");
     expect(result).toHaveLength(4);
@@ -206,13 +194,14 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
     ).toEqual([]);
   });
 
-  it("defaults to mode full when no mode is given (provider contract)", () => {
+  it("defaults to mode askBeforeSwitch and never substitutes other models", () => {
     const catalog = [
       cat("A", "Server A", "openai/gpt-4o"),
+      cat("B", "Server B", "openai/gpt-4o"),
       cat("B", "Server B", "kimi/k2"),
     ];
     expect(pickFallbackCandidates(primary, catalog, false)).toEqual([
-      { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
+      { routeId: "B", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] },
     ]);
   });
 });

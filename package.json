@@ -423,14 +423,16 @@
         },
         "omnicopilot-dev.fallbackMode": {
           "type": "string",
-          "default": "sameModel",
+          "default": "askBeforeSwitch",
           "enum": [
+            "askBeforeSwitch",
             "sameModel",
             "sameFamily",
             "full",
             "none"
           ],
           "enumDescriptions": [
+            "%cfg.fallbackMode.askBeforeSwitch%",
             "%cfg.fallbackMode.sameModel%",
             "%cfg.fallbackMode.sameFamily%",
             "%cfg.fallbackMode.full%",
@@ -447,7 +449,7 @@
         },
         "omnicopilot-dev.maxTools": {
           "type": "number",
-          "default": 32,
+          "default": 0,
           "minimum": 0,
           "maximum": 128,
           "description": "%cfg.maxTools%"

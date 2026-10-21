@@ -28,12 +28,26 @@ async function prepare(primaryStream: () => AsyncGenerator<unknown>, fallbackStr
   configValues["omnicopilot-dev"] = { retriesPerServer: 1, fallbackMode: "sameModel" };
   const clientA = {
     baseUrl: "http://a/v1",
-    listModels: vi.fn().mockResolvedValue([{ id: "anthropic/claude", supported_endpoints: ["POST /v1/messages"] }]),
+    listModels: vi.fn().mockResolvedValue([
+      {
+        id: "anthropic/claude",
+        capabilities: { tool_calling: false, vision: false },
+        context_length: 128_000,
+        supported_endpoints: ["POST /v1/messages"],
+      },
+    ]),
     streamModel: vi.fn().mockImplementation(primaryStream),
   };
   const clientB = {
     baseUrl: "http://b/v1",
-    listModels: vi.fn().mockResolvedValue([{ id: "anthropic/claude", supported_endpoints: ["responses"] }]),
+    listModels: vi.fn().mockResolvedValue([
+      {
+        id: "anthropic/claude",
+        capabilities: { tool_calling: false, vision: false },
+        context_length: 128_000,
+        supported_endpoints: ["responses"],
+      },
+    ]),
     streamModel: vi.fn().mockImplementation(fallbackStream),
   };
   vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -65,7 +79,16 @@ describe("Messages-aware provider fallback", () => {
       async function* () { yield { kind: "text", text: "fallback" }; }
     );
     const progress = { report: vi.fn() };
-    await provider.provideLanguageModelChatResponse(model, [], {} as never, progress as never, token);
+    vi.spyOn(vscode.window, "showWarningMessage").mockImplementation(async (_msg, _opts, ...items) =>
+      items.find((i) => typeof i === "string" && i.startsWith("Authorize switch")) as never
+    );
+    await provider.provideLanguageModelChatResponse(
+      model,
+      [],
+      { modelOptions: { conversationId: "conv-msg-fallback-1", interactive: true } } as never,
+      progress as never,
+      token
+    );
     expect(clientA.streamModel.mock.calls[0][2]).toEqual(["messages"]);
     expect(clientB.streamModel.mock.calls[0][2]).toEqual(["responses"]);
     expect(progress.report).toHaveBeenCalledWith(expect.objectContaining({ value: "fallback" }));

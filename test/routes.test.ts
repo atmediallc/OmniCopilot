@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyTransportPreference,
   buildCatalog,
+  cachedLoadRoutes,
   clearRouteCooldown,
   getClientForRoute,
   getRouteCooldown,
@@ -16,6 +17,7 @@ import {
   transportPlanForModel,
   vendorForRoute,
   SECRET_PREFIX,
+  type CatalogEntry,
 } from "../src/routes";
 import type { OmniRouteModel } from "../src/types";
 import { secretStore, configValues, configUpdates, createMockContext } from "./vscode.mock";
@@ -125,47 +127,251 @@ describe("applyTransportPreference", () => {
 });
 
 describe("pickFallbackCandidates", () => {
-  const cat = buildCatalog([
-    { routeId: "r1", name: "A", models: [model("openai/gpt-4o", true), model("openai/gpt-4o-mini", false)] },
-    { routeId: "r2", name: "B", models: [model("openai/gpt-4o"), model("kimi/k2")] },
-  ]);
-  const gpt4o = cat.find((c) => c.entry.prefixedId === "openai/gpt-4o")!.entry;
+  function strictModel(
+    id: string,
+    opts?: {
+      toolCalling?: boolean | number;
+      vision?: boolean;
+      contextLength?: number;
+      supportedEndpoints?: string[];
+      capabilities?: OmniRouteModel["capabilities"];
+    }
+  ): OmniRouteModel {
+    const hasCaps = opts && "capabilities" in opts;
+    const caps = hasCaps
+      ? opts.capabilities
+      : {
+          ...(opts && "toolCalling" in opts ? { tool_calling: opts.toolCalling } : { tool_calling: true }),
+          ...(opts && "vision" in opts ? { vision: opts.vision } : { vision: true }),
+        };
+    return {
+      id,
+      context_length: opts && "contextLength" in opts ? opts.contextLength : 128000,
+      supported_endpoints: opts?.supportedEndpoints,
+      capabilities: caps,
+    };
+  }
 
-  it("pone primero el mismo modelo en otra ruta, luego familia en la misma ruta", () => {
+  const cat = buildCatalog([
+    {
+      routeId: "r1",
+      name: "A",
+      models: [
+        strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 128000 }),
+        strictModel("openai/gpt-4o-mini", { toolCalling: true, vision: true, contextLength: 128000 }),
+      ],
+    },
+    {
+      routeId: "r2",
+      name: "B",
+      models: [
+        strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 128000 }),
+        strictModel("openai/gpt-4o-mini", { toolCalling: true, vision: true, contextLength: 128000 }),
+        strictModel("kimi/k2", { toolCalling: true, vision: true, contextLength: 128000 }),
+      ],
+    },
+    {
+      routeId: "r3",
+      name: "C",
+      models: [
+        strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 128000 }),
+      ],
+    },
+  ]);
+  const gpt4o = cat.find((c) => c.entry.routeId === "r1" && c.entry.modelId === "openai/gpt-4o")!.entry;
+
+  it("defaults to askBeforeSwitch mode and selects exact model cross-route", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false);
-    expect(got[0]).toEqual({ routeId: "r2", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] });
-    // las tool_calling:false no importan sin tools; familia misma ruta → gpt-4o-mini
-    expect(got[1]).toEqual({ routeId: "r1", modelId: "openai/gpt-4o-mini", transportPlan: ["responses", "chatCompletions"] });
+    expect(got.map((c) => c.routeId)).toEqual(["r2", "r3"]);
+    expect(got.every((c) => c.modelId === "openai/gpt-4o")).toBe(true);
   });
-  it("excluye modelos sin tool_calling cuando se requieren tools", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, true);
-    expect(got.every((c) => c.modelId !== "openai/gpt-4o-mini")).toBe(true);
+
+  it("never substitutes family or other models even under legacy full or sameFamily modes", () => {
+    const gotFull = pickFallbackCandidates(gpt4o, cat, false, "full");
+    expect(gotFull.map((c) => ({ route: c.routeId, model: c.modelId }))).toEqual([
+      { route: "r2", model: "openai/gpt-4o" },
+      { route: "r3", model: "openai/gpt-4o" },
+    ]);
+
+    const gotFamily = pickFallbackCandidates(gpt4o, cat, false, "sameFamily");
+    expect(gotFamily.map((c) => ({ route: c.routeId, model: c.modelId }))).toEqual([
+      { route: "r2", model: "openai/gpt-4o" },
+      { route: "r3", model: "openai/gpt-4o" },
+    ]);
+
+    const gotSameModel = pickFallbackCandidates(gpt4o, cat, false, "sameModel");
+    expect(gotSameModel.map((c) => ({ route: c.routeId, model: c.modelId }))).toEqual([
+      { route: "r2", model: "openai/gpt-4o" },
+      { route: "r3", model: "openai/gpt-4o" },
+    ]);
   });
-  it("respeta el límite max y excluye el primario", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, false, "full", 1);
-    expect(got).toHaveLength(1);
-  });
-  it("mode none devuelve lista vacía", () => {
+
+  it("mode none disables candidate selection", () => {
     const got = pickFallbackCandidates(gpt4o, cat, false, "none");
     expect(got).toEqual([]);
   });
-  it("mode sameModel solo reintenta el mismo modelo en otra ruta", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, false, "sameModel");
-    expect(got).toEqual([{ routeId: "r2", modelId: "openai/gpt-4o", transportPlan: ["responses", "chatCompletions"] }]);
+
+  it("respeta el límite max y excluye el primario", () => {
+    const got = pickFallbackCandidates(gpt4o, cat, false, "askBeforeSwitch", 1);
+    expect(got).toHaveLength(1);
+    expect(got[0].routeId).toBe("r2");
+    expect(got[0].modelId).toBe("openai/gpt-4o");
   });
-  it("mode sameFamily excluye modelos de otra ruta que no son el mismo modelo", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, false, "sameFamily");
-    // mismo modelo en r2 + familia misma ruta (gpt-4o-mini), pero no kimi/k2 (otra ruta, otra familia)
-    expect(got.map((c) => c.modelId)).toEqual(["openai/gpt-4o", "openai/gpt-4o-mini"]);
-  });
-  it("mode full alcanza cualquier modelo compatible en otros servidores", () => {
-    const got = pickFallbackCandidates(gpt4o, cat, false, "full");
-    // mismo modelo en r2, luego familia misma ruta (gpt-4o-mini), luego kimi/k2
-    expect(got.map((c) => c.modelId)).toEqual([
-      "openai/gpt-4o",
-      "openai/gpt-4o-mini",
-      "kimi/k2",
+
+  it("fails closed when primary model has unknown tool_calling capability", () => {
+    const unknownCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { capabilities: { vision: true } })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: true })],
+      },
     ]);
+    const prim = unknownCat.find((c) => c.entry.routeId === "r1")!.entry;
+    expect(pickFallbackCandidates(prim, unknownCat, false)).toEqual([]);
+  });
+
+  it("fails closed when primary model has unknown vision capability", () => {
+    const unknownCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { capabilities: { tool_calling: true } })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: true })],
+      },
+    ]);
+    const prim = unknownCat.find((c) => c.entry.routeId === "r1")!.entry;
+    expect(pickFallbackCandidates(prim, unknownCat, false)).toEqual([]);
+  });
+
+  it("fails closed when primary model has unknown or non-positive context_length", () => {
+    const noContextCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { contextLength: undefined })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { contextLength: 128000 })],
+      },
+    ]);
+    const prim1 = noContextCat.find((c) => c.entry.routeId === "r1")!.entry;
+    expect(pickFallbackCandidates(prim1, noContextCat, false)).toEqual([]);
+
+    const zeroContextCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { contextLength: 0 })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { contextLength: 128000 })],
+      },
+    ]);
+    const prim2 = zeroContextCat.find((c) => c.entry.routeId === "r1")!.entry;
+    expect(pickFallbackCandidates(prim2, zeroContextCat, false)).toEqual([]);
+  });
+
+  it("fails closed when primary is not in catalog", () => {
+    const missingPrimary: CatalogEntry = {
+      routeId: "r99",
+      routeName: "NonExistent",
+      modelId: "openai/gpt-4o",
+      prefixedId: "NonExistent · openai/gpt-4o",
+    };
+    expect(pickFallbackCandidates(missingPrimary, cat, false)).toEqual([]);
+  });
+
+  it("rejects candidate when candidate capabilities are not identical to primary", () => {
+    const diffCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 128000 })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { toolCalling: false, vision: true, contextLength: 128000 })],
+      },
+      {
+        routeId: "r3",
+        name: "C",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: false, contextLength: 128000 })],
+      },
+      {
+        routeId: "r4",
+        name: "D",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 64000 })],
+      },
+      {
+        routeId: "r5",
+        name: "E",
+        models: [strictModel("openai/gpt-4o", { toolCalling: true, vision: true, contextLength: 128000 })],
+      },
+    ]);
+    const prim = diffCat.find((c) => c.entry.routeId === "r1")!.entry;
+    const got = pickFallbackCandidates(prim, diffCat, false);
+    expect(got).toEqual([
+      {
+        routeId: "r5",
+        modelId: "openai/gpt-4o",
+        transportPlan: ["responses", "chatCompletions"],
+      },
+    ]);
+  });
+
+  it("matches identical explicit numeric tool_calling capacity", () => {
+    const numCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { toolCalling: 64, vision: true, contextLength: 128000 })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { toolCalling: 32, vision: true, contextLength: 128000 })],
+      },
+      {
+        routeId: "r3",
+        name: "C",
+        models: [strictModel("openai/gpt-4o", { toolCalling: 64, vision: true, contextLength: 128000 })],
+      },
+    ]);
+    const prim = numCat.find((c) => c.entry.routeId === "r1")!.entry;
+    const got = pickFallbackCandidates(prim, numCat, false);
+    expect(got.map((c) => c.routeId)).toEqual(["r3"]);
+  });
+
+  it("filters candidates when request requirements are not satisfied", () => {
+    const noToolsCat = buildCatalog([
+      {
+        routeId: "r1",
+        name: "A",
+        models: [strictModel("openai/gpt-4o", { toolCalling: false, vision: true, contextLength: 128000 })],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [strictModel("openai/gpt-4o", { toolCalling: false, vision: true, contextLength: 128000 })],
+      },
+    ]);
+    const prim = noToolsCat.find((c) => c.entry.routeId === "r1")!.entry;
+    // Request requires tools, but model tool_calling is false
+    expect(pickFallbackCandidates(prim, noToolsCat, true)).toEqual([]);
   });
 
   it("filters out fallback candidates incompatible with the requested transportPreference", () => {
@@ -174,12 +380,28 @@ describe("pickFallbackCandidates", () => {
         routeId: "r1",
         name: "A",
         models: [
-          { id: "primary-model", supported_endpoints: ["messages"] },
-          { id: "primary-model-alt", supported_endpoints: ["messages"] },
+          strictModel("primary-model", {
+            toolCalling: true,
+            vision: true,
+            contextLength: 128000,
+            supportedEndpoints: ["messages"],
+          }),
+        ],
+      },
+      {
+        routeId: "r2",
+        name: "B",
+        models: [
+          strictModel("primary-model", {
+            toolCalling: true,
+            vision: true,
+            contextLength: 128000,
+            supportedEndpoints: ["messages"],
+          }),
         ],
       },
     ]);
-    const primary = mixedCat.find((c) => c.entry.modelId === "primary-model")!.entry;
+    const primary = mixedCat.find((c) => c.entry.routeId === "r1" && c.entry.modelId === "primary-model")!.entry;
     // When transportPreference is "responses", candidates with only "messages" must not be picked
     const got = pickFallbackCandidates(primary, mixedCat, { transportPreference: "responses" });
     expect(got).toEqual([]);
@@ -187,7 +409,11 @@ describe("pickFallbackCandidates", () => {
     // When transportPreference is "chatCompletions", conversational candidates remain eligible
     const gotChat = pickFallbackCandidates(primary, mixedCat, { transportPreference: "chatCompletions" });
     expect(gotChat).toHaveLength(1);
-    expect(gotChat.find((c) => c.modelId === "primary-model-alt")?.transportPlan).toEqual(["chatCompletions"]);
+    expect(gotChat[0]).toEqual({
+      routeId: "r2",
+      modelId: "primary-model",
+      transportPlan: ["chatCompletions"],
+    });
   });
 });
 
@@ -255,6 +481,23 @@ describe("saveRoutes", () => {
     const saved = configUpdates.find((u) => u.key === "routes")?.value as unknown[];
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ id: "route-1", baseUrl: "http://a/v1" });
+  });
+});
+
+describe("route cache invalidation", () => {
+  it("does not publish a route load that completed after invalidation", async () => {
+    invalidateRouteCache();
+    let releaseSecret!: (value: string | undefined) => void;
+    const context = { secrets: { get: vi.fn(() => new Promise<string | undefined>((resolve) => { releaseSecret = resolve; })) } };
+    configValues["omnicopilot-dev"] = { routes: [{ id: "old", name: "Old", baseUrl: "http://old.test" }] };
+    const pending = cachedLoadRoutes(context as never);
+    configValues["omnicopilot-dev"] = { routes: [] };
+    invalidateRouteCache();
+    releaseSecret(undefined);
+    await expect(pending).resolves.toMatchObject([{ id: "old" }]);
+    await expect(cachedLoadRoutes(context as never)).resolves.toEqual([]);
+    invalidateRouteCache();
+    delete configValues["omnicopilot-dev"];
   });
 });
 

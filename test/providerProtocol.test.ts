@@ -173,17 +173,19 @@ describe("Red-Team Protocol, Dynamic Discovery & Cache Invalidation Certificatio
     const infos = await provider.provideLanguageModelChatInformation(dummyToken);
     const o3Model = infos.find((m) => m.omniModelId === "openai/o3-mini")!;
 
-    await provider.provideLanguageModelChatResponse(
-      o3Model,
-      [{ role: 1, content: "think" }] as never,
-      { modelOptions: { reasoningEffort: "high" } } as never,
-      { report: vi.fn() } as never,
-      dummyToken
-    );
+    await expect(
+      provider.provideLanguageModelChatResponse(
+        o3Model,
+        [{ role: 1, content: "think" }] as never,
+        { modelOptions: { reasoningEffort: "high" } } as never,
+        { report: vi.fn() } as never,
+        dummyToken
+      )
+    ).rejects.toThrow("Server error");
 
-    // When clientB was called for llama-3.1-8b, reasoning_effort was stripped to avoid 400 rejection
-    expect(fallbackRequestCaptured).toBeDefined();
-    expect((fallbackRequestCaptured as { reasoning_effort?: string }).reasoning_effort).toBeUndefined();
+    expect(clientA.streamModel).toHaveBeenCalled();
+    expect(clientB.streamModel).not.toHaveBeenCalled();
+    expect(fallbackRequestCaptured).toBeUndefined();
   });
 
   it("AG-01: resolves Agents window clones (ending with ::agents) against primary catalog model", async () => {

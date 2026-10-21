@@ -26,7 +26,8 @@ export interface OmniRouteModel {
   max_output_tokens?: number;
   max_completion_tokens?: number;
   capabilities?: {
-    tool_calling?: boolean;
+    /** True means capacity unspecified; a positive safe integer is a verified definition limit. */
+    tool_calling?: boolean | number;
     vision?: boolean;
     reasoning?: boolean;
     attachment?: boolean;
@@ -75,7 +76,11 @@ export interface ChatToolCall {
   function: { name: string; arguments: string };
 }
 
+/** Internal provenance; symbol keys are never serialized to provider JSON. */
+export const TOOL_RESULT_MESSAGE = Symbol("toolResultMessage");
+
 export interface ChatMessage {
+  [TOOL_RESULT_MESSAGE]?: true;
   role: "system" | "user" | "assistant" | "tool";
   content: string | ChatContentPart[] | null;
   tool_calls?: ChatToolCall[];

@@ -35,7 +35,7 @@ export function actionableFailureMessage(
     if (status === 429 || status === 503) {
       return (
         `All configured servers are busy or rate-limited${where} (last error: ${describeFetchError(err)}). ` +
-        `Wait a few seconds and retry; configure a second server for automatic failover.`
+        `Wait a few seconds and retry.`
       );
     }
     if (err.stall) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockContext, configValues, registeredTools, secretStore } from "./vscode.mock";
 import { OmniRouteError } from "../src/client";
 import { invalidateRouteCache } from "../src/routes";
+import * as routesModule from "../src/routes";
 import { clearToolDiscoveryCache, createFixedTools, registerFixedTools } from "../src/tools";
 
 const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
@@ -123,19 +124,61 @@ describe("fixed OmniRoute tools", () => {
     await expect(tools.rerank.invoke({ input: { query: "q", documents: ["d"], model: "chat-only" }, toolInvocationToken: undefined }, token as never)).rejects.toThrow('Model override "chat-only" does not support /rerank');
   });
 
-  it("fails over before a result only for transient errors", async () => {
+  it("fails closed on transient error and never dispatches another server or different model", async () => {
     const first = client([{ id: "s1", supported_endpoints: ["/search"] }], { search: vi.fn().mockRejectedValue(new OmniRouteError("busy", 503)) });
     const second = client([{ id: "s2", supported_endpoints: ["/search"] }]);
     const tools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1"), route("r2")], getClient: (r) => (r.id === "r1" ? first : second) as never });
-    await tools.search.invoke({ input: { query: "q" }, toolInvocationToken: undefined }, token as never);
+    await expect(tools.search.invoke({ input: { query: "q" }, toolInvocationToken: undefined }, token as never)).rejects.toMatchObject({ status: 503 });
     expect(first.search).toHaveBeenCalledTimes(1);
-    expect(second.search).toHaveBeenCalledTimes(1);
+    expect(second.search).not.toHaveBeenCalled();
 
     clearToolDiscoveryCache();
-    first.search.mockReset().mockRejectedValue(new OmniRouteError("bad", 400));
-    second.search.mockReset().mockResolvedValue({ data: [] });
-    await expect(tools.search.invoke({ input: { query: "q" }, toolInvocationToken: undefined }, token as never)).rejects.toMatchObject({ status: 400 });
-    expect(second.search).not.toHaveBeenCalled();
+    const multiModelClient = client(
+      [
+        { id: "rerank-primary", supported_endpoints: ["/rerank"] },
+        { id: "rerank-secondary", supported_endpoints: ["/rerank"] },
+      ],
+      { rerank: vi.fn().mockRejectedValue(new OmniRouteError("gateway timeout", 504)) }
+    );
+    const rerankTools = createFixedTools({ context: createMockContext() as never, log, loadRoutes: async () => [route("r1")], getClient: () => multiModelClient as never });
+    await expect(rerankTools.rerank.invoke({ input: { query: "q", documents: ["doc1"] }, toolInvocationToken: undefined }, token as never)).rejects.toMatchObject({ status: 504 });
+    expect(multiModelClient.rerank).toHaveBeenCalledTimes(1);
+    expect(multiModelClient.rerank).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "rerank-primary" }),
+      expect.any(AbortSignal),
+      30_000,
+      1
+    );
+  });
+
+  it("does not retain a stale client after discovery invalidation", async () => {
+    let resolveProviders!: (providers: string[]) => void;
+    let discoveryStarted!: () => void;
+    const started = new Promise<void>((resolve) => { discoveryStarted = resolve; });
+    const oldClient = client([], {
+      listSearchProviders: vi.fn(() => {
+        discoveryStarted();
+        return new Promise<string[]>((resolve) => { resolveProviders = resolve; });
+      }),
+    });
+    const newClient = client([{ id: "new-search", supported_endpoints: ["/search"] }]);
+    configValues["omnicopilot-dev"] = { routes: [route("server")] };
+    let currentClient = oldClient;
+    const getClient = vi.spyOn(routesModule, "getClientForRoute").mockImplementation(() => currentClient as never);
+    const tools = createFixedTools({ context: createMockContext() as never, log });
+    const pending = tools.search.invoke({ input: { query: "first query" } } as never, token);
+    await started;
+    currentClient = newClient;
+    clearToolDiscoveryCache();
+    resolveProviders(["old-search"]);
+    await pending;
+    await tools.search.invoke({ input: { query: "private query after route removal" } } as never, token);
+    try {
+      expect(newClient.search).toHaveBeenCalledTimes(1);
+      expect(oldClient.search).toHaveBeenCalledTimes(1);
+    } finally {
+      getClient.mockRestore();
+    }
   });
 
   it("caps discovery at ten routes and keeps concurrent invocations independent", async () => {

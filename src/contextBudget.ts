@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatTool } from "./types";
+import { TOOL_RESULT_MESSAGE, type ChatMessage, type ChatTool } from "./types";
 
 export type ContextMode = "manual" | "automatic";
 export type ContextAutoPreset = "conservative" | "balanced" | "large" | "maximum";
@@ -214,7 +214,7 @@ function toolsTokens(tools: readonly ChatTool[]): number {
 
 function findCurrentUserIndex(messages: readonly ChatMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") return i;
+    if (messages[i].role === "user" && !messages[i][TOOL_RESULT_MESSAGE]) return i;
   }
   return -1;
 }
@@ -267,7 +267,7 @@ function removableGroups(messages: readonly ChatMessage[], currentUserIndex: num
       flush();
       continue;
     }
-    if (messages[i].role === "user") flush();
+    if (messages[i].role === "user" && !messages[i][TOOL_RESULT_MESSAGE]) flush();
     group.push(i);
   }
   flush();
@@ -293,16 +293,8 @@ export function enforceContextBudget(input: {
   const protectedMessages = originalMessages.filter(
     (message, index) => message.role === "system" || (currentUserIndex !== -1 && index >= currentUserIndex)
   );
-  // Tools are droppable, history is droppable, protected messages are not.
-  // Trim tool definitions (from the end, keeping the first ones stable) before
-  // giving up: a 32-tool agent payload next to a small model would otherwise
-  // hard-fail a chat that could succeed with fewer tools.
-  while (tools.length > 0) {
-    const protectedAccounting = account(protectedMessages, tools, input.budget);
-    if (protectedAccounting.totalInputTokens <= input.budget.availableInputTokens) break;
-    const dropped = tools.pop() as ChatTool;
-    droppedTools.push(dropped.function.name);
-  }
+  // Tool availability is host-owned. Reject protected overflow rather than
+  // silently changing the executable manifest to make it fit.
   const protectedAccounting = account(protectedMessages, tools, input.budget);
   if (protectedAccounting.totalInputTokens > input.budget.availableInputTokens) {
     throw new ContextBudgetError(

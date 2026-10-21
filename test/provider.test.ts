@@ -736,7 +736,7 @@ describe("OmniRouteChatProvider", () => {
         { report: vi.fn() } as never,
         dummyToken
       )
-    ).rejects.toThrow(/consecutive identical calls to tool "replace_string_in_file"/);
+    ).rejects.toThrow(/identical calls with unchanged results to tool "replace_string_in_file"/);
 
     // Second attempt (user clicks Try Again on the same model): loop guard bypasses block and executes
     const reported: vscode.LanguageModelResponsePart[] = [];
@@ -808,7 +808,7 @@ describe("OmniRouteChatProvider", () => {
         { report: vi.fn() } as never,
         dummyToken
       )
-    ).rejects.toThrow(/consecutive identical calls/);
+    ).rejects.toThrow(/identical calls with unchanged results/);
 
     // Conversation B (running concurrently or next on the same model) must NOT be blocked
     const reportedB: vscode.LanguageModelResponsePart[] = [];

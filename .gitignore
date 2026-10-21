@@ -25,3 +25,4 @@ codacy.config.baseline.json
 codacy.config.json
 \codacy.config.baseline.json
 \codacy.config.json
+coverage/

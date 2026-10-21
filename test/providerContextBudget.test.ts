@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { OmniRouteError } from "../src/client";
 import { OmniRouteChatProvider } from "../src/provider";
@@ -56,6 +56,12 @@ async function discover(provider: OmniRouteChatProvider) {
 }
 
 describe("candidate-specific max-context enforcement at provider boundary", () => {
+  beforeEach(() => {
+    vi.spyOn(vscode.window, "showWarningMessage").mockImplementation(async (_msg, _opts, ...items) =>
+      items.find((i) => typeof i === "string" && i.startsWith("Authorize switch")) as never
+    );
+  });
+
   afterEach(() => {
     routesModule.resetAllCooldowns();
     delete configValues["omnicopilot-dev"];
@@ -73,7 +79,9 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     ]);
     vi.spyOn(routesModule, "getClientForRoute").mockReturnValue({
       baseUrl: "http://a.test/v1",
-      listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 1_000, max_output_tokens: 48 }]),
+      listModels: vi.fn().mockResolvedValue([
+        { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 1_000, max_output_tokens: 48 },
+      ]),
       streamModel,
     } as never);
     const provider = new OmniRouteChatProvider({ context, log: mockLog });
@@ -98,17 +106,24 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
 
   it("uses fallback candidate context and output limits in the exact request passed to its client", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel", contextSafetyMarginTokens: 32 };
-    const { context } = mockContext();
+    const { context } = mockContext(settings([
+      ["A", "vendor/model", { mode: "manual", maxContextTokens: 4_000 }],
+      ["B", "vendor/model", { mode: "manual", maxContextTokens: 600 }],
+    ]));
     const primary = {
       baseUrl: "http://a.test/v1",
-      listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 4_000, max_output_tokens: 512 }]),
+      listModels: vi.fn().mockResolvedValue([
+        { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 4_000, max_output_tokens: 512 },
+      ]),
       streamModel: vi.fn().mockImplementation(async function* () {
         throw new OmniRouteError("primary unavailable", 500);
       }),
     };
     const fallback = {
       baseUrl: "http://b.test/v1",
-      listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 600, max_output_tokens: 96 }]),
+      listModels: vi.fn().mockResolvedValue([
+        { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 4_000, max_output_tokens: 96 },
+      ]),
       streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "fallback" }]),
     };
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue([
@@ -126,7 +141,7 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     await provider.provideLanguageModelChatResponse(
       model,
       [user(oldest), assistant("prior"), user(newest)] as never,
-      {} as never,
+      { modelOptions: { conversationId: "conv-budget-2", interactive: true } } as never,
       { report: vi.fn() } as never,
       dummyToken
     );
@@ -144,17 +159,23 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     const clients = {
       A: {
         baseUrl: "http://a.test/v1",
-        listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 4_000, max_output_tokens: 512 }]),
+        listModels: vi.fn().mockResolvedValue([
+          { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 4_000, max_output_tokens: 512 },
+        ]),
         streamModel: vi.fn().mockImplementation(async function* () { throw new OmniRouteError("down", 500); }),
       },
       B: {
         baseUrl: "http://b.test/v1",
-        listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 100, max_output_tokens: 64 }]),
+        listModels: vi.fn().mockResolvedValue([
+          { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 100, max_output_tokens: 64 },
+        ]),
         streamModel: vi.fn(),
       },
       C: {
         baseUrl: "http://c.test/v1",
-        listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", context_length: 4_000, max_output_tokens: 128 }]),
+        listModels: vi.fn().mockResolvedValue([
+          { id: "vendor/model", capabilities: { tool_calling: false, vision: false }, context_length: 4_000, max_output_tokens: 128 },
+        ]),
         streamModel: vi.fn().mockReturnValue([{ kind: "text", text: "served" }]),
       },
     };
@@ -170,7 +191,7 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     await provider.provideLanguageModelChatResponse(
       model,
       [user("protected-current-" + "x".repeat(800))] as never,
-      {} as never,
+      { modelOptions: { conversationId: "conv-budget-3", interactive: true } } as never,
       { report: vi.fn() } as never,
       dummyToken
     );
@@ -181,11 +202,15 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
 
   it("rebuilds every fallback from immutable original so an earlier reduction cannot contaminate a later larger candidate", async () => {
     configValues["omnicopilot-dev"] = { retriesPerServer: 0, fallbackMode: "sameModel", contextSafetyMarginTokens: 32 };
-    const { context } = mockContext();
+    const { context } = mockContext(settings([
+      ["A", "vendor/model", { mode: "manual", maxContextTokens: 4_000 }],
+      ["B", "vendor/model", { mode: "manual", maxContextTokens: 700 }],
+      ["C", "vendor/model", { mode: "manual", maxContextTokens: 2_000 }],
+    ]));
     const catalogByRoute = {
       A: { context_length: 4_000, max_output_tokens: 256 },
-      B: { context_length: 700, max_output_tokens: 96 },
-      C: { context_length: 2_000, max_output_tokens: 160 },
+      B: { context_length: 4_000, max_output_tokens: 96 },
+      C: { context_length: 4_000, max_output_tokens: 160 },
     };
     const calls: Record<string, ReturnType<typeof vi.fn>> = {
       A: vi.fn().mockImplementation(async function* () { throw new OmniRouteError("A failed", 500); }),
@@ -197,7 +222,13 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     })));
     vi.spyOn(routesModule, "getClientForRoute").mockImplementation(((route: routesModule.Route) => ({
       baseUrl: route.baseUrl,
-      listModels: vi.fn().mockResolvedValue([{ id: "vendor/model", ...catalogByRoute[route.id as keyof typeof catalogByRoute] }]),
+      listModels: vi.fn().mockResolvedValue([
+        {
+          id: "vendor/model",
+          capabilities: { tool_calling: false, vision: false },
+          ...catalogByRoute[route.id as keyof typeof catalogByRoute],
+        },
+      ]),
       streamModel: calls[route.id],
     })) as never);
     const provider = new OmniRouteChatProvider({ context, log: mockLog });
@@ -213,7 +244,7 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     await provider.provideLanguageModelChatResponse(
       model,
       originalHistory as never,
-      {} as never,
+      { modelOptions: { conversationId: "conv-budget-4", interactive: true } } as never,
       { report: vi.fn() } as never,
       dummyToken
     );
@@ -243,13 +274,26 @@ describe("candidate-specific max-context enforcement at provider boundary", () =
     vi.spyOn(routesModule, "cachedLoadRoutes").mockResolvedValue(Object.entries(clients).map(([id, client]) => ({ id, name: id, baseUrl: client.baseUrl })));
     vi.spyOn(routesModule, "getClientForRoute").mockImplementation(((route: routesModule.Route) => ({
       ...clients[route.id as keyof typeof clients],
-      listModels: vi.fn().mockResolvedValue([{ id: "same/model", context_length: 2_000, max_output_tokens: 64 }]),
+      listModels: vi.fn().mockResolvedValue([
+        {
+          id: "same/model",
+          capabilities: { tool_calling: false, vision: false },
+          context_length: 2_000,
+          max_output_tokens: 64,
+        },
+      ]),
     })) as never);
     const provider = new OmniRouteChatProvider({ context, log: mockLog });
     const [model] = await discover(provider);
     const history = [user("old-" + "x".repeat(1_200)), user("current")];
 
-    await provider.provideLanguageModelChatResponse(model, history as never, {} as never, { report: vi.fn() } as never, dummyToken);
+    await provider.provideLanguageModelChatResponse(
+      model,
+      history as never,
+      { modelOptions: { conversationId: "conv-budget-5", interactive: true } } as never,
+      { report: vi.fn() } as never,
+      dummyToken
+    );
 
     expect(clients.A.streamModel.mock.calls[0][0].messages.length).toBeGreaterThan(
       clients.B.streamModel.mock.calls[0][0].messages.length

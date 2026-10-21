@@ -168,6 +168,15 @@ describe("tool-call forwarding", () => {
     expect(reportedParts(progress).filter((part) => part instanceof vscode.LanguageModelToolCallPart)).toHaveLength(1);
   });
 
+  it.each(['{"command":', '[]', 'null', '"command"'])("never executes malformed/non-object tool arguments %s", async (args) => {
+    const { provider, model, progress, token } = await prepare("chatCompletions", async function* () {
+      yield { kind: "toolCall", id: "bad", name: "run", args };
+    });
+    await expect(provider.provideLanguageModelChatResponse(model, [], {} as never, progress as never, token))
+      .rejects.toThrow(/tool.*argument|argument.*tool/i);
+    expect(reportedParts(progress).some((part) => part instanceof vscode.LanguageModelToolCallPart)).toBe(false);
+  });
+
   it("does not add a summary when a stream errors after a tool call", async () => {
     const failure = new OmniRouteError("stream failed", 500, false, "stream", "/messages");
     const { provider, model, progress, token } = await prepare(

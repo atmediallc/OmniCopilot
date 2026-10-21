@@ -1,22 +1,8 @@
-/**
- * OmniCopilot #14 — Agents window (Copilot CLI agent host) registration.
- *
- * VS Code's `chatProvider` proposal adds `targetChatSessionType` to
- * `LanguageModelChatInformation`: models carrying it are EXCLUDED from the
- * general model picker and appear only in sessions of that type. The value for
- * the Agents window's agent host is `agent-host-copilotcli` (verified against
- * the VS Code source and ltmoerdani/opencode-copilot-chat#11 — `copilotcli`
- * fails and `agent-host-copilot` misbehaves). Because the property excludes
- * the general picker, exposure is a SECOND set of entries alongside the
- * unscoped ones, never a mutation of them.
- *
- * The property is read by the host through duck typing — stable `@types/vscode`
- * doesn't declare it, and shipping `enabledApiProposals` would block a
- * Marketplace install — so this stays a plain optional field on our own entry
- * type. Users additionally need the experimental VS Code setting
- * `chat.agentHost.byokModels.enabled` plus an agent-host restart; hence the
- * whole feature is gated behind `omnicopilot.exposeToAgentsWindow` (default
- * off). Pure module: no vscode import, fully unit-testable.
+/** Legacy opt-in scoped model clones, not a stable Agents window API.
+ * `targetChatSessionType` remains proposed; its private session identifier is
+ * not a compatibility contract. Prefer unscoped entries: the inspected 1.141.2
+ * native extension-BYOK bridge excludes scoped models. Kept disabled by default
+ * for backward compatibility; do not infer live host support from helper tests.
  */
 
 export const AGENT_HOST_SESSION_TYPE = "agent-host-copilotcli";
