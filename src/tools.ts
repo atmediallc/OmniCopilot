@@ -132,8 +132,10 @@ interface CachedToolCandidates {
 
 const toolDiscoveryCache = new Map<string, CachedToolCandidates>();
 const inFlightToolDiscovery = new Map<string, Promise<Candidate[]>>();
+let toolDiscoveryGeneration = 0;
 
 export function clearToolDiscoveryCache(): void {
+  toolDiscoveryGeneration++;
   toolDiscoveryCache.clear();
   inFlightToolDiscovery.clear();
 }
@@ -145,6 +147,7 @@ async function candidatesFor(
   modelOverride: string | undefined,
   token: vscode.CancellationToken
 ): Promise<Candidate[]> {
+  const generation = toolDiscoveryGeneration;
   const loadRoutes = deps.loadRoutes ?? cachedLoadRoutes;
   const getClient = deps.getClient ?? getClientForRoute;
   const configured = (await loadRoutes(deps.context)).slice(0, 10);
@@ -211,15 +214,17 @@ async function candidatesFor(
       throw new Error(`Model override "${modelOverride}" does not support ${endpoint}${routeSuffix}`);
     }
     if (candidates.length === 0) throw new Error(`No configured OmniRoute model supports ${endpoint}`);
-    toolDiscoveryCache.set(cacheKey, { candidates, expiresAt: Date.now() + 60_000 });
+    if (generation === toolDiscoveryGeneration) {
+      toolDiscoveryCache.set(cacheKey, { candidates, expiresAt: Date.now() + 60_000 });
+    }
     return candidates;
   })();
 
-  inFlightToolDiscovery.set(cacheKey, discoveryPromise);
+  if (generation === toolDiscoveryGeneration) inFlightToolDiscovery.set(cacheKey, discoveryPromise);
   try {
     return await discoveryPromise;
   } finally {
-    inFlightToolDiscovery.delete(cacheKey);
+    if (inFlightToolDiscovery.get(cacheKey) === discoveryPromise) inFlightToolDiscovery.delete(cacheKey);
   }
 }
 

@@ -413,7 +413,7 @@ export async function buildDiagnostics(
       : `- Routes: ${routes.map((r, i) => `${r.name} (${online[i] ? "online" : "unreachable"})`).join(", ")}`,
     `- Settings: transport=${cfg.get<string>("transport", "auto")}, ` +
     `fallbackMode=${cfg.get<string>("fallbackMode", "sameModel")}, ` +
-    `maxTools=${cfg.get<number>("maxTools", 32)}, ` +
+    `maxTools=${cfg.get<number>("maxTools", 0)}, ` +
     `maxOutputTokens=${cfg.get<number>("maxOutputTokens", 8192)}`,
   ];
   const metrics = metricsTracker?.getMetrics();
@@ -631,7 +631,7 @@ async function suggestStarterModels(
   const seen = new Map<string, { id: string; context: number; tools: boolean }>();
   for (const route of routes) {
     let models: Array<{
-      id?: string; context_length?: number; capabilities?: { tool_calling?: boolean };
+      id?: string; context_length?: number; capabilities?: { tool_calling?: boolean | number };
     }> = [];
     try {
       models = await getClientForRoute(route, log).listModels();
@@ -643,7 +643,8 @@ async function suggestStarterModels(
       seen.set(m.id, {
         id: m.id,
         context: typeof m.context_length === "number" && m.context_length > 0 ? m.context_length : 0,
-        tools: m.capabilities?.tool_calling === true,
+        tools: m.capabilities?.tool_calling === true ||
+          (typeof m.capabilities?.tool_calling === "number" && m.capabilities.tool_calling > 0),
       });
     }
   }

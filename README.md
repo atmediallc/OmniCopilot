@@ -136,14 +136,40 @@ An explicit choice from the chat UI always wins over the setting.
 
 ### Agents window (experimental)
 
-`omnicopilot.exposeToAgentsWindow` (default `false`) adds a second, agent-host-scoped copy of
-every tool-calling OmniRoute model to the model list, so they show up in the **Copilot Agents
-window** picker alongside the built-in custom agents.
+Prefer ordinary **unscoped** OmniRoute model entries. Inspected VS Code 1.141.2
+source includes a native extension-BYOK bridge for Copilot Agent Host sessions,
+gated by `chat.agentHost.byokModels.enabled` and organization policy. That version's
+setting supports live synchronization; restart is not required by its contract.
+Later versions can change defaults and availability. Keep
+`omnicopilot-dev.exposeToAgentsWindow=false` when testing this native path.
 
-It relies on the proposed VS Code API field `targetChatSessionType` and requires the
-experimental setting `chat.agentHost.byokModels.enabled` to be on for the host to surface the
-entries — restart the agent host after changing it. The clones are only usable from Agents
-sessions; they never appear in the normal chat picker.
+The legacy opt-in setting adds `::agents` clones using proposed
+`targetChatSessionType` and a private session identifier. This is **not a stable
+or certified integration**; those scoped entries are excluded by the inspected
+native bridge. It remains disabled by default for backward compatibility, not
+as a recommended production setup. No new proposed APIs or custom agent harness
+are introduced. Real 1.143 Copilot/Local/Agents-window tests remain outstanding.
+Extension-backed models and tools may require their owning client to stay connected.
+
+### Tool availability and continuation
+
+`omnicopilot-dev.maxTools` defaults to **0**: forward every host-authorized tool
+without a local count cap. Existing explicit positive values now reject an
+oversized request with a diagnostic instead of silently hiding tools. Model
+metadata may advertise `tool_calling: true` (capacity unspecified), `false`
+(unsupported), or a positive integer (verified definition capacity). Numeric
+capacities also constrain fallback selection. Provider, host, permission, and
+context limits still apply; `true` is not a claim of unlimited upstream capacity.
+
+`omnicopilot-dev.maxConsecutiveIdenticalToolCalls` is a **no-progress threshold**,
+not an iteration limit. It compares completed calls, arguments, and text results.
+Changing results reset detection; parallel batches and missing/non-text results
+do not establish a loop. Workspace changes are visible only through tool results.
+Identical successful outputs can still hide progress: explicitly retry, or set this
+threshold to `0` for workflows where only the host can assess progress. Host
+approvals, sandboxing, and execution remain untouched.
+
+See [1.143 audit and verification limits](docs/audits/OMNICOPILOT-VSCODE-1.143-ENTERPRISE-CERTIFICATION.md).
 
 ### Your usage in the panel
 

@@ -191,20 +191,18 @@ function jitteredAdmissionRetryMs(retryIndex = 0): number {
   return progressiveBase + crypto.randomInt(GLOBAL_ADMISSION_RETRY_JITTER_MS);
 }
 
-/** Parses a tool-call's JSON args defensively; `{}` on malformed input. */
+/** Invalid arguments must never become an executable call with defaults. */
 function parseToolCallArgs(
   event: { args: string; name: string },
   log: vscode.LogOutputChannel
 ): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(event.args);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    log.warn(`Tool call ${event.name} had invalid JSON args; sending {}`);
-    return {};
-  }
+    const parsed: unknown = JSON.parse(event.args);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch { /* Report the same protocol error for malformed and non-object JSON. */ }
+  const message = `Invalid tool arguments for ${event.name}: expected a complete JSON object; tool was not executed.`;
+  log.warn(message);
+  throw new OmniRouteError(message, 400, false, "stream");
 }
 
 /** Everything needed to run the chat fallback chain for one request. */
@@ -650,7 +648,9 @@ export class OmniRouteChatProvider
       capabilities: {
         // Unknown capability defaults to NO tool calling: advertising tools
         // to a model without support yields a 400 + a wasted fallback chain.
-        toolCalling: caps.tool_calling === true,
+        toolCalling: caps.tool_calling === true ||
+          (typeof caps.tool_calling === "number" && Number.isSafeInteger(caps.tool_calling) && caps.tool_calling > 0)
+          ? caps.tool_calling : false,
         imageInput: caps.vision === true,
       },
       omniModelId: model.id,
@@ -694,7 +694,7 @@ export class OmniRouteChatProvider
       "maxConsecutiveIdenticalToolCalls",
       MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS
     );
-    const loop = maxConsecutive > 0 ? trailingIdenticalToolCalls(messages) : undefined;
+    const loop = maxConsecutive > 0 ? trailingIdenticalToolCalls(messages, true) : undefined;
     const convKey = conversationKey(messages);
     const lastLoopModelId = this.lastLoopModelByConversation.get(convKey);
     if (loop && loop.count >= maxConsecutive) {
@@ -714,8 +714,8 @@ export class OmniRouteChatProvider
         if (this.lastLoopModelByConversation.size > 50) this.lastLoopModelByConversation.clear();
         this.lastLoopModelByConversation.set(convKey, model.omniModelId);
         const message =
-          `Stopped before sending: the conversation already holds ${loop.count} consecutive identical calls ` +
-          `to tool "${loop.name}" — the model is looping instead of answering. Rephrase the request, switch to a ` +
+          `Stopped before sending: the conversation holds ${loop.count} completed identical calls with unchanged results ` +
+          `to tool "${loop.name}" — no progress is visible. Rephrase the request, switch to a ` +
           `more capable model, or start a fresh chat rather than spending more tokens on identical iterations.`;
         log.warn(`Loop guard refused chat with ${model.omniModelId}: ${loop.count}x "${loop.name}"`);
         this.deps.onRequestEnd?.(false, message, 0);
@@ -724,7 +724,7 @@ export class OmniRouteChatProvider
     } else {
       this.lastLoopModelByConversation.delete(convKey);
     }
-    const request = this.buildChatRequest(model, messages, options, log);
+    const request = this.buildChatRequest(model, messages, options);
     const plan = await this.resolveChatPlan(model, request, options, log);
 
     const abort = new AbortController();
@@ -745,15 +745,14 @@ export class OmniRouteChatProvider
   private buildChatRequest(
     model: OmniModelInfo,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
-    options: vscode.ProvideLanguageModelChatResponseOptions,
-    log: vscode.LogOutputChannel
+    options: vscode.ProvideLanguageModelChatResponseOptions
   ): ChatRequest {
     const request: ChatRequest = {
       model: model.omniModelId,
       messages: toOpenAiMessages(messages),
       stream: true,
       stream_options: { include_usage: true },
-      tools: this.capTools(options.tools, log),
+      tools: this.capTools(options.tools, model.capabilities?.toolCalling),
       max_tokens: model.maxOutputTokens,
     };
     if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
@@ -774,20 +773,20 @@ export class OmniRouteChatProvider
     return request;
   }
 
-  /** Caps the tool list VS Code offered us, saving context: `maxTools <= 0`
-   * means "send every tool" (opt-out); default 32 keeps agent-mode payloads
-   * bounded since tools are rebilled on every turn. */
+  /** Forward every authorized tool, or fail visibly on a known capacity.
+   * Never discard tools by their position in the manifest. */
   private capTools(
     tools: readonly vscode.LanguageModelChatTool[] | undefined,
-    log: vscode.LogOutputChannel
+    toolCalling: boolean | number | undefined
   ): ReturnType<typeof toOpenAiTools> {
     const allTools = toOpenAiTools(tools);
     if (!allTools?.length) return allTools;
-    const maxTools = getConfig().get<number>("maxTools", 32);
-    if (maxTools > 0 && allTools.length <= maxTools) return allTools;
-    if (maxTools > 0) {
-      log.warn(`Limiting tools from ${allTools.length} to ${maxTools}`);
-      return allTools.slice(0, maxTools);
+    const maxTools = getConfig().get<number>("maxTools", 0);
+    const limits = [maxTools, typeof toolCalling === "number" ? toolCalling : 0]
+      .filter((limit) => Number.isSafeInteger(limit) && limit > 0);
+    if (toolCalling === false) throw new Error("Selected model does not support tool calling.");
+    if (limits.some((limit) => allTools.length > limit)) {
+      throw new Error(`Tool definition limit exceeded: host offered ${allTools.length}; limit ${Math.min(...limits)}. Select fewer tools or a model with sufficient capacity; no tools were discarded.`);
     }
     return allTools;
   }
@@ -842,6 +841,7 @@ export class OmniRouteChatProvider
     const defaultContext = cfg.get<number>("defaultContextLength", 128_000);
     const fallbackRequirements: FallbackRequirements = {
       needsTools: Boolean(options.tools?.length),
+      toolCount: request.tools?.length ?? 0,
       needsVision: requestRequiresVision(request),
       minContextTokens: estimateTokens(request.messages),
       fallbackContextTokens: defaultContext,

@@ -9,8 +9,18 @@ import {
   normalizeBaseUrl,
   parseRetryAfterHeader,
   serverRootUrl,
+  sanitizeOmniRouteModel,
 } from "../src/client";
 import type { ModelTransportPlan, StreamEvent } from "../src/types";
+
+describe("model tool capability boundary", () => {
+  it.each([true, false, 32, 250])("retains verified capability %s", (tool_calling) => {
+    expect(sanitizeOmniRouteModel({ id: "model", capabilities: { tool_calling } })?.capabilities?.tool_calling).toBe(tool_calling);
+  });
+  it.each([0, -1, 1.5, Infinity, NaN, "128", Number.MAX_SAFE_INTEGER + 1])("discards invalid capacity %s", (tool_calling) => {
+    expect(sanitizeOmniRouteModel({ id: "model", capabilities: { tool_calling } })?.capabilities?.tool_calling).toBeUndefined();
+  });
+});
 
 function sseResponse(lines: string[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -569,7 +579,7 @@ describe("OmniRouteClient.streamChat", () => {
     ]);
   });
 
-  it("flushes pending tool calls when the stream ends without finish_reason", async () => {
+  it("rejects pending tool calls when the stream ends without finish_reason", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -578,8 +588,15 @@ describe("OmniRouteClient.streamChat", () => {
         ])
       )
     );
-    const events = await collect(new OmniRouteClient({ baseUrl: "http://x/v1" }));
-    expect(events).toEqual([{ kind: "toolCall", id: "c9", name: "run", args: "{}" }]);
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(/incomplete|truncated/i);
+  });
+
+  it.each(["length", "content_filter"])("rejects unfinished tool calls on finish_reason=%s", async (finish_reason) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "partial", function: { name: "run", arguments: '{}' } }] } }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason }] })}`,
+    ])));
+    await expect(collect(new OmniRouteClient({ baseUrl: "http://x/v1" }))).rejects.toThrow(/incomplete|truncated/i);
   });
 
   it("throws with the upstream error message on HTTP failure", async () => {

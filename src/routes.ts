@@ -194,7 +194,10 @@ export function resetAllCooldowns(): void {
  * When `keepCooldowns` is true (e.g. non-route config changes), the
  * per-route cooldowns are preserved so servers recently punished for
  * 429/408 errors are not prematurely retried. */
+let _routeCacheGeneration = 0;
+
 export function invalidateRouteCache(keepCooldowns = false): void {
+  _routeCacheGeneration++;
   _cachedRoutes = undefined;
   _clientPool.clear();
   if (!keepCooldowns) resetAllCooldowns();
@@ -203,9 +206,13 @@ export function invalidateRouteCache(keepCooldowns = false): void {
 /** Cached `loadRoutes`. Reads config + secrets only once until invalidated. */
 export async function cachedLoadRoutes(context: vscode.ExtensionContext): Promise<Route[]> {
   if (_cachedRoutes && _cacheContext === context) return _cachedRoutes;
-  _cacheContext = context;
-  _cachedRoutes = await loadRoutes(context);
-  return _cachedRoutes;
+  const generation = _routeCacheGeneration;
+  const loaded = await loadRoutes(context);
+  if (generation === _routeCacheGeneration) {
+    _cacheContext = context;
+    _cachedRoutes = loaded;
+  }
+  return loaded;
 }
 
 // ── Client pool ────────────────────────────────────────────────────────
@@ -386,6 +393,8 @@ export function applyTransportPreference(
 export interface FallbackRequirements {
   /** True when the request requires tool-calling support. */
   needsTools?: boolean;
+  /** Definitions forwarded unchanged to each candidate. */
+  toolCount?: number;
   /** True when the request contains multimodal image attachments. */
   needsVision?: boolean;
   /** Minimum input context tokens needed to hold the request. */
@@ -407,8 +416,10 @@ export function isCandidateCompatible(
   const caps = model.capabilities ?? {};
 
   // 1. Tool calling: fail-closed. If request requires tools, candidate MUST explicitly support tools.
-  if (reqs.needsTools && caps.tool_calling !== true) {
-    return false;
+  if (reqs.needsTools) {
+    const capacity = caps.tool_calling;
+    if (capacity !== true && !(typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0)) return false;
+    if (typeof capacity === "number" && (reqs.toolCount ?? 0) > capacity) return false;
   }
 
   // 2. Vision: fail-closed. If request has images, candidate MUST explicitly support vision.

@@ -14,7 +14,7 @@ function cat(
   routeId: string,
   routeName: string,
   modelId: string,
-  toolCalling?: boolean
+  toolCalling?: boolean | number
 ): CatalogModel {
   return {
     entry: { routeId, routeName, modelId, prefixedId: `${routeName} · ${modelId}` },
@@ -120,6 +120,16 @@ describe("pickFallbackCandidates (production fallback chain)", () => {
     expect(pickFallbackCandidates(primary, catalog, true, "full")).toEqual([
       { routeId: "B", modelId: "kimi/k2", transportPlan: ["responses", "chatCompletions"] },
     ]);
+  });
+
+  it("retains numeric tool capability candidates with enough capacity", () => {
+    const catalog = [cat("B", "Server B", "openai/gpt-4o", 64)];
+    expect(pickFallbackCandidates(primary, catalog, { needsTools: true, toolCount: 64 }, "sameModel")).toHaveLength(1);
+  });
+
+  it("rejects numeric fallback capacities smaller than the manifest", () => {
+    const catalog = [cat("B", "Server B", "openai/gpt-4o", 32)];
+    expect(pickFallbackCandidates(primary, catalog, { needsTools: true, toolCount: 33 }, "sameModel")).toEqual([]);
   });
 
   it("filters out candidates when needsVision=true and candidate lacks vision", () => {

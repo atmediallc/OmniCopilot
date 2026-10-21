@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyTransportPreference,
   buildCatalog,
+  cachedLoadRoutes,
   clearRouteCooldown,
   getClientForRoute,
   getRouteCooldown,
@@ -255,6 +256,23 @@ describe("saveRoutes", () => {
     const saved = configUpdates.find((u) => u.key === "routes")?.value as unknown[];
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ id: "route-1", baseUrl: "http://a/v1" });
+  });
+});
+
+describe("route cache invalidation", () => {
+  it("does not publish a route load that completed after invalidation", async () => {
+    invalidateRouteCache();
+    let releaseSecret!: (value: string | undefined) => void;
+    const context = { secrets: { get: vi.fn(() => new Promise<string | undefined>((resolve) => { releaseSecret = resolve; })) } };
+    configValues["omnicopilot-dev"] = { routes: [{ id: "old", name: "Old", baseUrl: "http://old.test" }] };
+    const pending = cachedLoadRoutes(context as never);
+    configValues["omnicopilot-dev"] = { routes: [] };
+    invalidateRouteCache();
+    releaseSecret(undefined);
+    await expect(pending).resolves.toMatchObject([{ id: "old" }]);
+    await expect(cachedLoadRoutes(context as never)).resolves.toEqual([]);
+    invalidateRouteCache();
+    delete configValues["omnicopilot-dev"];
   });
 });
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockContext, configValues, registeredTools, secretStore } from "./vscode.mock";
 import { OmniRouteError } from "../src/client";
 import { invalidateRouteCache } from "../src/routes";
+import * as routesModule from "../src/routes";
 import { clearToolDiscoveryCache, createFixedTools, registerFixedTools } from "../src/tools";
 
 const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
@@ -136,6 +137,36 @@ describe("fixed OmniRoute tools", () => {
     second.search.mockReset().mockResolvedValue({ data: [] });
     await expect(tools.search.invoke({ input: { query: "q" }, toolInvocationToken: undefined }, token as never)).rejects.toMatchObject({ status: 400 });
     expect(second.search).not.toHaveBeenCalled();
+  });
+
+  it("does not retain a stale client after discovery invalidation", async () => {
+    let resolveProviders!: (providers: string[]) => void;
+    let discoveryStarted!: () => void;
+    const started = new Promise<void>((resolve) => { discoveryStarted = resolve; });
+    const oldClient = client([], {
+      listSearchProviders: vi.fn(() => {
+        discoveryStarted();
+        return new Promise<string[]>((resolve) => { resolveProviders = resolve; });
+      }),
+    });
+    const newClient = client([{ id: "new-search", supported_endpoints: ["/search"] }]);
+    configValues["omnicopilot-dev"] = { routes: [route("server")] };
+    let currentClient = oldClient;
+    const getClient = vi.spyOn(routesModule, "getClientForRoute").mockImplementation(() => currentClient as never);
+    const tools = createFixedTools({ context: createMockContext() as never, log });
+    const pending = tools.search.invoke({ input: { query: "first query" } } as never, token);
+    await started;
+    currentClient = newClient;
+    clearToolDiscoveryCache();
+    resolveProviders(["old-search"]);
+    await pending;
+    await tools.search.invoke({ input: { query: "private query after route removal" } } as never, token);
+    try {
+      expect(newClient.search).toHaveBeenCalledTimes(1);
+      expect(oldClient.search).toHaveBeenCalledTimes(1);
+    } finally {
+      getClient.mockRestore();
+    }
   });
 
   it("caps discovery at ten routes and keeps concurrent invocations independent", async () => {

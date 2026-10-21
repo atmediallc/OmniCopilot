@@ -447,7 +447,7 @@
         },
         "omnicopilot-dev.maxTools": {
           "type": "number",
-          "default": 32,
+          "default": 0,
           "minimum": 0,
           "maximum": 128,
           "description": "%cfg.maxTools%"
